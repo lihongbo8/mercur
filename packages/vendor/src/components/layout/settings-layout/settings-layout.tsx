@@ -35,37 +35,19 @@ const extensionNavItems: INavItem[] = customSettingsItems
   }));
 
 const useSettingRoutes = (): INavItem[] => {
-  const { t } = useTranslation();
-
   return useMemo(
     () => [
       {
-        label: t("profile.domain"),
+        label: "开发者资料",
         to: "/settings/profile",
       },
       {
-        label: t("app.menus.store.label"),
-        to: "/settings/store",
-      },
-      {
-        label: t("users.domain"),
-        to: "/settings/users",
-      },
-      {
-        label: t("productTypes.domain"),
-        to: "/settings/product-types",
-      },
-      {
-        label: t("productTags.domain"),
-        to: "/settings/product-tags",
-      },
-      {
-        label: t("stockLocations.domain"),
-        to: "/settings/locations",
+        label: "工具资源",
+        to: "/tool-resources",
       },
       ...extensionNavItems,
     ],
-    [t],
+    [],
   );
 };
 
@@ -75,7 +57,7 @@ const useSettingRoutes = (): INavItem[] => {
  */
 const getSafeFromValue = (from: string) => {
   if (from.startsWith("/settings")) {
-    return "/orders";
+    return "/products";
   }
 
   return from;

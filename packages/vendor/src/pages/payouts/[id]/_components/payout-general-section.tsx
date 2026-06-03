@@ -39,7 +39,7 @@ export const PayoutGeneralSection = ({ payout }: { payout: PayoutDTO }) => {
       </div>
       <div className="text-ui-fg-subtle grid grid-cols-2 items-center px-6 py-4">
         <Text size="small" leading="compact" weight="plus">
-          {t("fields.amount")}
+          结算金额
         </Text>
         <Text size="small" leading="compact">
           {getStylizedAmount(payout.amount as number, payout.currency_code)}
@@ -47,7 +47,7 @@ export const PayoutGeneralSection = ({ payout }: { payout: PayoutDTO }) => {
       </div>
       <div className="text-ui-fg-subtle grid grid-cols-2 items-center px-6 py-4">
         <Text size="small" leading="compact" weight="plus">
-          {t("fields.createdAt")}
+          提交时间
         </Text>
         <Text size="small" leading="compact">
           {new Date(payout.created_at).toLocaleDateString(undefined, {
@@ -61,7 +61,7 @@ export const PayoutGeneralSection = ({ payout }: { payout: PayoutDTO }) => {
       </div>
       <div className="text-ui-fg-subtle grid grid-cols-2 items-center px-6 py-4">
         <Text size="small" leading="compact" weight="plus">
-          {t("fields.updatedAt")}
+          更新时间
         </Text>
         <Text size="small" leading="compact">
           {new Date(payout.updated_at).toLocaleDateString(undefined, {

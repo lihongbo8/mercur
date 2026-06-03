@@ -1,6 +1,5 @@
 import { Heading } from "@medusajs/ui";
 import { Children, ReactNode } from "react";
-import { useTranslation } from "react-i18next";
 
 import { TabDefinition } from "../types";
 import { ProductCreateGeneralSection } from "./components/product-create-details-general-section";
@@ -47,11 +46,9 @@ Root._tabMeta = {
 } satisfies TabDefinition;
 
 const Header = () => {
-  const { t } = useTranslation();
-
   return (
     <div className="flex flex-col">
-      <Heading>{t("products.create.tabs.details")}</Heading>
+      <Heading>创建岗位商品</Heading>
     </div>
   );
 };

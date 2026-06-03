@@ -16,6 +16,11 @@ import { ProductAttributeSection } from "./_components/product-attribute-section
 import { ProductAdditionalAttributesSection } from "./_components/product-additional-attribute-section";
 import { ProductShippingProfileSection } from "./_components/product-shipping-profile-section";
 import { ProductSalesChannelSection } from "./_components/product-sales-channel-section";
+import {
+  RoleActionSection,
+  RoleGeneralSection,
+  RolePricingSection,
+} from "./_components/role-detail-sections";
 
 const Root = ({ children }: { children?: ReactNode }) => {
   const { id } = useParams();
@@ -36,13 +41,11 @@ const Root = ({ children }: { children?: ReactNode }) => {
       ) : (
         <TwoColumnPage data={product}>
           <TwoColumnPage.Main>
-            <ProductGeneralSection />
-            <ProductMediaSection />
-            <ProductVariantSection />
+            <RoleGeneralSection />
+            <RolePricingSection />
           </TwoColumnPage.Main>
           <TwoColumnPage.Sidebar>
-            <ProductOrganizationSection />
-            <ProductAdditionalAttributesSection product={product} />
+            <RoleActionSection />
           </TwoColumnPage.Sidebar>
         </TwoColumnPage>
       )}

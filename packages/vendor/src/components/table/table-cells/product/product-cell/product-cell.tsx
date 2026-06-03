@@ -1,5 +1,3 @@
-import { useTranslation } from "react-i18next"
-
 import { Thumbnail } from "../../../../common/thumbnail"
 import { HttpTypes } from "@medusajs/types"
 
@@ -21,11 +19,9 @@ export const ProductCell = ({ product }: ProductCellProps) => {
 }
 
 export const ProductHeader = () => {
-  const { t } = useTranslation()
-
   return (
     <div className="flex h-full w-full items-center">
-      <span>{t("fields.product")}</span>
+      <span>岗位名称</span>
     </div>
   )
 }

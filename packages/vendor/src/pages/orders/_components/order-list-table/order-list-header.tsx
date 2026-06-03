@@ -1,10 +1,8 @@
 import { Children, ReactNode } from "react";
-import { useTranslation } from "react-i18next";
 import { Heading } from "@medusajs/ui";
 
 export const OrderListTitle = () => {
-  const { t } = useTranslation();
-  return <Heading>{t("orders.domain")}</Heading>;
+  return <Heading>销售记录</Heading>;
 };
 
 export const OrderListActions = ({

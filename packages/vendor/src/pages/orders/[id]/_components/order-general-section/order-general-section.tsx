@@ -1,4 +1,3 @@
-import { CheckCircle, XCircle } from "@medusajs/icons"
 import { HttpTypes } from "@medusajs/types"
 import {
   Container,
@@ -6,19 +5,11 @@ import {
   Heading,
   StatusBadge,
   Text,
-  toast,
-  usePrompt,
 } from "@medusajs/ui"
 import { useTranslation } from "react-i18next"
-import { ActionMenu } from "@components/common/action-menu"
-import {
-  useCancelOrder,
-  useCompleteOrder,
-} from "@hooks/api/orders"
 import { useDate } from "@hooks/use-date"
 import {
   getCanceledOrderStatus,
-  getOrderFulfillmentStatus,
   getOrderPaymentStatus,
 } from "@lib/order-helpers"
 
@@ -28,46 +19,7 @@ type OrderGeneralSectionProps = {
 
 export const OrderGeneralSection = ({ order }: OrderGeneralSectionProps) => {
   const { t } = useTranslation()
-  const prompt = usePrompt()
   const { getFullDate } = useDate()
-
-  const { mutateAsync: cancelOrder } = useCancelOrder(order.id)
-  const { mutateAsync: completeOrder } = useCompleteOrder(order.id)
-
-  const handleComplete = async () => {
-    await completeOrder(undefined, {
-      onSuccess: () => {
-        toast.success("Order completed")
-      },
-      onError: (e) => {
-        toast.error(e.message)
-      },
-    })
-  }
-
-  const handleCancel = async () => {
-    const res = await prompt({
-      title: t("general.areYouSure"),
-      description: t("orders.cancelWarning", {
-        id: `#${order.display_id}`,
-      }),
-      confirmText: t("actions.continue"),
-      cancelText: t("actions.cancel"),
-    })
-
-    if (!res) {
-      return
-    }
-
-    await cancelOrder(undefined, {
-      onSuccess: () => {
-        toast.success(t("orders.orderCanceled"))
-      },
-      onError: (e) => {
-        toast.error(e.message)
-      },
-    })
-  }
 
   return (
     <Container className="flex items-center justify-between px-6 py-4">
@@ -87,50 +39,9 @@ export const OrderGeneralSection = ({ order }: OrderGeneralSectionProps) => {
         <div className="flex items-center gap-x-1.5">
           <OrderBadge order={order} />
           <PaymentBadge order={order} />
-          <FulfillmentBadge order={order} />
         </div>
-        <ActionMenu
-          groups={[
-            {
-              actions: [
-                {
-                  label: t("actions.complete"),
-                  onClick: handleComplete,
-                  disabled: order.status !== "pending",
-                  icon: <CheckCircle />,
-                },
-                {
-                  label: t("actions.cancel"),
-                  onClick: handleCancel,
-                  //@ts-ignore
-                  disabled: !!order.canceled_at,
-                  icon: <XCircle />,
-                },
-              ],
-            },
-          ]}
-        />
       </div>
     </Container>
-  )
-}
-
-const FulfillmentBadge = ({ order }: { order: HttpTypes.AdminOrder }) => {
-  const { t } = useTranslation()
-
-  if (!order.fulfillment_status) {
-    return null
-  }
-
-  const { label, color } = getOrderFulfillmentStatus(
-    t,
-    order.fulfillment_status
-  )
-
-  return (
-    <StatusBadge color={color} className="text-nowrap">
-      {label}
-    </StatusBadge>
   )
 }
 

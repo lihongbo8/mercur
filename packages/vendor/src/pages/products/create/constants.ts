@@ -64,19 +64,19 @@ export const ProductCreateBaseSchema = z.object({
   subtitle: z.string().optional(),
   handle: z.string().optional(),
   description: z.string().optional(),
-  role_package_id: z.string().min(1, "请输入岗位包 ID"),
-  role_package_version: z.string().min(1, "请输入岗位包版本"),
+  role_package_id: z.string().min(1, "请先上传岗位资料包"),
+  role_package_version: z.string().min(1, "请先上传岗位资料包"),
   role_authorization_fee_yuan: z
     .string()
     .min(1, "请输入一次授权费")
     .regex(/^\d+(\.\d{1,2})?$/, "请输入最多两位小数的金额"),
   role_input_token_price_cents_per_million: z
     .string()
-    .min(1, "请输入输入 Token 单价")
+    .min(1, "请输入调用单价")
     .regex(/^\d+$/, "请输入非负整数"),
   role_output_token_price_cents_per_million: z
     .string()
-    .min(1, "请输入输出 Token 单价")
+    .min(1, "请输入调用单价")
     .regex(/^\d+$/, "请输入非负整数"),
   role_capabilities: z.string().optional(),
   role_manifest_ref: z
@@ -93,7 +93,7 @@ export const ProductCreateBaseSchema = z.object({
         /^[A-Za-z]:[\\/]/.test(value) ||
         value.split(/[\\/]/).includes("..")
       )
-    }, "请输入岗位包内相对路径"),
+    }, "资料包格式不正确，请重新上传"),
   discountable: z.boolean(),
   type_id: z.string().optional(),
   collection_id: z.string().optional(),
@@ -190,12 +190,12 @@ export const PRODUCT_CREATE_FORM_DEFAULTS: Partial<
   mid_code: "",
   origin_country: "",
   role_authorization_fee_yuan: "",
-  role_capabilities: "资料处理, 自动化执行",
-  role_input_token_price_cents_per_million: "",
-  role_manifest_ref: "role_package/manifest.json",
-  role_output_token_price_cents_per_million: "",
+  role_capabilities: "",
+  role_input_token_price_cents_per_million: "0",
+  role_manifest_ref: "",
+  role_output_token_price_cents_per_million: "0",
   role_package_id: "",
-  role_package_version: "0.1.0",
+  role_package_version: "",
   subtitle: "",
   title: "",
   type_id: "",

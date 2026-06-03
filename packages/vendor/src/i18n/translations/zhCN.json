@@ -343,13 +343,13 @@
     "badRequestTitle": "400 - 错误请求",
     "badRequestMessage": "由于语法错误,服务器无法理解该请求。",
     "notFoundTitle": "404 - 此地址不存在",
-    "notFoundMessage": "请检查URL并重试,或使用搜索栏查找您要找的内容。",
+    "notFoundMessage": "请检查地址后重试。",
     "internalServerErrorTitle": "500 - 服务器内部错误",
     "internalServerErrorMessage": "服务器发生意外错误。请稍后重试。",
     "defaultTitle": "发生错误",
     "defaultMessage": "渲染此页面时发生意外错误。",
-    "noMatchMessage": "您要查找的页面不存在。",
-    "backToDashboard": "返回仪表板"
+    "noMatchMessage": "页面不存在。",
+    "backToDashboard": "返回"
   },
   "addresses": {
     "title": "标题",
@@ -2680,8 +2680,9 @@
   },
   "login": {
     "forgotPassword": "忘记密码？ - <0>重置</0>",
-    "title": "迭界AI岗位商场",
-    "hint": "开发者登录后管理岗位包、上架授权和结算。"
+    "title": "迭界AI岗位商城",
+    "hint": "开发者登录后管理岗位包、上架授权和结算。",
+    "submit": "登录"
   },
   "invite": {
     "title": "欢迎使用Medusa",

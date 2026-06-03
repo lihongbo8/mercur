@@ -6,6 +6,15 @@ import {
   type DijieAuditExecutionRecordReader,
   type DijieAuditStorageRecord,
 } from "../../../../lib/dijie/audit-store";
+import {
+  createDijieRoleCapabilityProfileReadModel,
+  createDijieRoleFeedbackPacketReadModel,
+  type DijieRoleCapabilityProfileReadModel,
+  type DijieRoleCapabilityProfileStorageRecord,
+  type DijieRoleFeedbackPacketReadModel,
+  type DijieRoleFeedbackPacketStorageRecord,
+  type DijieSchedulerBackboneReader,
+} from "../../../../lib/dijie/scheduler-backbone-store";
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -13,9 +22,14 @@ type QueryGraph = {
   graph: (input: {
     entity: string;
     fields: string[];
-    filters: { execution_id: string };
+    filters: Record<string, unknown>;
     pagination: { take: number };
   }) => Promise<{ data?: unknown[] }>;
+};
+
+type SchedulerReadback = {
+  feedbackPackets?: DijieRoleFeedbackPacketReadModel[];
+  capabilityProfile?: DijieRoleCapabilityProfileReadModel;
 };
 
 function asRecord(value: unknown): UnknownRecord {
@@ -49,7 +63,11 @@ function redactSensitiveText(value: string): string {
     )
     .replace(/\bfile:\/\/[^\s)]+/g, "[redacted-local-path]")
     .replace(/\b[A-Za-z]:[\\/][^\s)]+/g, "[redacted-local-path]")
-    .replace(/(^|[\s(["'])(\/(?:Users|home|private|var|tmp|Volumes)\/[^\s)"']+)/g, "$1[redacted-local-path]");
+    .replace(/(^|[\s(["'])(\/(?:Users|home|private|var|tmp|Volumes)\/[^\s)"']+)/g, "$1[redacted-local-path]")
+    .replace(
+      /\b(?:exec|ent|device|workspace|gateway|cus|actor|user|ord|ordgrp|wallet|settlement|payment|acct)_[A-Za-z0-9][A-Za-z0-9_-]*\b/gi,
+      "[redacted-private-id]",
+    );
 }
 
 function sanitizeReadModelForGateway(
@@ -78,6 +96,17 @@ function isAuditRecordReader(value: unknown): value is DijieAuditExecutionRecord
   );
 }
 
+function isSchedulerBackboneReader(value: unknown): value is DijieSchedulerBackboneReader {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    typeof (value as { retrieveDijieRoleFeedbackPacketsByExecutionId?: unknown })
+      .retrieveDijieRoleFeedbackPacketsByExecutionId === "function" &&
+    typeof (value as { retrieveDijieRoleCapabilityProfile?: unknown })
+      .retrieveDijieRoleCapabilityProfile === "function"
+  );
+}
+
 function resolveAuditRecordReader(
   req: MedusaRequest,
 ): DijieAuditExecutionRecordReader | undefined {
@@ -94,6 +123,20 @@ function resolveAuditRecordReader(
     const legacyStore = req.scope.resolve("dijieAuditSink") as unknown;
     if (isAuditRecordReader(legacyStore)) {
       return legacyStore;
+    }
+    return undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function resolveSchedulerBackboneReader(
+  req: MedusaRequest,
+): DijieSchedulerBackboneReader | undefined {
+  try {
+    const store = req.scope.resolve(DIJIE_AUDIT_MODULE) as unknown;
+    if (isSchedulerBackboneReader(store)) {
+      return store;
     }
     return undefined;
   } catch {
@@ -191,6 +234,132 @@ function storageRecordFromGraphResult(value: unknown): DijieAuditStorageRecord |
   };
 }
 
+function dateField(record: UnknownRecord, field: string): Date | undefined {
+  const value = record[field];
+  if (value instanceof Date) {
+    return value;
+  }
+  if (typeof value === "string" && value.trim()) {
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? undefined : date;
+  }
+  return undefined;
+}
+
+function numberField(record: UnknownRecord, field: string): number | undefined {
+  const value = record[field];
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function nullableStringField(record: UnknownRecord, field: string): string | null {
+  return stringField(record, field) ?? null;
+}
+
+function feedbackPacketFromGraphResult(
+  value: unknown,
+): DijieRoleFeedbackPacketStorageRecord | undefined {
+  const record = asRecord(value);
+  const packetId = stringField(record, "packet_id");
+  const mode = stringField(record, "mode");
+  const packageId = stringField(record, "package_id");
+  const packageVersion = stringField(record, "package_version");
+  const status = stringField(record, "status");
+  const producedAt = dateField(record, "produced_at");
+  const startedAt = dateField(record, "started_at");
+  const endedAt = dateField(record, "ended_at");
+  const summary = stringField(record, "summary");
+
+  if (
+    !packetId ||
+    record.packet_version !== 1 ||
+    (mode !== "developer_package" && mode !== "authorized_execution") ||
+    !packageId ||
+    !packageVersion ||
+    !status ||
+    !producedAt ||
+    !startedAt ||
+    !endedAt ||
+    !summary
+  ) {
+    return undefined;
+  }
+
+  return {
+    packet_id: packetId,
+    packet_version: 1,
+    execution_id: nullableStringField(record, "execution_id"),
+    entitlement_id: nullableStringField(record, "entitlement_id"),
+    device_id: nullableStringField(record, "device_id"),
+    workspace_ref: nullableStringField(record, "workspace_ref"),
+    local_gateway_id: nullableStringField(record, "local_gateway_id"),
+    mode,
+    role_listing_id: nullableStringField(record, "role_listing_id"),
+    package_id: packageId,
+    package_version: packageVersion,
+    developer_ref: nullableStringField(record, "developer_ref"),
+    status: status as DijieRoleFeedbackPacketStorageRecord["status"],
+    produced_at: producedAt,
+    started_at: startedAt,
+    ended_at: endedAt,
+    summary,
+    changed_files: arrayField(record.changed_files) as string[],
+    artifacts: arrayField(record.artifacts) as DijieRoleFeedbackPacketStorageRecord["artifacts"],
+    tool_usage: asRecord(record.tool_usage) as DijieRoleFeedbackPacketStorageRecord["tool_usage"],
+    model_proxy_usage:
+      record.model_proxy_usage === undefined || record.model_proxy_usage === null
+        ? null
+        : (record.model_proxy_usage as DijieRoleFeedbackPacketStorageRecord["model_proxy_usage"]),
+    cost_usage:
+      record.cost_usage === undefined || record.cost_usage === null
+        ? null
+        : (record.cost_usage as DijieRoleFeedbackPacketStorageRecord["cost_usage"]),
+    risk_events: arrayField(record.risk_events) as DijieRoleFeedbackPacketStorageRecord["risk_events"],
+    evolution_suggestions: arrayField(record.evolution_suggestions) as DijieRoleFeedbackPacketStorageRecord["evolution_suggestions"],
+    error:
+      record.error === undefined || record.error === null
+        ? null
+        : (record.error as DijieRoleFeedbackPacketStorageRecord["error"]),
+    payload: {} as DijieRoleFeedbackPacketStorageRecord["payload"],
+  };
+}
+
+function capabilityProfileFromGraphResult(
+  value: unknown,
+): DijieRoleCapabilityProfileStorageRecord | undefined {
+  const record = asRecord(value);
+  const profileKey = stringField(record, "profile_key");
+  const packageId = stringField(record, "package_id");
+  const packageVersion = stringField(record, "package_version");
+  const updatedAt = dateField(record, "updated_at");
+  const overallScore = numberField(record, "overall_score");
+
+  if (
+    !profileKey ||
+    record.profile_version !== 1 ||
+    !packageId ||
+    !packageVersion ||
+    !updatedAt ||
+    overallScore === undefined
+  ) {
+    return undefined;
+  }
+
+  return {
+    profile_key: profileKey,
+    profile_version: 1,
+    package_id: packageId,
+    package_version: packageVersion,
+    role_listing_id: nullableStringField(record, "role_listing_id"),
+    updated_at: updatedAt,
+    overall_score: overallScore,
+    capabilities: arrayField(record.capabilities) as DijieRoleCapabilityProfileStorageRecord["capabilities"],
+    failure_modes: arrayField(record.failure_modes) as DijieRoleCapabilityProfileStorageRecord["failure_modes"],
+    dispatch_hints: arrayField(record.dispatch_hints) as DijieRoleCapabilityProfileStorageRecord["dispatch_hints"],
+    evaluator_adapters: asRecord(record.evaluator_adapters) as DijieRoleCapabilityProfileStorageRecord["evaluator_adapters"],
+    payload: {} as DijieRoleCapabilityProfileStorageRecord["payload"],
+  };
+}
+
 async function retrieveAuditRecord(
   req: MedusaRequest,
   executionId: string,
@@ -248,6 +417,168 @@ async function retrieveAuditRecord(
   };
 }
 
+async function retrieveSchedulerReadback(
+  req: MedusaRequest,
+  record: DijieAuditStorageRecord,
+): Promise<SchedulerReadback> {
+  const reader = resolveSchedulerBackboneReader(req);
+  if (reader) {
+    const [feedbackPackets, capabilityProfile] = await Promise.all([
+      reader.retrieveDijieRoleFeedbackPacketsByExecutionId(record.execution_id),
+      reader.retrieveDijieRoleCapabilityProfile({
+        packageId: record.package_id,
+        packageVersion: record.package_version,
+        roleListingId: record.role_listing_id,
+      }),
+    ]);
+    return createSchedulerReadback(feedbackPackets, capabilityProfile);
+  }
+
+  const query = resolveQueryGraph(req);
+  if (!query) {
+    return {};
+  }
+
+  const [{ data: feedbackData = [] }, { data: profileData = [] }] = await Promise.all([
+    query.graph({
+      entity: "dijie_role_feedback_packet",
+      fields: [
+        "packet_id",
+        "packet_version",
+        "execution_id",
+        "entitlement_id",
+        "device_id",
+        "workspace_ref",
+        "local_gateway_id",
+        "mode",
+        "role_listing_id",
+        "package_id",
+        "package_version",
+        "developer_ref",
+        "status",
+        "produced_at",
+        "started_at",
+        "ended_at",
+        "summary",
+        "changed_files",
+        "artifacts",
+        "tool_usage",
+        "model_proxy_usage",
+        "cost_usage",
+        "risk_events",
+        "evolution_suggestions",
+        "error",
+      ],
+      filters: {
+        execution_id: record.execution_id,
+      },
+      pagination: {
+        take: 20,
+      },
+    }),
+    query.graph({
+      entity: "dijie_role_capability_profile",
+      fields: [
+        "profile_key",
+        "profile_version",
+        "package_id",
+        "package_version",
+        "role_listing_id",
+        "updated_at",
+        "overall_score",
+        "capabilities",
+        "failure_modes",
+        "dispatch_hints",
+        "evaluator_adapters",
+      ],
+      filters: {
+        package_id: record.package_id,
+        package_version: record.package_version,
+        role_listing_id: record.role_listing_id,
+      },
+      pagination: {
+        take: 1,
+      },
+    }),
+  ]);
+
+  return createSchedulerReadback(
+    feedbackData.map(feedbackPacketFromGraphResult).filter(Boolean) as DijieRoleFeedbackPacketStorageRecord[],
+    capabilityProfileFromGraphResult(profileData[0]),
+  );
+}
+
+function createSchedulerReadback(
+  feedbackPackets: DijieRoleFeedbackPacketStorageRecord[],
+  capabilityProfile?: DijieRoleCapabilityProfileStorageRecord,
+): SchedulerReadback {
+  return {
+    ...(feedbackPackets.length === 0
+      ? {}
+      : {
+          feedbackPackets: feedbackPackets
+            .map(createDijieRoleFeedbackPacketReadModel)
+            .map(sanitizeFeedbackPacketReadModel),
+        }),
+    ...(capabilityProfile
+      ? {
+          capabilityProfile: sanitizeCapabilityProfileReadModel(
+            createDijieRoleCapabilityProfileReadModel(capabilityProfile),
+          ),
+        }
+      : {}),
+  };
+}
+
+function sanitizeFeedbackPacketReadModel(
+  readModel: DijieRoleFeedbackPacketReadModel,
+): DijieRoleFeedbackPacketReadModel {
+  return {
+    ...readModel,
+    packetId: redactSensitiveText(readModel.packetId),
+    summary: redactSensitiveText(readModel.summary),
+    changedFiles: readModel.changedFiles.map(redactSensitiveText),
+    artifacts: readModel.artifacts.map((artifact) => ({
+      ...artifact,
+      id: redactSensitiveText(artifact.id),
+      type: redactSensitiveText(artifact.type),
+      title: redactSensitiveText(artifact.title),
+    })),
+    riskEvents: readModel.riskEvents.map((event) => ({
+      ...event,
+      category: redactSensitiveText(event.category),
+      summary: redactSensitiveText(event.summary),
+    })),
+    evolutionSuggestions: readModel.evolutionSuggestions.map((suggestion) => ({
+      ...suggestion,
+      summary: redactSensitiveText(suggestion.summary),
+      evidenceRefs: suggestion.evidenceRefs.map(redactSensitiveText),
+    })),
+    error:
+      readModel.error === null
+        ? null
+        : redactSensitiveText(readModel.error),
+  };
+}
+
+function sanitizeCapabilityProfileReadModel(
+  readModel: DijieRoleCapabilityProfileReadModel,
+): DijieRoleCapabilityProfileReadModel {
+  return {
+    ...readModel,
+    capabilities: readModel.capabilities.map((capability) => ({
+      ...capability,
+      name: redactSensitiveText(capability.name),
+    })),
+    failureModes: readModel.failureModes.map((failureMode) => ({
+      ...failureMode,
+      code: redactSensitiveText(failureMode.code),
+      summary: redactSensitiveText(failureMode.summary),
+    })),
+    dispatchHints: readModel.dispatchHints.map(redactSensitiveText),
+  };
+}
+
 export async function GET(req: MedusaRequest, res: MedusaResponse) {
   const actorId = actorIdFromRequest(req);
   if (!actorId) {
@@ -298,8 +629,16 @@ export async function GET(req: MedusaRequest, res: MedusaResponse) {
     });
   }
 
+  let schedulerReadback: SchedulerReadback = {};
+  try {
+    schedulerReadback = await retrieveSchedulerReadback(req, result.record);
+  } catch {
+    schedulerReadback = {};
+  }
+
   return res.status(200).json({
     ok: true,
     ...sanitizeReadModelForGateway(createDijieAuditExecutionReadModel(result.record)),
+    ...schedulerReadback,
   });
 }

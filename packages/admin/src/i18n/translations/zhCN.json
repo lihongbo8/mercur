@@ -119,7 +119,7 @@
     "close": "关闭",
     "showMore": "显示更多",
     "continue": "继续",
-    "continueWithEmail": "使用邮箱继续",
+    "continueWithEmail": "登录",
     "idCopiedToClipboard": "ID已复制到剪贴板",
     "addReason": "添加原因",
     "addNote": "添加备注",
@@ -147,7 +147,7 @@
     "search": {
       "label": "搜索",
       "title": "搜索",
-      "description": "搜索迭界AI岗位商场中的授权订单、岗位商品、开发者和更多内容。",
+      "description": "搜索迭界AI岗位商城中的授权订单、岗位商品、开发者和更多内容。",
       "allAreas": "全部范围",
       "navigation": "导航",
       "openResult": "打开结果",
@@ -207,7 +207,7 @@
       },
       "settings": {
         "goToSettings": "设置",
-        "goToStore": "迭界AI岗位商场",
+        "goToStore": "迭界AI岗位商城",
         "goToUsers": "用户",
         "goToRegions": "地区",
         "goToTaxRegions": "税收地区",
@@ -235,8 +235,8 @@
         }
       },
       "store": {
-        "label": "迭界AI岗位商场",
-        "storeSettings": "商场设置"
+        "label": "迭界AI岗位商城",
+        "storeSettings": "审核中心设置"
       },
       "actions": {
         "logout": "退出登录"
@@ -251,8 +251,10 @@
         "extensions": "扩展"
       },
       "main": {
-        "store": "迭界AI岗位商场",
-        "storeSettings": "商场设置"
+        "store": "迭界AI岗位商城",
+        "marketplace": "迭界AI岗位商城",
+        "storeSettings": "审核中心设置",
+        "marketplaceSettings": "审核中心设置"
       },
       "settings": {
         "header": "设置",
@@ -341,13 +343,13 @@
     "badRequestTitle": "400 - 错误请求",
     "badRequestMessage": "由于语法错误,服务器无法理解该请求。",
     "notFoundTitle": "404 - 此地址不存在",
-    "notFoundMessage": "请检查URL并重试,或使用搜索栏查找您要找的内容。",
+    "notFoundMessage": "请检查地址后重试。",
     "internalServerErrorTitle": "500 - 服务器内部错误",
     "internalServerErrorMessage": "服务器发生意外错误。请稍后重试。",
     "defaultTitle": "发生错误",
     "defaultMessage": "渲染此页面时发生意外错误。",
-    "noMatchMessage": "您要查找的页面不存在。",
-    "backToDashboard": "返回仪表板"
+    "noMatchMessage": "页面不存在。",
+    "backToDashboard": "返回"
   },
   "addresses": {
     "title": "标题",
@@ -534,8 +536,8 @@
     "productStatus": {
       "draft": "草稿",
       "published": "已发布",
-      "proposed": "已提议",
-      "rejected": "已拒绝"
+      "proposed": "待审核",
+      "rejected": "已驳回"
     },
     "fields": {
       "title": {
@@ -2691,9 +2693,10 @@
     }
   },
   "login": {
-    "forgotPassword": "忘记密码？ - <0>重置</0>",
-    "title": "迭界AI岗位商场",
-    "hint": "平台运营后台：审核岗位、管理授权订单和执行审计。"
+    "forgotPassword": "忘记密码？<0>重置</0>",
+    "title": "迭界AI岗位商城",
+    "hint": "审核中心：只处理岗位上架、安全扫描和价格合规。",
+    "sessionExpired": "登录已过期"
   },
   "invite": {
     "title": "欢迎使用Medusa",

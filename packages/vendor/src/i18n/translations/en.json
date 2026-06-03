@@ -376,14 +376,14 @@
   "errorBoundary": {
     "badRequestTitle": "400 - Bad request",
     "badRequestMessage": "The request could not be understood by the server due to malformed syntax.",
-    "notFoundTitle": "404 - There is no page at this address",
-    "notFoundMessage": "Check the URL and try again, or use the search bar to find what you are looking for.",
+    "notFoundTitle": "404 - 页面不存在",
+    "notFoundMessage": "请检查地址后重试。",
     "internalServerErrorTitle": "500 - Internal server error",
     "internalServerErrorMessage": "An unexpected error occurred on the server. Please try again later.",
     "defaultTitle": "An error occurred",
     "defaultMessage": "An unexpected error occurred while rendering this page.",
-    "noMatchMessage": "The page you are looking for does not exist.",
-    "backToDashboard": "Back to dashboard"
+    "noMatchMessage": "页面不存在。",
+    "backToDashboard": "返回"
   },
   "addresses": {
     "title": "Addresses",
@@ -3236,7 +3236,7 @@
   },
   "login": {
     "forgotPassword": "忘记密码？<0>重置</0>",
-    "title": "迭界AI岗位商场",
+    "title": "迭界AI岗位商城",
     "hint": "开发者登录后管理岗位包、上架授权和结算。",
     "submit": "登录",
     "sessionExpired": "登录已过期",

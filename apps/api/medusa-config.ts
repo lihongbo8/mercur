@@ -22,17 +22,19 @@ module.exports = withMercur({
     {
       resolve: '@mercurjs/core/modules/admin-ui',
       options: {
-        appDir: '',
+        appDir: '../admin-test',
         path: '/dashboard',
-        disable: true
+        viteDevServerPort: 17000,
+        disable: false
       }
     },
     {
       resolve: '@mercurjs/core/modules/vendor-ui',
       options: {
-        appDir: '',
+        appDir: '../vendor',
         path: '/seller',
-        disable: true
+        viteDevServerPort: 17001,
+        disable: false
       }
     },
     {

@@ -97,3 +97,10 @@ export const uploadFilesQuery = async (files: any[]) => {
 
   return response.json()
 }
+
+export const uploadDijieRolePackageQuery = async (files: any[]) => {
+  return fetchQuery('/vendor/dijie/role-packages', {
+    method: 'POST',
+    body: { files },
+  })
+}

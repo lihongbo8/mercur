@@ -6,8 +6,7 @@ type UseProductTableQueryProps = {
   pageSize?: number;
 };
 
-const DEFAULT_FIELDS =
-  "id,title,handle,status,*collection,*sales_channels,variants.id,thumbnail,seller.*";
+const DEFAULT_FIELDS = "id,title,status,metadata,seller.*";
 
 export const useProductTableQuery = ({
   prefix,
@@ -20,12 +19,7 @@ export const useProductTableQuery = ({
       "q",
       "created_at",
       "updated_at",
-      "sales_channel_id",
-      "category_id",
-      "collection_id",
       "is_giftcard",
-      "tag_id",
-      "type_id",
       "status",
       "id",
       "seller_id",
@@ -35,13 +29,8 @@ export const useProductTableQuery = ({
 
   const {
     offset,
-    sales_channel_id,
     created_at,
     updated_at,
-    category_id,
-    collection_id,
-    tag_id,
-    type_id,
     is_giftcard,
     status,
     seller_id,
@@ -52,15 +41,10 @@ export const useProductTableQuery = ({
   const searchParams = {
     limit: pageSize,
     offset: offset ? Number(offset) : 0,
-    sales_channel_id: sales_channel_id?.split(","),
     created_at: created_at ? JSON.parse(created_at) : undefined,
     updated_at: updated_at ? JSON.parse(updated_at) : undefined,
-    category_id: category_id?.split(","),
-    collection_id: collection_id?.split(","),
     is_giftcard: is_giftcard ? is_giftcard === "true" : undefined,
     order: order,
-    tag_id: tag_id ? tag_id.split(",") : undefined,
-    type_id: type_id?.split(","),
     status: status?.split(",") as HttpTypes.AdminProductStatus[],
     seller_id: seller_id ? seller_id.split(",") : undefined,
     q,

@@ -4,18 +4,8 @@ import { TFunction } from "i18next"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
 import {
-  useCampaigns,
-  useCollections,
-  useCustomers,
-  useInventoryItems,
   useOrders,
-  usePriceLists,
-  useProductCategories,
   useProducts,
-  useProductTags,
-  useProductTypes,
-  usePromotions,
-  useStockLocations,
 } from "../../hooks/api"
 import { Shortcut, ShortcutType } from "../../providers/keybind-provider"
 import { useGlobalShortcuts } from "../../providers/keybind-provider/hooks"
@@ -118,156 +108,12 @@ const useDynamicSearchResults = (
     }
   )
 
-  const categoryResponse = useProductCategories(
-    {
-      // TODO: Remove the OR condition once the list endpoint does not throw when q equals an empty string
-      q: debouncedSearch || undefined,
-      limit,
-      fields: "id,name",
-    },
-    {
-      enabled: isAreaEnabled(currentArea, "category"),
-      placeholderData: keepPreviousData,
-    }
-  )
-
-  const collectionResponse = useCollections(
-    {
-      q: debouncedSearch,
-      limit,
-      fields: "id,title",
-    },
-    {
-      enabled: isAreaEnabled(currentArea, "collection"),
-      placeholderData: keepPreviousData,
-    }
-  )
-
-  const customerResponse = useCustomers(
-    {
-      q: debouncedSearch,
-      limit,
-      fields: "id,email,first_name,last_name",
-    },
-    {
-      enabled: isAreaEnabled(currentArea, "customer"),
-      placeholderData: keepPreviousData,
-    }
-  )
-
-  const inventoryResponse = useInventoryItems(
-    {
-      q: debouncedSearch,
-      limit,
-      fields: "id,title,sku",
-    },
-    {
-      enabled: isAreaEnabled(currentArea, "inventory"),
-      placeholderData: keepPreviousData,
-    }
-  )
-
-  const promotionResponse = usePromotions(
-    {
-      q: debouncedSearch,
-      limit,
-      fields: "id,code,status",
-    },
-    {
-      enabled: isAreaEnabled(currentArea, "promotion"),
-      placeholderData: keepPreviousData,
-    }
-  )
-
-  const campaignResponse = useCampaigns(
-    {
-      q: debouncedSearch,
-      limit,
-      fields: "id,name",
-    },
-    {
-      enabled: isAreaEnabled(currentArea, "campaign"),
-      placeholderData: keepPreviousData,
-    }
-  )
-
-  const priceListResponse = usePriceLists(
-    {
-      q: debouncedSearch,
-      limit,
-      fields: "id,title",
-    },
-    {
-      enabled: isAreaEnabled(currentArea, "priceList"),
-      placeholderData: keepPreviousData,
-    }
-  )
-
-  const productTypeResponse = useProductTypes(
-    {
-      q: debouncedSearch,
-      limit,
-      fields: "id,value",
-    },
-    {
-      enabled: isAreaEnabled(currentArea, "productType"),
-      placeholderData: keepPreviousData,
-    }
-  )
-
-  const productTagResponse = useProductTags(
-    {
-      q: debouncedSearch,
-      limit,
-      fields: "id,value",
-    },
-    {
-      enabled: isAreaEnabled(currentArea, "productTag"),
-      placeholderData: keepPreviousData,
-    }
-  )
-
-  const locationResponse = useStockLocations(
-    {
-      q: debouncedSearch,
-      limit,
-      fields: "id,name",
-    },
-    {
-      enabled: isAreaEnabled(currentArea, "location"),
-      placeholderData: keepPreviousData,
-    }
-  )
-
   const responseMap = useMemo(
     () => ({
       order: orderResponse,
       product: productResponse,
-      collection: collectionResponse,
-      category: categoryResponse,
-      inventory: inventoryResponse,
-      customer: customerResponse,
-      promotion: promotionResponse,
-      campaign: campaignResponse,
-      priceList: priceListResponse,
-      productType: productTypeResponse,
-      productTag: productTagResponse,
-      location: locationResponse,
     }),
-    [
-      orderResponse,
-      productResponse,
-      inventoryResponse,
-      categoryResponse,
-      collectionResponse,
-      customerResponse,
-      promotionResponse,
-      campaignResponse,
-      priceListResponse,
-      productTypeResponse,
-      productTagResponse,
-      locationResponse,
-    ]
+    [orderResponse, productResponse]
   )
 
   const results = useMemo(() => {
@@ -375,103 +221,6 @@ const transformMap: TransformMap = {
       to: `/products/${product.id}`,
       thumbnail: product.thumbnail ?? undefined,
       value: `product:${product.id}`,
-    }),
-  },
-  category: {
-    dataKey: "product_categories",
-    transform: (category: HttpTypes.AdminProductCategory) => ({
-      id: category.id,
-      title: category.name,
-      to: `/categories/${category.id}`,
-      value: `category:${category.id}`,
-    }),
-  },
-  inventory: {
-    dataKey: "inventory_items",
-    transform: (inventory: HttpTypes.AdminInventoryItem) => ({
-      id: inventory.id,
-      title: inventory.title ?? "",
-      subtitle: inventory.sku ?? undefined,
-      to: `/inventory/${inventory.id}`,
-      value: `inventory:${inventory.id}`,
-    }),
-  },
-  customer: {
-    dataKey: "customers",
-    transform: (customer: HttpTypes.AdminCustomer) => {
-      const name = [customer.first_name, customer.last_name]
-        .filter(Boolean)
-        .join(" ")
-      return {
-        id: customer.id,
-        title: name || customer.email,
-        subtitle: name ? customer.email : undefined,
-        to: `/customers/${customer.id}`,
-        value: `customer:${customer.id}`,
-      }
-    },
-  },
-  collection: {
-    dataKey: "collections",
-    transform: (collection: HttpTypes.AdminCollection) => ({
-      id: collection.id,
-      title: collection.title,
-      to: `/collections/${collection.id}`,
-      value: `collection:${collection.id}`,
-    }),
-  },
-  promotion: {
-    dataKey: "promotions",
-    transform: (promotion: HttpTypes.AdminPromotion) => ({
-      id: promotion.id,
-      title: promotion.code!,
-      to: `/promotions/${promotion.id}`,
-      value: `promotion:${promotion.id}`,
-    }),
-  },
-  campaign: {
-    dataKey: "campaigns",
-    transform: (campaign: HttpTypes.AdminCampaign) => ({
-      id: campaign.id,
-      title: campaign.name,
-      to: `/campaigns/${campaign.id}`,
-      value: `campaign:${campaign.id}`,
-    }),
-  },
-  priceList: {
-    dataKey: "price_lists",
-    transform: (priceList: HttpTypes.AdminPriceList) => ({
-      id: priceList.id,
-      title: priceList.title,
-      to: `/price-lists/${priceList.id}`,
-      value: `priceList:${priceList.id}`,
-    }),
-  },
-  productType: {
-    dataKey: "product_types",
-    transform: (productType: HttpTypes.AdminProductType) => ({
-      id: productType.id,
-      title: productType.value,
-      to: `/product-types/${productType.id}`,
-      value: `productType:${productType.id}`,
-    }),
-  },
-  productTag: {
-    dataKey: "product_tags",
-    transform: (productTag: HttpTypes.AdminProductTag) => ({
-      id: productTag.id,
-      title: productTag.value,
-      to: `/product-tags/${productTag.id}`,
-      value: `productTag:${productTag.id}`,
-    }),
-  },
-  location: {
-    dataKey: "stock_locations",
-    transform: (location: HttpTypes.AdminStockLocation) => ({
-      id: location.id,
-      title: location.name,
-      to: `/locations/${location.id}`,
-      value: `location:${location.id}`,
     }),
   },
 }

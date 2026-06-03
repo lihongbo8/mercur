@@ -1,24 +1,19 @@
 import { ReactNode, Children } from "react";
-import { useLoaderData, useParams } from "react-router-dom";
+import { Link, useLoaderData, useParams } from "react-router-dom";
 
 import { HttpTypes } from "@medusajs/types";
 import { SellerDTO } from "@mercurjs/types";
+import { CogSixTooth, InformationCircle } from "@medusajs/icons";
+import { Container, Heading, StatusBadge, Tooltip } from "@medusajs/ui";
 import { TwoColumnPageSkeleton } from "../../../components/common/skeleton";
 import { TwoColumnPage } from "../../../components/layout/pages";
 import { useProduct } from "../../../hooks/api/products";
-import { ProductAttributeSection } from "./components/product-attribute-section";
 import { ProductGeneralSection } from "./components/product-general-section";
-import { ProductMediaSection } from "./components/product-media-section";
-import { ProductOptionSection } from "./components/product-option-section";
-import { ProductOrganizationSection } from "./components/product-organization-section";
 import {
   ProductRoleReviewSection,
   createPublicDijieRoleMetadata,
 } from "./components/product-role-review-section";
-import { ProductSalesChannelSection } from "./components/product-sales-channel-section";
 import { ProductSellerSection } from "./components/product-seller-section/product-seller-section";
-import { ProductShippingProfileSection } from "./components/product-shipping-profile-section";
-import { ProductVariantSection } from "./components/product-variant-section";
 import { productLoader } from "./loader";
 import { PRODUCT_DETAIL_QUERY } from "../constants";
 
@@ -34,6 +29,45 @@ const asRecord = (value: unknown): Record<string, unknown> => {
 
 const hasDijieRoleMetadata = (product: AdminProductWithSeller) => {
   return Object.keys(asRecord(asRecord(product.metadata).dijieRole)).length > 0;
+};
+
+const getRoleMetadata = (product: AdminProductWithSeller) => {
+  return asRecord(asRecord(product.metadata).dijieRole);
+};
+
+const getReviewState = (product: AdminProductWithSeller) => {
+  const role = getRoleMetadata(product);
+  return role.reviewState ?? role.review_state ?? product.status ?? "draft";
+};
+
+const reviewStateLabel = (state: unknown) => {
+  switch (state) {
+    case "submitted":
+    case "proposed":
+      return "待审核";
+    case "approved":
+    case "published":
+      return "已通过";
+    case "rejected":
+      return "已驳回";
+    default:
+      return "草稿";
+  }
+};
+
+const reviewStateColor = (state: unknown) => {
+  switch (state) {
+    case "submitted":
+    case "proposed":
+      return "orange";
+    case "approved":
+    case "published":
+      return "green";
+    case "rejected":
+      return "red";
+    default:
+      return "grey";
+  }
 };
 
 const sanitizeProductForExtraData = (
@@ -75,8 +109,8 @@ const Root = ({ children }: { children?: ReactNode }) => {
       <TwoColumnPageSkeleton
         mainSections={4}
         sidebarSections={3}
-        showJSON
-        showMetadata
+        showJSON={false}
+        showMetadata={false}
       />
     );
   }
@@ -88,11 +122,39 @@ const Root = ({ children }: { children?: ReactNode }) => {
   const isDijieRoleProduct = hasDijieRoleMetadata(product);
   const extraDataProduct = sanitizeProductForExtraData(product);
 
+  if (!isDijieRoleProduct) {
+    return (
+      <TwoColumnPage
+        data={extraDataProduct}
+        showJSON={false}
+        showMetadata={false}
+        data-testid="product-detail-page"
+      >
+        <TwoColumnPage.Main data-testid="product-detail-main">
+          <Container className="divide-y p-0" data-testid="product-detail-unavailable">
+            <div className="flex items-center gap-x-2 px-6 py-4">
+              <Heading level="h2">暂不开放</Heading>
+              <Tooltip content="审核中心只处理岗位审核提交。">
+                <InformationCircle className="text-ui-fg-muted" />
+              </Tooltip>
+            </div>
+            <div className="px-6 py-4">
+              该记录不是岗位审核提交，旧产品详情入口已拦截。
+            </div>
+          </Container>
+        </TwoColumnPage.Main>
+        <TwoColumnPage.Sidebar data-testid="product-detail-sidebar">
+          <ReviewCenterSidebarSection product={product} />
+        </TwoColumnPage.Sidebar>
+      </TwoColumnPage>
+    );
+  }
+
   return Children.count(children) > 0 ? (
     <TwoColumnPage
       data={extraDataProduct}
-      showJSON
-      showMetadata={!isDijieRoleProduct}
+      showJSON={false}
+      showMetadata={false}
       data-testid="product-detail-page"
     >
       {children}
@@ -100,23 +162,17 @@ const Root = ({ children }: { children?: ReactNode }) => {
   ) : (
     <TwoColumnPage
       data={extraDataProduct}
-      showJSON
-      showMetadata={!isDijieRoleProduct}
+      showJSON={false}
+      showMetadata={false}
       data-testid="product-detail-page"
     >
       <TwoColumnPage.Main data-testid="product-detail-main">
         <ProductGeneralSection product={product} />
         <ProductRoleReviewSection product={product} />
-        <ProductMediaSection product={product} />
-        <ProductOptionSection product={product} />
-        <ProductVariantSection product={product} />
       </TwoColumnPage.Main>
       <TwoColumnPage.Sidebar data-testid="product-detail-sidebar">
+        <ReviewCenterSidebarSection product={product} />
         <ProductSellerSection seller={product.seller} />
-        <ProductSalesChannelSection product={product} />
-        <ProductShippingProfileSection product={product} />
-        <ProductOrganizationSection product={product} />
-        <ProductAttributeSection product={product} />
       </TwoColumnPage.Sidebar>
     </TwoColumnPage>
   );
@@ -127,12 +183,36 @@ export const ProductDetailPage = Object.assign(Root, {
   Sidebar: TwoColumnPage.Sidebar,
   MainGeneralSection: ProductGeneralSection,
   MainRoleReviewSection: ProductRoleReviewSection,
-  MainMediaSection: ProductMediaSection,
-  MainOptionSection: ProductOptionSection,
-  MainVariantSection: ProductVariantSection,
   SidebarSellerSection: ProductSellerSection,
-  SidebarSalesChannelSection: ProductSalesChannelSection,
-  SidebarShippingProfileSection: ProductShippingProfileSection,
-  SidebarOrganizationSection: ProductOrganizationSection,
-  SidebarAttributeSection: ProductAttributeSection,
 });
+
+const ReviewCenterSidebarSection = ({
+  product,
+}: {
+  product: AdminProductWithSeller;
+}) => {
+  const state = getReviewState(product);
+
+  return (
+    <Container className="divide-y p-0" data-testid="review-center-sidebar">
+      <div className="flex items-center justify-between px-6 py-4">
+        <div className="flex items-center gap-x-2">
+          <Heading level="h2">审核中心</Heading>
+          <Tooltip content="岗位商品只显示安全摘要。">
+            <InformationCircle className="text-ui-fg-muted" />
+          </Tooltip>
+        </div>
+        <StatusBadge color={reviewStateColor(state)}>
+          {reviewStateLabel(state)}
+        </StatusBadge>
+      </div>
+      <Link
+        to="/settings/marketplace"
+        className="text-ui-fg-subtle hover:text-ui-fg-base flex items-center gap-x-2 px-6 py-4 text-sm"
+      >
+        <CogSixTooth />
+        审核设置
+      </Link>
+    </Container>
+  );
+};

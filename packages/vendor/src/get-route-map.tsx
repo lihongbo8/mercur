@@ -41,6 +41,11 @@ function mergeRoutes(
   return result;
 }
 
+const disabledRoute = async () => {
+  const { RouteDisabledPage } = await import("./pages/route-disabled");
+  return { Component: RouteDisabledPage };
+};
+
 export function getRouteMap({
   settingsRoutes: customSettingsRoutes,
   mainRoutes: customMainRoutes,
@@ -92,8 +97,7 @@ export function getRouteMap({
                       },
                       {
                         path: "bulk-edit",
-                        lazy: () =>
-                          import("./pages/products/bulk-edit"),
+                        lazy: disabledRoute,
                       },
                     ],
                   },
@@ -126,78 +130,65 @@ export function getRouteMap({
                         children: [
                           {
                             path: "edit",
-                            lazy: () => import("./pages/products/[id]/edit"),
+                            lazy: disabledRoute,
                           },
                           {
                             path: "sales-channels",
-                            lazy: () =>
-                              import("./pages/products/[id]/sales-channels"),
+                            lazy: disabledRoute,
                           },
                           {
                             path: "organization",
-                            lazy: () =>
-                              import("./pages/products/[id]/organization"),
+                            lazy: disabledRoute,
                           },
                           {
                             path: "media",
-                            lazy: () => import("./pages/products/[id]/media"),
+                            lazy: disabledRoute,
                           },
                           {
                             path: "attributes",
-                            lazy: () =>
-                              import("./pages/products/[id]/attributes"),
+                            lazy: disabledRoute,
                           },
                           {
                             path: "attributes/add",
-                            lazy: () =>
-                              import("./pages/products/[id]/attributes/add"),
+                            lazy: disabledRoute,
                           },
                           {
                             path: "informational-attributes/:attribute_id/edit",
-                            lazy: () =>
-                              import("./pages/products/[id]/informational-attributes/[attribute_id]/edit"),
+                            lazy: disabledRoute,
                           },
                           {
                             path: "metadata",
-                            lazy: () =>
-                              import("./pages/products/[id]/metadata"),
+                            lazy: disabledRoute,
                           },
                           {
                             path: "shipping-profile",
-                            lazy: () =>
-                              import("./pages/products/[id]/shipping-profile"),
+                            lazy: disabledRoute,
                           },
                           {
                             path: "prices",
-                            lazy: () => import("./pages/products/[id]/prices"),
+                            lazy: disabledRoute,
                           },
                           {
                             path: "options/create",
-                            lazy: () =>
-                              import("./pages/products/[id]/options/create"),
+                            lazy: disabledRoute,
                           },
                           {
                             path: "options/:option_id/edit",
-                            lazy: () =>
-                              import(
-                                "./pages/products/[id]/options/[optionId]/edit"
-                              ),
+                            lazy: disabledRoute,
                           },
                           {
                             path: "variants/create",
-                            lazy: () =>
-                              import("./pages/products/[id]/variants/create"),
+                            lazy: disabledRoute,
                           },
                         ],
                       },
                       {
                         path: "stock",
-                        lazy: () => import("./pages/products/[id]/stock"),
+                        lazy: disabledRoute,
                       },
                       {
                         path: "edit-stocks-and-prices",
-                        lazy: () =>
-                          import("./pages/products/[id]/edit-stocks-and-prices"),
+                        lazy: disabledRoute,
                       },
                     ],
                   },
@@ -244,18 +235,15 @@ export function getRouteMap({
                         children: [
                           {
                             path: "fulfillment",
-                            lazy: () =>
-                              import("./pages/orders/[id]/fulfillment"),
+                            lazy: disabledRoute,
                           },
                           {
                             path: "allocate-items",
-                            lazy: () =>
-                              import("./pages/orders/[id]/allocate-items"),
+                            lazy: disabledRoute,
                           },
                           {
                             path: ":f_id/create-shipment",
-                            lazy: () =>
-                              import("./pages/orders/[id]/shipment"),
+                            lazy: disabledRoute,
                           },
                         ],
                       },
@@ -268,7 +256,7 @@ export function getRouteMap({
               {
                 path: "/payouts",
                 errorElement: <ErrorBoundary />,
-                handle: { breadcrumb: () => "Payouts" },
+                handle: { breadcrumb: () => "结算记录" },
                 children: [
                   {
                     path: "",
@@ -306,520 +294,72 @@ export function getRouteMap({
                 ],
               },
 
-              // CATEGORIES
+              // TOOL RESOURCES
+              {
+                path: "/tool-resources",
+                errorElement: <ErrorBoundary />,
+                handle: { breadcrumb: () => "工具资源" },
+                lazy: async () => {
+                  const { ToolResourcesPage } =
+                    await import("./pages/tool-resources");
+                  return { Component: ToolResourcesPage };
+                },
+              },
+
+              // CATEGORIES - disabled
               {
                 path: "/categories",
                 errorElement: <ErrorBoundary />,
-                handle: { breadcrumb: () => t("categories.domain") },
-                children: [
-                  {
-                    path: "",
-                    lazy: async () => {
-                      const { CategoryListPage } =
-                        await import("./pages/categories");
-                      return {
-                        Component: CategoryListPage,
-                      };
-                    },
-                    children: [
-                      {
-                        path: "organize",
-                        lazy: () => import("./pages/categories/organize"),
-                      },
-                    ],
-                  },
-                  {
-                    path: ":id",
-                    lazy: async () => {
-                      const { loader } =
-                        await import("./pages/categories/[id]");
-                      const { Breadcrumb } =
-                        await import("./pages/categories/[id]/breadcrumb");
-                      return {
-                        Component: Outlet,
-                        loader,
-                        handle: {
-                          breadcrumb: (match: UIMatch<any>) => (
-                            <Breadcrumb {...match} />
-                          ),
-                        },
-                      };
-                    },
-                    children: [
-                      {
-                        path: "",
-                        lazy: async () => {
-                          const { CategoryDetailPage } =
-                            await import("./pages/categories/[id]");
-                          return {
-                            Component: CategoryDetailPage,
-                          };
-                        },
-                        children: [
-                          {
-                            path: "products",
-                            lazy: () =>
-                              import("./pages/categories/[id]/products"),
-                          },
-                          {
-                            path: "organize",
-                            lazy: () =>
-                              import("./pages/categories/[id]/organize"),
-                          },
-                          {
-                            path: "metadata",
-                            lazy: () =>
-                              import("./pages/categories/[id]/metadata"),
-                          },
-                        ],
-                      },
-                    ],
-                  },
-                ],
+                handle: { breadcrumb: () => "暂不开放" },
+                lazy: disabledRoute,
               },
 
-              // COLLECTIONS
+              // COLLECTIONS - disabled
               {
                 path: "/collections",
                 errorElement: <ErrorBoundary />,
-                handle: { breadcrumb: () => t("collections.domain") },
-                children: [
-                  {
-                    path: "",
-                    lazy: async () => {
-                      const { CollectionListPage } =
-                        await import("./pages/collections");
-                      return {
-                        Component: CollectionListPage,
-                      };
-                    },
-                  },
-                  {
-                    path: ":id",
-                    lazy: async () => {
-                      const { loader } =
-                        await import("./pages/collections/[id]");
-                      const { Breadcrumb } =
-                        await import("./pages/collections/[id]/breadcrumb");
-                      return {
-                        Component: Outlet,
-                        loader,
-                        handle: {
-                          breadcrumb: (match: UIMatch<any>) => (
-                            <Breadcrumb {...match} />
-                          ),
-                        },
-                      };
-                    },
-                    children: [
-                      {
-                        path: "",
-                        lazy: async () => {
-                          const { CollectionDetailPage } =
-                            await import("./pages/collections/[id]");
-                          return {
-                            Component: CollectionDetailPage,
-                          };
-                        },
-                        children: [
-                          {
-                            path: "add-products",
-                            lazy: () =>
-                              import("./pages/collections/[id]/add-products"),
-                          },
-                          {
-                            path: "metadata",
-                            lazy: () =>
-                              import("./pages/collections/[id]/metadata"),
-                          },
-                        ],
-                      },
-                    ],
-                  },
-                ],
+                handle: { breadcrumb: () => "暂不开放" },
+                lazy: disabledRoute,
               },
 
-              // CUSTOMERS
+              // CUSTOMERS - disabled
               {
                 path: "/customers",
                 errorElement: <ErrorBoundary />,
-                handle: { breadcrumb: () => t("customers.domain") },
-                children: [
-                  {
-                    path: "",
-                    lazy: async () => {
-                      const { CustomerListPage } =
-                        await import("./pages/customers");
-                      return {
-                        Component: CustomerListPage,
-                      };
-                    },
-                  },
-                  {
-                    path: ":id",
-                    lazy: async () => {
-                      const { loader } = await import("./pages/customers/[id]");
-                      const { Breadcrumb } =
-                        await import("./pages/customers/[id]/breadcrumb");
-                      return {
-                        Component: Outlet,
-                        loader,
-                        handle: {
-                          breadcrumb: (match: UIMatch<any>) => (
-                            <Breadcrumb {...match} />
-                          ),
-                        },
-                      };
-                    },
-                    children: [
-                      {
-                        path: "",
-                        lazy: async () => {
-                          const { CustomerDetailPage } =
-                            await import("./pages/customers/[id]");
-                          return {
-                            Component: CustomerDetailPage,
-                          };
-                        },
-                        children: [
-                          {
-                            path: "edit",
-                            lazy: () => import("./pages/customers/[id]/edit"),
-                          },
-                          {
-                            path: "add-customer-groups",
-                            lazy: () =>
-                              import("./pages/customers/[id]/add-customer-groups"),
-                          },
-                          {
-                            path: "metadata",
-                            lazy: () =>
-                              import("./pages/customers/[id]/metadata"),
-                          },
-                        ],
-                      },
-                    ],
-                  },
-                ],
+                handle: { breadcrumb: () => "暂不开放" },
+                lazy: disabledRoute,
               },
 
-              // CUSTOMER GROUPS - disabled
-              // {
-              //   path: "/customer-groups",
-              //   ...
-              // },
-
-              // INVENTORY
+              // INVENTORY - disabled
               {
                 path: "/inventory",
                 errorElement: <ErrorBoundary />,
-                handle: { breadcrumb: () => t("inventory.domain") },
-                children: [
-                  {
-                    path: "",
-                    lazy: async () => {
-                      const { InventoryListPage } =
-                        await import("./pages/inventory");
-                      return {
-                        Component: InventoryListPage,
-                      };
-                    },
-                    children: [
-                      {
-                        path: "create",
-                        lazy: () => import("./pages/inventory/create"),
-                      },
-                      {
-                        path: "stock",
-                        lazy: () => import("./pages/inventory/[id]/stock"),
-                      },
-                    ],
-                  },
-                  {
-                    path: ":id",
-                    lazy: async () => {
-                      const { loader } = await import("./pages/inventory/[id]");
-                      const { Breadcrumb } =
-                        await import("./pages/inventory/[id]/breadcrumb");
-                      return {
-                        Component: Outlet,
-                        loader,
-                        handle: {
-                          breadcrumb: (match: UIMatch<any>) => (
-                            <Breadcrumb {...match} />
-                          ),
-                        },
-                      };
-                    },
-                    children: [
-                      {
-                        path: "",
-                        lazy: async () => {
-                          const { InventoryDetailPage } =
-                            await import("./pages/inventory/[id]");
-                          return {
-                            Component: InventoryDetailPage,
-                          };
-                        },
-                        children: [
-                          {
-                            path: "edit",
-                            lazy: () =>
-                              import("./pages/inventory/[id]/_components/edit-inventory-item"),
-                          },
-                          {
-                            path: "attributes",
-                            lazy: () =>
-                              import("./pages/inventory/[id]/_components/edit-inventory-item-attributes"),
-                          },
-                          {
-                            path: "metadata",
-                            lazy: () =>
-                              import("./pages/inventory/[id]/metadata"),
-                          },
-                          {
-                            path: "locations",
-                            lazy: () =>
-                              import("./pages/inventory/[id]/_components/manage-locations"),
-                          },
-                          {
-                            path: "locations/:location_id",
-                            lazy: () =>
-                              import("./pages/inventory/[id]/_components/adjust-inventory"),
-                          },
-                        ],
-                      },
-                    ],
-                  },
-                ],
+                handle: { breadcrumb: () => "暂不开放" },
+                lazy: disabledRoute,
               },
 
-              // PROMOTIONS
+              // PROMOTIONS - disabled
               {
                 path: "/promotions",
                 errorElement: <ErrorBoundary />,
-                handle: { breadcrumb: () => t("promotions.domain") },
-                children: [
-                  {
-                    path: "",
-                    lazy: async () => {
-                      const { PromotionListPage } =
-                        await import("./pages/promotions");
-                      return {
-                        Component: PromotionListPage,
-                      };
-                    },
-                    children: [
-                      {
-                        path: "create",
-                        lazy: () => import("./pages/promotions/create"),
-                      },
-                    ],
-                  },
-                  {
-                    path: ":id",
-                    lazy: async () => {
-                      const { loader } =
-                        await import("./pages/promotions/[id]");
-                      const { Breadcrumb } =
-                        await import("./pages/promotions/[id]/breadcrumb");
-                      return {
-                        Component: Outlet,
-                        loader,
-                        handle: {
-                          breadcrumb: (match: UIMatch<any>) => (
-                            <Breadcrumb {...match} />
-                          ),
-                        },
-                      };
-                    },
-                    children: [
-                      {
-                        path: "",
-                        lazy: async () => {
-                          const { PromotionDetailPage } =
-                            await import("./pages/promotions/[id]");
-                          return {
-                            Component: PromotionDetailPage,
-                          };
-                        },
-                        children: [
-                          {
-                            path: "edit",
-                            lazy: () => import("./pages/promotions/[id]/edit"),
-                          },
-                          {
-                            path: "add-to-campaign",
-                            lazy: () =>
-                              import("./pages/promotions/[id]/add-to-campaign"),
-                          },
-                          {
-                            path: ":ruleType/edit",
-                            lazy: () =>
-                              import("./pages/promotions/[id]/[ruleType]/edit"),
-                          },
-                        ],
-                      },
-                    ],
-                  },
-                ],
+                handle: { breadcrumb: () => "暂不开放" },
+                lazy: disabledRoute,
               },
 
-              // CAMPAIGNS
+              // CAMPAIGNS - disabled
               {
                 path: "/campaigns",
                 errorElement: <ErrorBoundary />,
-                handle: { breadcrumb: () => t("campaigns.domain") },
-                children: [
-                  {
-                    path: "",
-                    lazy: async () => {
-                      const { CampaignListPage } =
-                        await import("./pages/campaigns");
-                      return {
-                        Component: CampaignListPage,
-                      };
-                    },
-                    children: [
-                      {
-                        path: "create",
-                        lazy: () => import("./pages/campaigns/create"),
-                      },
-                    ],
-                  },
-                  {
-                    path: ":id",
-                    lazy: async () => {
-                      const { loader } = await import("./pages/campaigns/[id]");
-                      const { Breadcrumb } =
-                        await import("./pages/campaigns/[id]/breadcrumb");
-                      return {
-                        Component: Outlet,
-                        loader,
-                        handle: {
-                          breadcrumb: (match: UIMatch<any>) => (
-                            <Breadcrumb {...match} />
-                          ),
-                        },
-                      };
-                    },
-                    children: [
-                      {
-                        path: "",
-                        lazy: async () => {
-                          const { CampaignDetailPage } =
-                            await import("./pages/campaigns/[id]");
-                          return {
-                            Component: CampaignDetailPage,
-                          };
-                        },
-                        children: [
-                          {
-                            path: "edit",
-                            lazy: () => import("./pages/campaigns/[id]/edit"),
-                          },
-                          {
-                            path: "configuration",
-                            lazy: () =>
-                              import("./pages/campaigns/[id]/configuration"),
-                          },
-                          {
-                            path: "edit-budget",
-                            lazy: () =>
-                              import("./pages/campaigns/[id]/edit-budget"),
-                          },
-                          {
-                            path: "add-promotions",
-                            lazy: async () => {
-                              const { AddPromotionsPage } =
-                                await import("./pages/campaigns/[id]/add-promotions");
-                              return {
-                                Component: AddPromotionsPage,
-                              };
-                            },
-                          },
-                        ],
-                      },
-                    ],
-                  },
-                ],
+                handle: { breadcrumb: () => "暂不开放" },
+                lazy: disabledRoute,
               },
 
-              // PRICE LISTS
+              // PRICE LISTS - disabled
               {
                 path: "/price-lists",
                 errorElement: <ErrorBoundary />,
-                handle: { breadcrumb: () => t("priceLists.domain") },
-                children: [
-                  {
-                    path: "",
-                    lazy: async () => {
-                      const { PriceListListPage } =
-                        await import("./pages/price-lists");
-                      return { Component: PriceListListPage };
-                    },
-                    children: [
-                      {
-                        path: "create",
-                        lazy: () => import("./pages/price-lists/create"),
-                      },
-                    ],
-                  },
-                  {
-                    path: ":id",
-                    lazy: async () => {
-                      const { loader } =
-                        await import("./pages/price-lists/[id]");
-                      const { Breadcrumb } =
-                        await import("./pages/price-lists/[id]/breadcrumb");
-                      return {
-                        Component: Outlet,
-                        loader,
-                        handle: {
-                          breadcrumb: (match: UIMatch<any>) => (
-                            <Breadcrumb {...match} />
-                          ),
-                        },
-                      };
-                    },
-                    children: [
-                      {
-                        path: "",
-                        lazy: async () => {
-                          const { PriceListDetailPage } =
-                            await import("./pages/price-lists/[id]");
-                          return { Component: PriceListDetailPage };
-                        },
-                        children: [
-                          {
-                            path: "edit",
-                            lazy: () => import("./pages/price-lists/[id]/edit"),
-                          },
-                          {
-                            path: "configuration",
-                            lazy: () =>
-                              import("./pages/price-lists/[id]/configuration"),
-                          },
-                          {
-                            path: "products/add",
-                            lazy: () =>
-                              import("./pages/price-lists/[id]/products/add"),
-                          },
-                          {
-                            path: "products/edit",
-                            lazy: () =>
-                              import("./pages/price-lists/[id]/products/edit"),
-                          },
-                          {
-                            path: "products/:variant_id/edit",
-                            lazy: () =>
-                              import("./pages/price-lists/[id]/products/[variant_id]/edit"),
-                          },
-                        ],
-                      },
-                    ],
-                  },
-                ],
+                handle: { breadcrumb: () => "暂不开放" },
+                lazy: disabledRoute,
               },
 
               // RESERVATIONS - disabled
@@ -832,35 +372,7 @@ export function getRouteMap({
               {
                 path: "/products/:product_id/variants/:variant_id",
                 errorElement: <ErrorBoundary />,
-                lazy: async () => {
-                  const { loader } =
-                    await import("./pages/product-variants/product-variant-detail");
-                  return {
-                    Component: Outlet,
-                    loader,
-                  };
-                },
-                children: [
-                  {
-                    path: "",
-                    lazy: () =>
-                      import("./pages/product-variants/product-variant-detail"),
-                    children: [
-                      {
-                        path: "edit",
-                        lazy: async () => {
-                          const { ProductVariantEdit } =
-                            await import("./pages/product-variants/product-variant-edit/product-variant-edit");
-                          return { Component: ProductVariantEdit };
-                        },
-                      },
-                      {
-                        path: "prices",
-                        lazy: () => import("./pages/products/[id]/prices"),
-                      },
-                    ],
-                  },
-                ],
+                lazy: disabledRoute,
               },
             ],
             customMainRoutes,
@@ -962,7 +474,7 @@ export function getRouteMap({
               {
                 path: "locations",
                 errorElement: <ErrorBoundary />,
-                element: <Outlet />,
+                lazy: disabledRoute,
                 handle: { breadcrumb: () => t("locations.domain") },
                 children: [
                   {
@@ -1124,7 +636,7 @@ export function getRouteMap({
               {
                 path: "tax-regions",
                 errorElement: <ErrorBoundary />,
-                element: <Outlet />,
+                lazy: disabledRoute,
                 handle: { breadcrumb: () => t("taxRegions.domain") },
                 children: [
                   {
@@ -1226,7 +738,7 @@ export function getRouteMap({
               {
                 path: "product-tags",
                 errorElement: <ErrorBoundary />,
-                element: <Outlet />,
+                lazy: disabledRoute,
                 handle: { breadcrumb: () => t("productTags.domain") },
                 children: [
                   {
@@ -1279,7 +791,7 @@ export function getRouteMap({
               {
                 path: "users",
                 errorElement: <ErrorBoundary />,
-                element: <Outlet />,
+                lazy: disabledRoute,
                 handle: { breadcrumb: () => t("users.domain") },
                 children: [
                   {
@@ -1308,7 +820,7 @@ export function getRouteMap({
               {
                 path: "product-types",
                 errorElement: <ErrorBoundary />,
-                element: <Outlet />,
+                lazy: disabledRoute,
                 handle: { breadcrumb: () => t("productTypes.domain") },
                 children: [
                   {
@@ -1369,7 +881,7 @@ export function getRouteMap({
               {
                 path: "return-reasons",
                 errorElement: <ErrorBoundary />,
-                element: <Outlet />,
+                lazy: disabledRoute,
                 handle: { breadcrumb: () => t("returnReasons.domain") },
                 children: [
                   {

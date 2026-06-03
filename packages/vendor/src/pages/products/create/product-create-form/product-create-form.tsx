@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 
 import { HttpTypes } from "@medusajs/types"
-import { Button, ProgressStatus, ProgressTabs, toast } from "@medusajs/ui"
-import { useForm, useWatch } from "react-hook-form"
+import { Button, ProgressStatus, ProgressTabs, toast, usePrompt } from "@medusajs/ui"
+import { useForm } from "react-hook-form"
 import { useTranslation } from "react-i18next"
 import { z } from "zod"
 import { zodResolver } from "@hookform/resolvers/zod"
@@ -10,9 +10,7 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import { RouteFocusModal, useRouteModal } from "@components/modals"
 import { TabbedFormContext } from "@components/tabbed-form"
 import { KeyboundForm } from "@components/utilities/keybound-form"
-import { useRegions } from "@hooks/api"
 import { useAttributes } from "../../../../hooks/api/attributes"
-import { usePricePreferences } from "@hooks/api/price-preferences"
 import { useCreateProduct } from "@hooks/api/products"
 import { uploadFilesQuery } from "@lib/client"
 import {
@@ -20,15 +18,8 @@ import {
   ProductCreateSchema,
 } from "../constants"
 import { ProductCreateSchemaType } from "../types"
-import { decorateVariantsWithDefaultValues } from "../utils"
-import {
-  ProductCreateAttributesForm,
-  ProductCreateAttributesFormRef,
-} from "../product-create-attributes-form/product-create-attributes-form"
 import { ProductCreateDetailsForm } from "../product-create-details-form"
-import { ProductCreateInventoryKitForm } from "../product-create-inventory-kit-form"
 import { ProductCreateOrganizeForm } from "../product-create-organize-form"
-import { ProductCreateVariantsForm } from "../product-create-variants-form"
 
 enum Tab {
   DETAILS = "details",
@@ -53,15 +44,12 @@ type UploadedMedia = HttpTypes.AdminFile & {
 
 const SAVE_DRAFT_BUTTON = "save-draft-button"
 const SEC_CAT_PRODUCT_KEY = "sec_cat_product_key"
-const DEFAULT_ROLE_SCOPES = ["role.execute", "audit.write"]
+const DEFAULT_ROLE_SCOPES = ["role.execute"]
 const DIJIE_ROLE_PROTOCOL_VERSION = "2026-05"
 
 const TAB_ORDER: Tab[] = [
   Tab.DETAILS,
   Tab.ORGANIZE,
-  Tab.ATTRIBUTES,
-  Tab.VARIANTS,
-  Tab.INVENTORY,
 ]
 
 const isMovingForward = (currentTab: Tab, newTab: Tab): boolean => {
@@ -91,23 +79,10 @@ const parseRoleCapabilities = (value?: string) => {
 
 type ProductCreateFormProps = {
   defaultChannel?: HttpTypes.AdminSalesChannel
-  store?: HttpTypes.AdminStore
-  onOpenMediaModal?: (
-    variantIndex: number,
-    variantTitle?: string,
-    initialMedia?: MediaItem[],
-    productMedia?: MediaItem[]
-  ) => void
-  onSaveVariantMediaRef?: React.MutableRefObject<
-    ((variantIndex: number, media: MediaItem[]) => void) | null
-  >
 }
 
 export const ProductCreateForm = ({
   defaultChannel,
-  store,
-  onOpenMediaModal,
-  onSaveVariantMediaRef,
 }: ProductCreateFormProps) => {
   const [tab, setTab] = useState<Tab>(Tab.DETAILS)
   const [maxReachedTab, setMaxReachedTab] = useState<Tab>(Tab.DETAILS)
@@ -121,10 +96,7 @@ export const ProductCreateForm = ({
 
   const { t } = useTranslation()
   const { handleSuccess } = useRouteModal()
-  const { regions } = useRegions({ limit: 9999 })
-  const { price_preferences: pricePreferences } = usePricePreferences({
-    limit: 9999,
-  })
+  const prompt = usePrompt()
 
   const { attributes: allAttributes } = useAttributes({
     fields:
@@ -232,74 +204,6 @@ export const ProductCreateForm = ({
 
   const { mutateAsync, isPending } = useCreateProduct()
 
-  const attributesFormRef =
-    useRef<ProductCreateAttributesFormRef>(null)
-
-  const watchedVariants = useWatch({
-    control: form.control,
-    name: "variants",
-  })
-
-  const watchedMedia = useWatch({
-    control: form.control,
-    name: "media",
-  }) as MediaItem[] | undefined
-
-  const showInventoryTab = useMemo(
-    () =>
-      watchedVariants.some(
-        (v: any) => v.manage_inventory && v.inventory_kit
-      ),
-    [watchedVariants]
-  )
-
-  const handleSaveVariantMedia = useCallback(
-    (variantIndex: number, media: MediaItem[]) => {
-      const currentVariants = form.getValues("variants") || []
-      if (currentVariants[variantIndex]) {
-        const updatedVariants = [...currentVariants]
-        updatedVariants[variantIndex] = {
-          ...updatedVariants[variantIndex],
-          media,
-        }
-        form.setValue("variants", updatedVariants, {
-          shouldDirty: true,
-        })
-      }
-    },
-    [form]
-  )
-
-  useEffect(() => {
-    if (tab === Tab.VARIANTS) {
-      const currentOptions = form.getValues("options")
-      const currentVariants = form.getValues("variants")
-      if (
-        currentOptions.length === 0 &&
-        currentVariants.length === 0
-      ) {
-        form.setValue(
-          "variants",
-          decorateVariantsWithDefaultValues([
-            {
-              title: "Default variant",
-              should_create: true,
-              variant_rank: 0,
-              options: {},
-              is_default: true,
-            },
-          ])
-        )
-      }
-    }
-  }, [tab, form])
-
-  useEffect(() => {
-    if (onSaveVariantMediaRef) {
-      onSaveVariantMediaRef.current = handleSaveVariantMedia
-    }
-  }, [handleSaveVariantMedia, onSaveVariantMediaRef])
-
   const handleSubmit = form.handleSubmit(async (values, e) => {
     let isDraftSubmission = false
 
@@ -308,6 +212,21 @@ export const ProductCreateForm = ({
         ?.submitter as HTMLButtonElement
       isDraftSubmission =
         submitter.dataset.name === SAVE_DRAFT_BUTTON
+    }
+
+    if (!isDraftSubmission) {
+      const confirmed = await prompt({
+        title: "提交审核？",
+        description: "当前只进入确认态，不会直接提交给平台审核。",
+        confirmText: "停在确认态",
+        cancelText: "取消",
+      })
+
+      if (confirmed) {
+        toast.warning("已停在确认态，暂未提交审核。")
+      }
+
+      return
     }
 
     const media = values.media || []
@@ -853,7 +772,11 @@ export const ProductCreateForm = ({
       },
     })
 
-    toast.success(t("products.create.successToast", { title: (productData as any).product.title }))
+    toast.success(
+      isDraftSubmission
+        ? "岗位商品草稿已保存。"
+        : "岗位商品已创建，等待平台审核。"
+    )
     handleSuccess(`../${(productData as any).product.id}`)
   })
 
@@ -877,17 +800,6 @@ export const ProductCreateForm = ({
       case Tab.ORGANIZE:
         fieldsToValidate = ["categories"]
         break
-      case Tab.ATTRIBUTES:
-        if (attributesFormRef.current) {
-          shouldProceed =
-            await attributesFormRef.current.validateAttributes()
-        }
-        break
-      case Tab.VARIANTS:
-        fieldsToValidate = ["variants", "options"]
-        break
-      case Tab.INVENTORY:
-        break
     }
 
     if (fieldsToValidate.length > 0) {
@@ -900,12 +812,6 @@ export const ProductCreateForm = ({
     let nextTab: Tab
     if (currentTab === Tab.DETAILS) {
       nextTab = Tab.ORGANIZE
-    } else if (currentTab === Tab.ORGANIZE) {
-      nextTab = Tab.ATTRIBUTES
-    } else if (currentTab === Tab.ATTRIBUTES) {
-      nextTab = Tab.VARIANTS
-    } else if (currentTab === Tab.VARIANTS) {
-      nextTab = Tab.INVENTORY
     } else {
       return
     }
@@ -963,7 +869,7 @@ export const ProductCreateForm = ({
               }
               e.preventDefault()
               if (e.metaKey || e.ctrlKey) {
-                if (tab !== Tab.VARIANTS) {
+                if (tab !== Tab.ORGANIZE) {
                   e.stopPropagation()
                   onNext(tab)
                   return
@@ -1011,26 +917,12 @@ export const ProductCreateForm = ({
                   case Tab.ORGANIZE:
                     fieldsToValidate = ["categories"]
                     break
-                  case Tab.ATTRIBUTES:
-                    fieldsToValidate = []
-                    break
-                  case Tab.VARIANTS:
-                    fieldsToValidate = ["variants", "options"]
-                    break
-                  case Tab.INVENTORY:
-                    break
                 }
 
                 if (fieldsToValidate.length > 0) {
                   const valid =
                     await form.trigger(fieldsToValidate)
                   if (!valid) return
-                } else if (tab === Tab.ATTRIBUTES) {
-                  if (attributesFormRef.current) {
-                    const valid =
-                      await attributesFormRef.current.validateAttributes()
-                    if (!valid) return
-                  }
                 }
 
                 if (currentIndex >= maxReachedIndex) {
@@ -1052,38 +944,15 @@ export const ProductCreateForm = ({
                     value={Tab.DETAILS}
                     className="max-w-[200px] truncate"
                   >
-                    {t("products.create.tabs.details")}
+                    上架资料
                   </ProgressTabs.Trigger>
                   <ProgressTabs.Trigger
                     status={tabState[Tab.ORGANIZE]}
                     value={Tab.ORGANIZE}
                     className="max-w-[200px] truncate"
                   >
-                    {t("products.create.tabs.organize")}
+                    归属设置
                   </ProgressTabs.Trigger>
-                  <ProgressTabs.Trigger
-                    status={tabState[Tab.ATTRIBUTES]}
-                    value={Tab.ATTRIBUTES}
-                    className="max-w-[200px] truncate"
-                  >
-                    {t("products.create.tabs.attributes")}
-                  </ProgressTabs.Trigger>
-                  <ProgressTabs.Trigger
-                    status={tabState[Tab.VARIANTS]}
-                    value={Tab.VARIANTS}
-                    className="max-w-[200px] truncate"
-                  >
-                    {t("products.create.tabs.variants")}
-                  </ProgressTabs.Trigger>
-                  {showInventoryTab && (
-                    <ProgressTabs.Trigger
-                      status={tabState[Tab.INVENTORY]}
-                      value={Tab.INVENTORY}
-                      className="max-w-[200px] truncate"
-                    >
-                      {t("products.create.tabs.inventory")}
-                    </ProgressTabs.Trigger>
-                  )}
                 </ProgressTabs.List>
               </div>
             </RouteFocusModal.Header>
@@ -1102,38 +971,6 @@ export const ProductCreateForm = ({
                   form={form as any}
                 />
               </ProgressTabs.Content>
-              <ProgressTabs.Content
-                className="size-full overflow-y-auto"
-                value={Tab.ATTRIBUTES}
-              >
-                <ProductCreateAttributesForm
-                  form={form as any}
-                  ref={attributesFormRef}
-                />
-              </ProgressTabs.Content>
-              <ProgressTabs.Content
-                className="size-full overflow-y-auto"
-                value={Tab.VARIANTS}
-              >
-                <ProductCreateVariantsForm
-                  form={form as any}
-                  store={store}
-                  regions={regions}
-                  pricePreferences={pricePreferences}
-                  onOpenMediaModal={onOpenMediaModal}
-                  productMedia={watchedMedia || []}
-                />
-              </ProgressTabs.Content>
-              {showInventoryTab && (
-                <ProgressTabs.Content
-                  className="size-full overflow-y-auto"
-                  value={Tab.INVENTORY}
-                >
-                  <ProductCreateInventoryKitForm
-                    form={form as any}
-                  />
-                </ProgressTabs.Content>
-              )}
             </RouteFocusModal.Body>
           </ProgressTabs>
           <RouteFocusModal.Footer>
@@ -1147,28 +984,16 @@ export const ProductCreateForm = ({
                 data-name={SAVE_DRAFT_BUTTON}
                 size="small"
                 type="submit"
-                onClick={() => {
-                  if (
-                    form.getValues("categories").length ===
-                      0 &&
-                    form.getValues("title")
-                  ) {
-                    onNext(Tab.DETAILS)
-                    return
-                  }
-                  handleSubmit()
-                }}
                 isLoading={isPending}
                 variant="secondary"
                 className="whitespace-nowrap"
               >
-                {t("actions.saveAsDraft")}
+                保存草稿
               </Button>
               <PrimaryButton
                 tab={tab}
                 next={onNext}
                 isLoading={isPending}
-                showInventoryTab={showInventoryTab}
               />
             </div>
           </RouteFocusModal.Footer>
@@ -1182,31 +1007,24 @@ type PrimaryButtonProps = {
   tab: Tab
   next: (tab: Tab) => void
   isLoading?: boolean
-  showInventoryTab: boolean
 }
 
 const PrimaryButton = ({
   tab,
   next,
   isLoading,
-  showInventoryTab,
 }: PrimaryButtonProps) => {
-  const { t } = useTranslation()
-
-  if (
-    (tab === Tab.VARIANTS && !showInventoryTab) ||
-    (tab === Tab.INVENTORY && showInventoryTab)
-  ) {
+  if (tab === Tab.ORGANIZE) {
     return (
       <Button
-        data-name="publish-button"
+        data-name="submit-review-button"
         key="submit-button"
         type="submit"
         variant="primary"
         size="small"
         isLoading={isLoading}
       >
-        {t("actions.publish")}
+        提交审核
       </Button>
     )
   }
@@ -1219,7 +1037,7 @@ const PrimaryButton = ({
       size="small"
       onClick={() => next(tab)}
     >
-      {t("actions.continue")}
+      继续
     </Button>
   )
 }

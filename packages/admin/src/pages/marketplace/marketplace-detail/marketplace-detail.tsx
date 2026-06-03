@@ -16,7 +16,7 @@ const Root = ({ children }: { children?: ReactNode }) => {
   })
 
   if (isPending || !store) {
-    return <SingleColumnPageSkeleton sections={2} showJSON showMetadata />
+    return <SingleColumnPageSkeleton sections={2} showJSON={false} showMetadata={false} />
   }
 
   if (isError) {
@@ -24,11 +24,11 @@ const Root = ({ children }: { children?: ReactNode }) => {
   }
 
   return Children.count(children) > 0 ? (
-    <SingleColumnPage data={store} hasOutlet showMetadata showJSON>
+    <SingleColumnPage data={store} hasOutlet showMetadata={false} showJSON={false}>
       {children}
     </SingleColumnPage>
   ) : (
-    <SingleColumnPage data={store} hasOutlet showMetadata showJSON>
+    <SingleColumnPage data={store} hasOutlet showMetadata={false} showJSON={false}>
       <MarketplaceGeneralSection store={store} />
       <MarketplaceCurrencySection store={store} />
     </SingleColumnPage>

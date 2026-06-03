@@ -1,35 +1,317 @@
-import { Input, Text, Textarea } from "@medusajs/ui"
-import { useTranslation } from "react-i18next"
+import { useEffect, useState, type ChangeEvent } from "react";
+import { Link } from "react-router-dom";
+import {
+  Button,
+  Input,
+  StatusBadge,
+  Text,
+  Textarea,
+  Tooltip,
+} from "@medusajs/ui";
+import {
+  CheckCircle,
+  CloudArrowUp,
+  ExclamationCircle,
+  InformationCircle,
+} from "@medusajs/icons";
 
-import { Form } from "@components/common/form"
-import { HandleInput } from "@components/inputs/handle-input"
-import { useTabbedForm } from "@components/tabbed-form"
-import { ProductCreateSchemaType } from "../../../types"
+import { Form } from "@components/common/form";
+import { useTabbedForm } from "@components/tabbed-form";
+import { uploadDijieRolePackageQuery } from "@lib/client";
+import { ProductCreateSchemaType } from "../../../types";
+
+const ROLE_PACKAGE_UPLOAD_ERROR_MESSAGE =
+  "资料包安全检查未通过，请回到主系统重新生成后再上传。";
+const ROLE_PACKAGE_REQUIRED_MESSAGE = "请先上传岗位资料包。";
+const ROLE_PACKAGE_INVALID_MESSAGE = "岗位资料包无法用于上架，请重新上传。";
+const DEFAULT_METERED_PRICE = "0";
+
+const ROLE_PACKAGE_STATUS_COLOR = {
+  检查中: "orange",
+  需处理: "red",
+  已就绪: "green",
+  待上传: "grey",
+} as const;
+
+const ROLE_PACKAGE_STEPS = [
+  "上传资料包",
+  "安全检查",
+  "身份回填",
+  "提交审核",
+] as const;
+
+type RolePackageStatus = keyof typeof ROLE_PACKAGE_STATUS_COLOR;
+
+type DeveloperModeStatusProps = {
+  ready: boolean;
+  running: boolean;
+};
+
+const DeveloperModeStatus = ({ ready, running }: DeveloperModeStatusProps) => {
+  const status = running ? "同步中" : ready ? "可提交" : "待资料包";
+
+  return (
+    <div className="flex flex-col gap-3 rounded-lg border border-ui-border-base bg-ui-bg-base px-4 py-3 shadow-elevation-card-rest md:flex-row md:items-center md:justify-between">
+      <div className="flex min-w-0 flex-col gap-y-1">
+        <div className="flex items-center gap-x-2">
+          <Text size="small" weight="plus">
+            开发者模式
+          </Text>
+          <StatusBadge color={ready ? "green" : running ? "orange" : "grey"}>
+            {status}
+          </StatusBadge>
+        </div>
+        <Text size="xsmall" className="text-ui-fg-subtle">
+          只描述岗位要完成的业务逻辑，资料包由主系统生成后上传。
+        </Text>
+      </div>
+      <Button size="small" variant="secondary" asChild>
+        <Link to="/products" title="查看岗位商品状态">
+          查看状态
+        </Link>
+      </Button>
+    </div>
+  );
+};
+
+const RolePackageUploadPanel = ({
+  disabled,
+  message,
+  messageClass,
+  ready,
+  running,
+  status,
+  onUpload,
+}: {
+  disabled: boolean;
+  message: string;
+  messageClass: string;
+  ready: boolean;
+  running: boolean;
+  status: RolePackageStatus;
+  onUpload: (event: ChangeEvent<HTMLInputElement>) => void;
+}) => {
+  return (
+    <div className="rounded-lg border border-ui-border-base bg-ui-bg-base shadow-elevation-card-rest">
+      <div className="flex items-start justify-between gap-4 border-b border-ui-border-base px-4 py-3">
+        <div className="flex min-w-0 flex-col gap-y-1">
+          <div className="flex items-center gap-x-2">
+            <Text size="small" weight="plus">
+              岗位资料包
+            </Text>
+            <Tooltip content="只接收主系统导出的公开资料包；不会展示原始内容。">
+              <InformationCircle className="text-ui-fg-muted" />
+            </Tooltip>
+          </div>
+          <Text size="xsmall" className={messageClass}>
+            {running ? "正在检查岗位资料包。" : message}
+          </Text>
+        </div>
+        <StatusBadge color={ROLE_PACKAGE_STATUS_COLOR[status]}>
+          {status}
+        </StatusBadge>
+      </div>
+
+      <div className="grid grid-cols-1 gap-3 px-4 py-4 md:grid-cols-4">
+        {ROLE_PACKAGE_STEPS.map((step, index) => {
+          const complete = ready && index < 3;
+          const active = running && index === 1;
+          return (
+            <div
+              key={step}
+              className="flex min-h-12 items-center gap-x-2 rounded-md border border-ui-border-base bg-ui-bg-subtle px-3"
+            >
+              {complete ? (
+                <CheckCircle className="text-ui-tag-green-icon" />
+              ) : active ? (
+                <InformationCircle className="text-ui-tag-orange-icon" />
+              ) : (
+                <span className="flex size-4 rounded-full border border-ui-border-strong" />
+              )}
+              <Text size="small" weight="plus">
+                {step}
+              </Text>
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="flex flex-col gap-3 border-t border-ui-border-base px-4 py-4 md:flex-row md:items-center md:justify-between">
+        <div className="flex items-center gap-x-2 text-ui-fg-subtle">
+          {status === "需处理" ? (
+            <ExclamationCircle className="text-ui-tag-red-icon" />
+          ) : (
+            <CloudArrowUp />
+          )}
+          <Text size="small">上传后只显示检查状态和上架所需摘要。</Text>
+        </div>
+        <Button size="small" variant="secondary" asChild disabled={disabled}>
+          <label className="cursor-pointer">
+            {running ? "检查中" : ready ? "重新上传" : "选择资料包"}
+            <input
+              className="sr-only"
+              type="file"
+              multiple
+              {...({ webkitdirectory: "", directory: "" } as Record<
+                string,
+                string
+              >)}
+              disabled={disabled}
+              onChange={onUpload}
+            />
+          </label>
+        </Button>
+      </div>
+    </div>
+  );
+};
 
 export const ProductCreateGeneralSection = () => {
-  const { t } = useTranslation()
-  const form = useTabbedForm<ProductCreateSchemaType>()
+  const form = useTabbedForm<ProductCreateSchemaType>();
+  const [rolePackageUpload, setRolePackageUpload] = useState<{
+    running: boolean;
+    message?: string;
+    error?: string;
+  }>({ running: false });
+
+  useEffect(() => {
+    const hiddenPriceFields = [
+      "role_input_token_price_cents_per_million",
+      "role_output_token_price_cents_per_million",
+    ] as const;
+
+    hiddenPriceFields.forEach((fieldName) => {
+      if (!form.getValues(fieldName)) {
+        form.setValue(fieldName, DEFAULT_METERED_PRICE, {
+          shouldDirty: false,
+          shouldValidate: true,
+        });
+      }
+    });
+  }, [form]);
+
+  const usagePrice = form.watch("role_output_token_price_cents_per_million");
+
+  useEffect(() => {
+    form.setValue(
+      "role_input_token_price_cents_per_million",
+      usagePrice || DEFAULT_METERED_PRICE,
+      {
+        shouldDirty: false,
+        shouldValidate: true,
+      },
+    );
+  }, [form, usagePrice]);
+
+  const rolePackageReady = Boolean(
+    form.watch("role_package_id") && form.watch("role_package_version"),
+  );
+  const rolePackageValidationError =
+    form.formState.errors.role_package_id ||
+    form.formState.errors.role_package_version ||
+    form.formState.errors.role_manifest_ref;
+  const rolePackageMessage =
+    rolePackageUpload.error ||
+    (rolePackageValidationError
+      ? form.formState.errors.role_manifest_ref
+        ? ROLE_PACKAGE_INVALID_MESSAGE
+        : ROLE_PACKAGE_REQUIRED_MESSAGE
+      : rolePackageUpload.message ||
+        (rolePackageReady ? "资料包已就绪。" : "上传主系统导出的岗位资料包。"));
+  const rolePackageStatus: RolePackageStatus = rolePackageUpload.running
+    ? "检查中"
+    : rolePackageUpload.error || rolePackageValidationError
+      ? "需处理"
+      : rolePackageReady
+        ? "已就绪"
+        : "待上传";
+  const rolePackageMessageClass =
+    rolePackageUpload.error || rolePackageValidationError
+      ? "text-ui-fg-error"
+      : "text-ui-fg-subtle";
+
+  const handleRolePackageUpload = async (
+    event: ChangeEvent<HTMLInputElement>,
+  ) => {
+    const selectedFiles = Array.from(event.currentTarget.files ?? []);
+    if (selectedFiles.length === 0 || rolePackageUpload.running) {
+      return;
+    }
+
+    setRolePackageUpload({ running: true });
+    try {
+      const files = await Promise.all(
+        selectedFiles.map(async (file) => {
+          const fileWithDirectory = file as File & {
+            webkitRelativePath?: string;
+          };
+          const path =
+            fileWithDirectory.webkitRelativePath || `role_package/${file.name}`;
+
+          return {
+            path,
+            sizeBytes: file.size,
+            content: await file.text(),
+          };
+        }),
+      );
+      const result = await uploadDijieRolePackageQuery(files);
+      const uploadedPackage = (result as any)?.package;
+      if (!uploadedPackage?.packageId || !uploadedPackage?.packageVersion) {
+        throw new Error("岗位包上传返回不完整");
+      }
+
+      form.setValue("role_package_id", uploadedPackage.packageId, {
+        shouldDirty: true,
+        shouldValidate: true,
+      });
+      form.setValue("role_package_version", uploadedPackage.packageVersion, {
+        shouldDirty: true,
+        shouldValidate: true,
+      });
+      const manifestRef = uploadedPackage.manifestSummary?.manifestRef;
+      if (manifestRef) {
+        form.setValue("role_manifest_ref", manifestRef, {
+          shouldDirty: true,
+          shouldValidate: true,
+        });
+      }
+      setRolePackageUpload({
+        running: false,
+        message: "资料包已就绪。",
+      });
+    } catch {
+      setRolePackageUpload({
+        running: false,
+        error: ROLE_PACKAGE_UPLOAD_ERROR_MESSAGE,
+      });
+    } finally {
+      event.currentTarget.value = "";
+    }
+  };
 
   return (
     <div id="general" className="flex flex-col gap-y-6">
       <div className="flex flex-col gap-y-2">
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           <Form.Field
             control={form.control}
             name="title"
             render={({ field }) => {
               return (
                 <Form.Item>
-                  <Form.Label>{t("products.fields.title.label")}</Form.Label>
+                  <Form.Label>岗位名称</Form.Label>
                   <Form.Control>
                     <Input
                       {...field}
-                      placeholder={t("products.fields.title.placeholder")}
+                      placeholder="例如：客户线索质检专员"
                     />
                   </Form.Control>
-                  <Form.ErrorMessage>{form.formState.errors.title?.message}</Form.ErrorMessage>
+                  <Form.ErrorMessage>
+                    {form.formState.errors.title?.message}
+                  </Form.ErrorMessage>
                 </Form.Item>
-              )
+              );
             }}
           />
           <Form.Field
@@ -38,41 +320,23 @@ export const ProductCreateGeneralSection = () => {
             render={({ field }) => {
               return (
                 <Form.Item>
-                  <Form.Label optional>
-                    {t("products.fields.subtitle.label")}
-                  </Form.Label>
+                  <Form.Label optional>一句话定位</Form.Label>
                   <Form.Control>
                     <Input
                       {...field}
-                      placeholder={t("products.fields.subtitle.placeholder")}
+                      placeholder="说明这个岗位适合解决什么业务问题"
                     />
                   </Form.Control>
                 </Form.Item>
-              )
+              );
             }}
           />
           <Form.Field
             control={form.control}
             name="handle"
-            render={({ field }) => {
-              return (
-                <Form.Item>
-                  <Form.Label
-                    tooltip={t("products.fields.handle.tooltip")}
-                    optional
-                  >
-                    {t("fields.handle")}
-                  </Form.Label>
-                  <Form.Control>
-                    <HandleInput
-                      {...field}
-                      placeholder={t("products.fields.handle.placeholder")}
-                    />
-                  </Form.Control>
-                  <Form.ErrorMessage>{form.formState.errors.handle?.message}</Form.ErrorMessage>
-                </Form.Item>
-              )
-            }}
+            render={({ field }) => (
+              <input {...field} type="hidden" value={field.value ?? ""} />
+            )}
           />
         </div>
       </div>
@@ -82,66 +346,63 @@ export const ProductCreateGeneralSection = () => {
         render={({ field }) => {
           return (
             <Form.Item>
-              <Form.Label optional>
-                {t("products.fields.description.label")}
-              </Form.Label>
+              <Form.Label optional>业务说明</Form.Label>
               <Form.Control>
                 <Textarea
                   {...field}
-                  placeholder={t("products.fields.description.placeholder")}
+                  placeholder="用开发者自己的语言说明岗位会处理哪些输入、输出什么结果。"
                 />
               </Form.Control>
             </Form.Item>
-          )
+          );
         }}
       />
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        <div className="md:col-span-2">
-          <Text size="small" className="text-ui-fg-subtle">
-            开发者中心只填写已有岗位包的公开上架资料；开发者模式是主系统同一聊天框内的工作阶段，业务逻辑由主系统处理，不在云端 metadata 保存 modeStage、提示词、聊天记录或私有 workspace 上下文。
-          </Text>
-        </div>
         <Form.Field
           control={form.control}
           name="role_package_id"
-          render={({ field }) => {
-            return (
-              <Form.Item>
-                <Form.Label>岗位包 ID</Form.Label>
-                <Form.Control>
-                  <Input {...field} placeholder="pkg_customer_quality" />
-                </Form.Control>
-                <Form.ErrorMessage>
-                  {form.formState.errors.role_package_id?.message}
-                </Form.ErrorMessage>
-              </Form.Item>
-            )
-          }}
+          render={({ field }) => (
+            <input {...field} type="hidden" value={field.value ?? ""} />
+          )}
         />
         <Form.Field
           control={form.control}
           name="role_package_version"
-          render={({ field }) => {
-            return (
-              <Form.Item>
-                <Form.Label>岗位包版本</Form.Label>
-                <Form.Control>
-                  <Input {...field} placeholder="0.1.0" />
-                </Form.Control>
-                <Form.ErrorMessage>
-                  {form.formState.errors.role_package_version?.message}
-                </Form.ErrorMessage>
-              </Form.Item>
-            )
-          }}
+          render={({ field }) => (
+            <input {...field} type="hidden" value={field.value ?? ""} />
+          )}
         />
+        <Form.Field
+          control={form.control}
+          name="role_manifest_ref"
+          render={({ field }) => (
+            <input {...field} type="hidden" value={field.value ?? ""} />
+          )}
+        />
+        <div className="md:col-span-2">
+          <RolePackageUploadPanel
+            disabled={rolePackageUpload.running}
+            message={rolePackageMessage}
+            messageClass={rolePackageMessageClass}
+            ready={rolePackageReady}
+            running={rolePackageUpload.running}
+            status={rolePackageStatus}
+            onUpload={handleRolePackageUpload}
+          />
+        </div>
+        <div className="md:col-span-2">
+          <DeveloperModeStatus
+            ready={rolePackageReady}
+            running={rolePackageUpload.running}
+          />
+        </div>
         <Form.Field
           control={form.control}
           name="role_authorization_fee_yuan"
           render={({ field }) => {
             return (
               <Form.Item>
-                <Form.Label>一次授权费（元）</Form.Label>
+                <Form.Label>授权费（元）</Form.Label>
                 <Form.Control>
                   <Input {...field} inputMode="decimal" placeholder="299.00" />
                 </Form.Control>
@@ -149,29 +410,7 @@ export const ProductCreateGeneralSection = () => {
                   {form.formState.errors.role_authorization_fee_yuan?.message}
                 </Form.ErrorMessage>
               </Form.Item>
-            )
-          }}
-        />
-        <Form.Field
-          control={form.control}
-          name="role_input_token_price_cents_per_million"
-          render={({ field }) => {
-            return (
-              <Form.Item>
-                <Form.Label>输入 Token 单价（分/百万）</Form.Label>
-                <Form.Control>
-                  <Input
-                    {...field}
-                    inputMode="numeric"
-                    pattern="[0-9]*"
-                    placeholder="0"
-                  />
-                </Form.Control>
-                <Form.ErrorMessage>
-                  {form.formState.errors.role_input_token_price_cents_per_million?.message}
-                </Form.ErrorMessage>
-              </Form.Item>
-            )
+            );
           }}
         />
         <Form.Field
@@ -180,54 +419,39 @@ export const ProductCreateGeneralSection = () => {
           render={({ field }) => {
             return (
               <Form.Item>
-                <Form.Label>输出 Token 单价（分/百万）</Form.Label>
+                <Form.Label>调用单价（分/百万次计量）</Form.Label>
                 <Form.Control>
-                  <Input
-                    {...field}
-                    inputMode="numeric"
-                    pattern="[0-9]*"
-                    placeholder="0"
-                  />
+                  <Input {...field} inputMode="numeric" placeholder="0" />
                 </Form.Control>
                 <Form.ErrorMessage>
-                  {form.formState.errors.role_output_token_price_cents_per_million?.message}
+                  {
+                    form.formState.errors
+                      .role_output_token_price_cents_per_million?.message
+                  }
                 </Form.ErrorMessage>
               </Form.Item>
-            )
+            );
           }}
+        />
+        <Form.Field
+          control={form.control}
+          name="role_input_token_price_cents_per_million"
+          render={({ field }) => (
+            <input
+              {...field}
+              type="hidden"
+              value={field.value ?? DEFAULT_METERED_PRICE}
+            />
+          )}
         />
       </div>
       <Form.Field
         control={form.control}
-        name="role_manifest_ref"
-        render={({ field }) => {
-          return (
-            <Form.Item>
-              <Form.Label optional>岗位包清单</Form.Label>
-              <Form.Control>
-                <Input {...field} placeholder="role_package/manifest.json" />
-              </Form.Control>
-              <Form.ErrorMessage>
-                {form.formState.errors.role_manifest_ref?.message}
-              </Form.ErrorMessage>
-            </Form.Item>
-          )
-        }}
-      />
-      <Form.Field
-        control={form.control}
         name="role_capabilities"
-        render={({ field }) => {
-          return (
-            <Form.Item>
-              <Form.Label optional>岗位能力</Form.Label>
-              <Form.Control>
-                <Textarea {...field} placeholder="资料处理, 自动化执行" />
-              </Form.Control>
-            </Form.Item>
-          )
-        }}
+        render={({ field }) => (
+          <input {...field} type="hidden" value={field.value ?? ""} />
+        )}
       />
     </div>
-  )
-}
+  );
+};

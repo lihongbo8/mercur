@@ -5,9 +5,6 @@ import {
   ProductListHeader,
   ProductListTitle,
   ProductListActions,
-  ProductListCreateButton,
-  ProductListExportButton,
-  ProductListImportButton,
   ProductListDataTable,
 } from "./components/product-list-table"
 
@@ -26,8 +23,5 @@ export const ProductListPage = Object.assign(Root, {
   Header: ProductListHeader,
   HeaderTitle: ProductListTitle,
   HeaderActions: ProductListActions,
-  HeaderCreateButton: ProductListCreateButton,
-  HeaderExportButton: ProductListExportButton,
-  HeaderImportButton: ProductListImportButton,
   DataTable: ProductListDataTable,
 })

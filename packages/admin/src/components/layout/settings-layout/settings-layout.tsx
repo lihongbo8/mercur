@@ -11,8 +11,6 @@ import { type INavItem, NavItem } from "@components/layout/nav-item";
 import { Shell } from "@components/layout/shell";
 import { UserMenu } from "@components/layout/user-menu";
 import components from "virtual:mercur/components";
-import menuItemsModule from "virtual:mercur/menu-items";
-import { getMenuItemsByType } from "../../../utils/routes";
 
 export const SettingsLayout = () => {
   const Sidebar = components.SettingsSidebar
@@ -26,105 +24,20 @@ export const SettingsLayout = () => {
   );
 };
 
-const allMenuItems = menuItemsModule.menuItems ?? [];
-const customSettingsItems = getMenuItemsByType(allMenuItems, "settings");
-const extensionNavItems: INavItem[] = customSettingsItems
-  .sort((a, b) => (a.rank ?? 0) - (b.rank ?? 0))
-  .map((item) => ({
-    label: item.label,
-    to: item.path,
-    translationNs: item.translationNs,
-  }));
-
 const useSettingRoutes = (): INavItem[] => {
-  const { t } = useTranslation();
-
   return useMemo(
     () => [
       {
-        label: t("marketplace.domain"),
+        label: "审核设置",
         to: "/settings/marketplace",
       },
-      {
-        label: t("users.domain"),
-        to: "/settings/users",
-      },
-      {
-        label: t("regions.domain"),
-        to: "/settings/regions",
-      },
-      {
-        label: t("taxRegions.domain"),
-        to: "/settings/tax-regions",
-      },
-      {
-        label: t("returnReasons.domain"),
-        to: "/settings/return-reasons",
-      },
-      {
-        label: t("refundReasons.domain"),
-        to: "/settings/refund-reasons",
-      },
-      {
-        label: t("salesChannels.domain"),
-        to: "/settings/sales-channels",
-      },
-      {
-        label: t("productTypes.domain"),
-        to: "/settings/product-types",
-      },
-      {
-        label: t("productTags.domain"),
-        to: "/settings/product-tags",
-      },
-      {
-        label: t("attributes.domain"),
-        to: "/settings/attributes",
-      },
-      {
-        label: t("stockLocations.domain"),
-        to: "/settings/locations",
-      },
-      {
-        label: t("commissionRates.domain"),
-        to: "/settings/commission-rates",
-      },
-      ...extensionNavItems,
     ],
-    [t],
-  );
-};
-
-const useDeveloperRoutes = (): INavItem[] => {
-  const { t } = useTranslation();
-
-  return useMemo(
-    () => [
-      {
-        label: t("apiKeyManagement.domain.publishable"),
-        to: "/settings/publishable-api-keys",
-      },
-      {
-        label: t("apiKeyManagement.domain.secret"),
-        to: "/settings/secret-api-keys",
-      },
-    ],
-    [t],
+    [],
   );
 };
 
 const useMyAccountRoutes = (): INavItem[] => {
-  const { t } = useTranslation();
-
-  return useMemo(
-    () => [
-      {
-        label: t("profile.domain"),
-        to: "/settings/profile",
-      },
-    ],
-    [t],
-  );
+  return useMemo(() => [], []);
 };
 
 /**
@@ -133,7 +46,7 @@ const useMyAccountRoutes = (): INavItem[] => {
  */
 const getSafeFromValue = (from: string) => {
   if (from.startsWith("/settings")) {
-    return "/orders";
+    return "/products";
   }
 
   return from;
@@ -141,7 +54,6 @@ const getSafeFromValue = (from: string) => {
 
 const SettingsSidebar = () => {
   const routes = useSettingRoutes();
-  const developerRoutes = useDeveloperRoutes();
   const myAccountRoutes = useMyAccountRoutes();
 
   const { t } = useTranslation();
@@ -163,17 +75,12 @@ const SettingsSidebar = () => {
           <div className="flex items-center justify-center px-3">
             <Divider variant="dashed" />
           </div>
-          <RadixCollapsibleSection
-            label={t("app.nav.settings.developer")}
-            items={developerRoutes}
-          />
-          <div className="flex items-center justify-center px-3">
-            <Divider variant="dashed" />
-          </div>
-          <RadixCollapsibleSection
-            label={t("app.nav.settings.myAccount")}
-            items={myAccountRoutes}
-          />
+          {myAccountRoutes.length > 0 && (
+            <RadixCollapsibleSection
+              label={t("app.nav.settings.myAccount")}
+              items={myAccountRoutes}
+            />
+          )}
         </div>
         <div className="sticky bottom-0 bg-ui-bg-subtle">
           <UserSection />
@@ -184,7 +91,7 @@ const SettingsSidebar = () => {
 };
 
 const Header = () => {
-  const [from, setFrom] = useState("/orders");
+  const [from, setFrom] = useState("/products");
 
   const { t } = useTranslation();
   const location = useLocation();

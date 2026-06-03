@@ -1,11 +1,8 @@
 import {
-  BookOpen,
   CircleHalfSolid,
   EllipsisHorizontal,
   Keyboard,
   OpenRectArrowOut,
-  TimelineVertical,
-  User as UserIcon,
   XMark,
 } from "@medusajs/icons"
 import {
@@ -24,7 +21,7 @@ import { useTranslation } from "react-i18next"
 import { Skeleton } from "../../common/skeleton"
 
 import { useState } from "react"
-import { Link, useLocation, useNavigate } from "react-router-dom"
+import { useNavigate } from "react-router-dom"
 import { useLogout, useMe } from "../../../hooks/api"
 import { queryClient } from "../../../lib/query-client"
 import { useGlobalShortcuts } from "../../../providers/keybind-provider/hooks"
@@ -33,7 +30,6 @@ import { useDocumentDirection } from "../../../hooks/use-document-direction"
 
 export const UserMenu = () => {
   const { t } = useTranslation()
-  const location = useLocation()
   const direction = useDocumentDirection()
 
   const [openMenu, setOpenMenu] = useState(false)
@@ -51,32 +47,12 @@ export const UserMenu = () => {
         <DropdownMenu.Content className="min-w-[var(--radix-dropdown-menu-trigger-width)] max-w-[var(--radix-dropdown-menu-trigger-width)]" data-testid="sidebar-user-menu-content">
           <UserItem />
           <DropdownMenu.Separator data-testid="sidebar-user-menu-separator-1" />
-          <DropdownMenu.Item asChild data-testid="sidebar-user-menu-profile-settings">
-            <Link to="/settings/profile" state={{ from: location.pathname }}>
-              <UserIcon className="text-ui-fg-subtle me-2" />
-              {t("app.menus.user.profileSettings")}
-            </Link>
-          </DropdownMenu.Item>
-          <DropdownMenu.Separator data-testid="sidebar-user-menu-separator-2" />
-          <DropdownMenu.Item asChild data-testid="sidebar-user-menu-documentation">
-            <Link to="https://docs.mercurjs.com/welcome" target="_blank">
-              <BookOpen className="text-ui-fg-subtle me-2" />
-              {t("app.menus.user.documentation")}
-            </Link>
-          </DropdownMenu.Item>
-          <DropdownMenu.Item asChild data-testid="sidebar-user-menu-changelog">
-            <Link to="https://www.mercurjs.com/updates" target="_blank">
-              <TimelineVertical className="text-ui-fg-subtle me-2" />
-              {t("app.menus.user.changelog")}
-            </Link>
-          </DropdownMenu.Item>
-          <DropdownMenu.Separator data-testid="sidebar-user-menu-separator-3" />
           <DropdownMenu.Item onClick={toggleModal} data-testid="sidebar-user-menu-shortcuts">
             <Keyboard className="text-ui-fg-subtle me-2" />
             {t("app.menus.user.shortcuts")}
           </DropdownMenu.Item>
           <ThemeToggle />
-          <DropdownMenu.Separator data-testid="sidebar-user-menu-separator-4" />
+          <DropdownMenu.Separator data-testid="sidebar-user-menu-separator-3" />
           <Logout />
         </DropdownMenu.Content>
       </DropdownMenu>

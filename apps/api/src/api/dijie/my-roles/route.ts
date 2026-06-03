@@ -3,12 +3,6 @@ import { listDijieInstalledRoles } from "../../../lib/dijie/role-listings";
 
 type UnknownRecord = Record<string, unknown>;
 
-function asRecord(value: unknown): UnknownRecord {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as UnknownRecord)
-    : {};
-}
-
 function stringField(record: UnknownRecord, field: string): string | undefined {
   const value = record[field];
   return typeof value === "string" && value.trim() ? value.trim() : undefined;

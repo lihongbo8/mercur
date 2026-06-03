@@ -142,7 +142,7 @@ export type Routes = {
             $id: typeof import("@medusajs/medusa/api/admin/invites/[id]/route") & {
                 resend: typeof import("@medusajs/medusa/api/admin/invites/[id]/resend/route");
             };
-            accept: typeof import("@mercurjs/core/api/admin/invites/accept/route");
+            accept: typeof import("@medusajs/medusa/api/admin/invites/accept/route");
         };
         locales: typeof import("@medusajs/medusa/api/admin/locales/route") & {
             $code: typeof import("@medusajs/medusa/api/admin/locales/[code]/route");
@@ -695,5 +695,20 @@ export type Routes = {
             };
         };
         uploads: typeof import("@mercurjs/core/api/vendor/uploads/route");
+        dijie: {
+            rolePackages: typeof import("../../src/api/vendor/dijie/role-packages/route");
+        };
+    };
+    dijie: {
+        audit: typeof import("../../src/api/dijie/audit/route");
+        entitlements: {
+            verify: typeof import("../../src/api/dijie/entitlements/verify/route");
+        };
+        executionToken: typeof import("../../src/api/dijie/execution-token/route");
+        executions: {
+            $executionId: typeof import("../../src/api/dijie/executions/[executionId]/route");
+        };
+        myRoles: typeof import("../../src/api/dijie/my-roles/route");
+        roles: typeof import("../../src/api/dijie/roles/route");
     };
 };

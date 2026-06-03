@@ -1,15 +1,11 @@
 import {
   Buildings,
-  CogSixTooth,
-  CurrencyDollar,
-  CreditCardRefresh,
+  CloudArrowUp,
   EllipsisHorizontal,
   MagnifyingGlass,
   Plus,
-  ReceiptPercent,
-  ShoppingCart,
   Tag,
-  Users,
+  User,
 } from "@medusajs/icons";
 import { Avatar, Divider, DropdownMenu, Text, clx } from "@medusajs/ui";
 import { useTranslation } from "react-i18next";
@@ -18,7 +14,7 @@ import { Skeleton } from "../../common/skeleton";
 import { INavItem, NavItem } from "../../layout/nav-item";
 import { Shell } from "../../layout/shell";
 
-import { useLocation, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { useMe, useSelectSeller, useSellers } from "../../../hooks/api";
 import { useSearch } from "../../../providers/search-provider";
 import { UserMenu } from "../user-menu";
@@ -253,73 +249,36 @@ export const Header = () => {
 };
 
 export const useCoreRoutes = (): Omit<INavItem, "pathname">[] => {
-  const { t } = useTranslation();
-
   return [
     {
-      icon: <ShoppingCart />,
-      label: t("orders.domain"),
-      to: "/orders",
-      items: [
-        // TODO: Enable when domin is introduced
-        // {
-        //   label: t("draftOrders.domain"),
-        //   to: "/draft-orders",
-        // },
-      ],
+      icon: <Tag />,
+      label: "岗位商品",
+      to: "/products",
+    },
+    {
+      icon: <CloudArrowUp />,
+      label: "上传岗位",
+      to: "/products/create",
     },
     {
       icon: <Tag />,
-      label: t("products.domain"),
-      to: "/products",
-      items: [
-        {
-          label: t("collections.domain"),
-          to: "/collections",
-        },
-        {
-          label: t("categories.domain"),
-          to: "/categories",
-        },
-        // TODO: Enable when domin is introduced
-        // {
-        //   label: t("giftCards.domain"),
-        //   to: "/gift-cards",
-        // },
-      ],
+      label: "销售记录",
+      to: "/orders",
     },
     {
       icon: <Buildings />,
-      label: t("inventory.domain"),
-      to: "/inventory",
-      items: [],
-    },
-    {
-      icon: <Users />,
-      label: t("customers.domain"),
-      to: "/customers",
-      items: [],
-    },
-    {
-      icon: <ReceiptPercent />,
-      label: t("promotions.domain"),
-      to: "/promotions",
-      items: [
-        {
-          label: t("campaigns.domain"),
-          to: "/campaigns",
-        },
-      ],
-    },
-    {
-      icon: <CurrencyDollar />,
-      label: t("priceLists.domain"),
-      to: "/price-lists",
-    },
-    {
-      icon: <CreditCardRefresh />,
-      label: t("payouts.domain"),
+      label: "结算记录",
       to: "/payouts",
+    },
+    {
+      icon: <User />,
+      label: "开发者资料",
+      to: "/settings/profile",
+    },
+    {
+      icon: <Buildings />,
+      label: "工具资源",
+      to: "/tool-resources",
     },
   ];
 };
@@ -353,19 +312,8 @@ const Searchbar = () => {
 };
 
 const UtilitySection = () => {
-  const location = useLocation();
-  const { t } = useTranslation();
-
   return (
     <div className="flex flex-col">
-      <div className="flex flex-col gap-y-0.5 py-3">
-        <NavItem
-          label={t("app.nav.settings.header")}
-          to="/settings"
-          from={location.pathname}
-          icon={<CogSixTooth />}
-        />
-      </div>
       <div className="px-3">
         <Divider variant="dashed" />
       </div>

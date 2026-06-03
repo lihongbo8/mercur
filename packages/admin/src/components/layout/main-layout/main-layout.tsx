@@ -1,16 +1,9 @@
 import {
   BuildingStorefront,
-  Buildings,
   CogSixTooth,
-  CreditCardRefresh,
-  CurrencyDollar,
   EllipsisHorizontal,
-  MagnifyingGlass,
   OpenRectArrowOut,
-  ReceiptPercent,
-  ShoppingCart,
   Tag,
-  Users,
 } from "@medusajs/icons";
 import { Avatar, Divider, DropdownMenu, Text, clx } from "@medusajs/ui";
 
@@ -21,7 +14,6 @@ import { useLogout } from "../../../hooks/api";
 import { useStore } from "../../../hooks/api/store";
 import { useDocumentDirection } from "../../../hooks/use-document-direction";
 import { queryClient } from "../../../lib/query-client";
-import { useSearch } from "../../../providers/search-provider";
 import { Skeleton } from "../../common/skeleton";
 import { INavItem, NavItem } from "../../layout/nav-item";
 import { Shell } from "../../layout/shell";
@@ -99,7 +91,6 @@ const MainSidebar = () => {
               className="flex flex-col gap-y-1 py-3"
               data-testid="sidebar-core-routes"
             >
-              <Searchbar />
               {routesWithNested.map((route) => {
                 return <NavItem key={route.to} {...route} />;
               })}
@@ -266,119 +257,19 @@ const Header = () => {
 };
 
 const useCoreRoutes = (): Omit<INavItem, "pathname">[] => {
-  const { t } = useTranslation();
-
   return [
     {
-      icon: <ShoppingCart />,
-      label: t("orders.domain"),
-      to: "/orders",
-      items: [
-        // TODO: Enable when domin is introduced
-        // {
-        //   label: t("draftOrders.domain"),
-        //   to: "/draft-orders",
-        // },
-      ],
-    },
-    {
       icon: <Tag />,
-      label: t("products.domain"),
+      label: "审核中心",
       to: "/products",
       items: [
         {
-          label: t("collections.domain"),
-          to: "/collections",
-        },
-        {
-          label: t("categories.domain"),
-          to: "/categories",
-        },
-        // TODO: Enable when domin is introduced
-        // {
-        //   label: t("giftCards.domain"),
-        //   to: "/gift-cards",
-        // },
-      ],
-    },
-    {
-      icon: <Buildings />,
-      label: t("inventory.domain"),
-      to: "/inventory",
-      items: [
-        {
-          label: t("reservations.domain"),
-          to: "/reservations",
+          label: "岗位审核",
+          to: "/products",
         },
       ],
-    },
-    {
-      icon: <Users />,
-      label: t("customers.domain"),
-      to: "/customers",
-      items: [
-        {
-          label: t("customerGroups.domain"),
-          to: "/customer-groups",
-        },
-      ],
-    },
-    {
-      icon: <ReceiptPercent />,
-      label: t("promotions.domain"),
-      to: "/promotions",
-      items: [
-        {
-          label: t("campaigns.domain"),
-          to: "/campaigns",
-        },
-      ],
-    },
-    {
-      icon: <CurrencyDollar />,
-      label: t("priceLists.domain"),
-      to: "/price-lists",
-    },
-    {
-      icon: <BuildingStorefront />,
-      label: t("stores.domain"),
-      to: "/stores",
-    },
-    {
-      icon: <CreditCardRefresh />,
-      label: t("payouts.domain"),
-      to: "/payouts",
     },
   ];
-};
-
-const Searchbar = () => {
-  const { t } = useTranslation();
-  const { toggleSearch } = useSearch();
-
-  return (
-    <div className="px-3" data-testid="sidebar-search">
-      <button
-        onClick={toggleSearch}
-        className={clx(
-          "flex w-full items-center gap-x-2.5 rounded-md bg-ui-bg-subtle px-2 py-1 text-ui-fg-subtle outline-none",
-          "hover:bg-ui-bg-subtle-hover",
-          "focus-visible:shadow-borders-focus",
-        )}
-        data-testid="sidebar-search-button"
-      >
-        <MagnifyingGlass />
-        <div className="flex-1 text-start">
-          <Text size="small" leading="compact" weight="plus">
-            {t("app.search.label")}
-          </Text>
-        </div>
-        <Text size="small" leading="compact" className="text-ui-fg-muted">
-          ⌘K
-        </Text>
-      </button>
-    </div>
-  );
 };
 
 const UtilitySection = () => {

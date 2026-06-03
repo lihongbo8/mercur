@@ -4,6 +4,12 @@ import {
   DIJIE_AUDIT_MODULE,
 } from "../../../../lib/dijie/audit-store";
 import type { DijieAuditRecord } from "../../../../lib/dijie/audit-summary";
+import {
+  createDijieRoleCapabilityProfileStorageRecord,
+  createDijieRoleFeedbackPacketStorageRecord,
+  type DijieRoleCapabilityProfile,
+  type DijieRoleFeedbackPacket,
+} from "../../../../lib/dijie/scheduler-backbone-store";
 import { GET } from "./route";
 
 type TestResponse = {
@@ -53,7 +59,10 @@ function request(
   };
 }
 
-function queryRequest(data: unknown[]) {
+function queryRequest(
+  data: unknown[],
+  schedulerData: Record<string, unknown[]> = {},
+) {
   return {
     params: {
       executionId: "exec_123",
@@ -65,14 +74,17 @@ function queryRequest(data: unknown[]) {
       resolve(name: string) {
         if (name === "query") {
           return {
-            async graph(input: { entity: string; filters: { execution_id: string } }) {
-              expect(input).toMatchObject({
-                entity: "dijie_audit_record",
-                filters: {
-                  execution_id: "exec_123",
-                },
-              });
-              return { data };
+            async graph(input: { entity: string; filters: Record<string, unknown> }) {
+              if (input.entity === "dijie_audit_record") {
+                expect(input).toMatchObject({
+                  entity: "dijie_audit_record",
+                  filters: {
+                    execution_id: "exec_123",
+                  },
+                });
+                return { data };
+              }
+              return { data: schedulerData[input.entity] ?? [] };
             },
           };
         }
@@ -187,6 +199,90 @@ const record: DijieAuditRecord = {
   },
 };
 
+const feedbackPacket: DijieRoleFeedbackPacket = {
+  packetVersion: 1,
+  packetId: "packet_123",
+  mode: "authorized_execution",
+  producedAt: "2026-05-31T08:02:30.000Z",
+  role: {
+    packageId: "pkg_role_123",
+    packageVersion: "1.0.0",
+    roleListingId: "role_123",
+    developerRef: "dev_001",
+  },
+  schedulerContext: {
+    executionId: "exec_123",
+    entitlementId: "ent_123",
+    deviceId: "device_123",
+    workspaceRef: "workspace_123",
+    localGatewayId: "gateway_123",
+  },
+  status: "completed",
+  startedAt: "2026-05-31T08:00:00.000Z",
+  endedAt: "2026-05-31T08:02:00.000Z",
+  summary: "Role completed validation without unsafe package metadata.",
+  changedFiles: ["role_package/manifest.json"],
+  artifacts: [
+    {
+      id: "artifact_456",
+      type: "role_feedback",
+      title: "Feedback summary",
+      sizeBytes: 512,
+    },
+  ],
+  toolUsage: {
+    shellCommands: 0,
+    filesRead: 2,
+    testsRun: 1,
+    filesChanged: 1,
+  },
+  riskEvents: [
+    {
+      level: "low",
+      category: "privacy_check",
+      summary: "No private execution context was exposed.",
+      requiresHumanConfirmation: false,
+    },
+  ],
+  evolutionSuggestions: [
+    {
+      target: "capability_rubric",
+      summary: "Record manifest validation as a capability signal.",
+      evidenceRefs: ["packet_123"],
+    },
+  ],
+};
+
+const capabilityProfile: DijieRoleCapabilityProfile = {
+  profileVersion: 1,
+  packageId: "pkg_role_123",
+  packageVersion: "1.0.0",
+  roleListingId: "role_123",
+  updatedAt: "2026-05-31T08:03:00.000Z",
+  overallScore: 88,
+  capabilities: [
+    {
+      name: "manifest_validation",
+      score: 92,
+      evidenceCount: 1,
+    },
+  ],
+  failureModes: [
+    {
+      code: "missing_artifact",
+      summary: "Fails closed when an artifact is absent.",
+      occurrences: 1,
+    },
+  ],
+  dispatchHints: ["Use after package upload."],
+  evaluatorAdapters: {
+    agentevals: "planned",
+    deepeval: "not_configured",
+    dspy: "not_configured",
+    mem0: "planned",
+  },
+};
+
 describe("GET /dijie/executions/:executionId", () => {
   it("requires an authenticated Mercur actor", async () => {
     const res = response();
@@ -280,6 +376,76 @@ describe("GET /dijie/executions/:executionId", () => {
     expect(res.body).not.toHaveProperty("workspaceRef");
     expect(res.body).not.toHaveProperty("localGatewayId");
     expect(res.body).not.toHaveProperty("payload");
+  });
+
+  it("includes safe scheduler feedback and capability summaries when present", async () => {
+    const storageRecord = createDijieAuditStorageRecord(record);
+    const feedbackStorage = createDijieRoleFeedbackPacketStorageRecord(feedbackPacket);
+    const profileStorage = createDijieRoleCapabilityProfileStorageRecord(capabilityProfile);
+    const store = {
+      async retrieveDijieAuditRecordByExecutionId() {
+        return storageRecord;
+      },
+      async retrieveDijieRoleFeedbackPacketsByExecutionId(executionId: string) {
+        expect(executionId).toBe("exec_123");
+        return [feedbackStorage];
+      },
+      async retrieveDijieRoleCapabilityProfile(input: {
+        packageId: string;
+        packageVersion?: string;
+        roleListingId?: string | null;
+      }) {
+        expect(input).toEqual({
+          packageId: "pkg_role_123",
+          packageVersion: "1.0.0",
+          roleListingId: "role_123",
+        });
+        return profileStorage;
+      },
+    };
+
+    const res = response();
+    await GET(request(store) as never, res as never);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toMatchObject({
+      ok: true,
+      feedbackPackets: [
+        {
+          packetVersion: 1,
+          packetId: "packet_123",
+          role: {
+            packageId: "pkg_role_123",
+            packageVersion: "1.0.0",
+            roleListingId: "role_123",
+          },
+          summary: "Role completed validation without unsafe package metadata.",
+          riskEvents: [
+            {
+              category: "privacy_check",
+            },
+          ],
+        },
+      ],
+      capabilityProfile: {
+        profileVersion: 1,
+        packageId: "pkg_role_123",
+        packageVersion: "1.0.0",
+        overallScore: 88,
+        evaluatorAdapters: {
+          agentevals: "planned",
+          mem0: "planned",
+        },
+      },
+    });
+    const bodyText = JSON.stringify(res.body);
+    expect(bodyText).not.toContain("schedulerContext");
+    expect(bodyText).not.toContain("payload");
+    expect(bodyText).not.toContain("exec_123");
+    expect(bodyText).not.toContain("ent_123");
+    expect(bodyText).not.toContain("device_123");
+    expect(bodyText).not.toContain("workspace_123");
+    expect(bodyText).not.toContain("gateway_123");
   });
 
   it("rejects reads for a different actor", async () => {

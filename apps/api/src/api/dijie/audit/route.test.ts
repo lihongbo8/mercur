@@ -4,7 +4,7 @@ import {
   DIJIE_AUDIT_MODULE,
   recordDijieAuditSummaryWithRepository,
 } from "../../../lib/dijie/audit-store";
-import { createDijieExecutionToken, type DijieExecutionTokenClaims } from "../../../lib/dijie/execution-token";
+import { createDijieExecutionToken } from "../../../lib/dijie/execution-token";
 import { POST } from "./route";
 
 const keyPair = crypto.generateKeyPairSync("ed25519");

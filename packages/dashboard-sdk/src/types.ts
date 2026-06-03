@@ -37,6 +37,8 @@ export interface MercurConfig {
     vendorUrl?: string
     /** Dashboard display name. */
     name?: string
+    /** Router basename and asset base path for subpath-mounted dashboards. */
+    base?: string
     /** Path to a logo asset for the dashboard. */
     logo?: string
     /**

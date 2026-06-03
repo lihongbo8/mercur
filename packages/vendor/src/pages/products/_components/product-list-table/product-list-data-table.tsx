@@ -7,17 +7,12 @@ import {
 } from "@tanstack/react-table";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useNavigate } from "react-router-dom";
 import { Trash } from "@medusajs/icons";
 
 import { ExtendedAdminProduct } from "@custom-types/products";
 import { ActionMenu } from "@components/common/action-menu";
 import { _DataTable } from "@components/table/data-table";
-import {
-  useDeleteProduct,
-  useBulkDeleteProducts,
-  useProducts,
-} from "@hooks/api/products";
+import { useProducts } from "@hooks/api/products";
 import { useProductTableColumns } from "@hooks/table/columns/use-product-table-columns";
 import { useProductTableFilters } from "@hooks/table/filters/use-product-table-filters";
 import { useProductTableQuery } from "@hooks/table/query/use-product-table-query";
@@ -27,7 +22,6 @@ export const PAGE_SIZE = 10;
 
 export const ProductListDataTable = () => {
   const { t } = useTranslation();
-  const navigate = useNavigate();
 
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
 
@@ -67,7 +61,6 @@ export const ProductListDataTable = () => {
     },
   });
 
-  const { mutateAsync } = useBulkDeleteProducts();
   const prompt = usePrompt();
 
   const handleDelete = async () => {
@@ -90,21 +83,7 @@ export const ProductListDataTable = () => {
       return;
     }
 
-    await mutateAsync(keys, {
-      onSuccess: () => {
-        setRowSelection({});
-        toast.success(
-          t("products.bulkDelete.success", {
-            count: keys.length,
-          }),
-        );
-      },
-      onError: (error) => {
-        toast.error(t("products.bulkDelete.error"), {
-          description: error.message,
-        });
-      },
-    });
+    toast.warning("已停在确认态，暂未删除。");
   };
 
   if (isError) {
@@ -136,21 +115,6 @@ export const ProductListDataTable = () => {
       ]}
       commands={[
         {
-          action: () => {
-            const selectedIds = Object.keys(rowSelection)
-            const selectedProducts = (products ?? []).filter((p: any) =>
-              selectedIds.includes(p.id)
-            )
-            if (selectedProducts.length > 0) {
-              navigate("bulk-edit", {
-                state: { products: selectedProducts },
-              })
-            }
-          },
-          label: t("actions.edit"),
-          shortcut: "e",
-        },
-        {
           action: handleDelete,
           label: t("actions.delete"),
           shortcut: "d",
@@ -163,7 +127,6 @@ export const ProductListDataTable = () => {
 const ProductActions = ({ product }: { product: ExtendedAdminProduct }) => {
   const { t } = useTranslation();
   const prompt = usePrompt();
-  const { mutateAsync } = useDeleteProduct(product.id);
 
   const handleDelete = async () => {
     const res = await prompt({
@@ -179,20 +142,7 @@ const ProductActions = ({ product }: { product: ExtendedAdminProduct }) => {
       return;
     }
 
-    await mutateAsync(undefined, {
-      onSuccess: () => {
-        toast.success(t("products.toasts.delete.success.header"), {
-          description: t("products.toasts.delete.success.description", {
-            title: product.title,
-          }),
-        });
-      },
-      onError: (e) => {
-        toast.error(t("products.toasts.delete.error.header"), {
-          description: e.message,
-        });
-      },
-    });
+    toast.warning("已停在确认态，暂未删除。");
   };
 
   return (

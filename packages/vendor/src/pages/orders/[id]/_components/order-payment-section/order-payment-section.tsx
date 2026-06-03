@@ -32,7 +32,7 @@ const Header = ({ order }: { order: HttpTypes.AdminOrder }) => {
 
   return (
     <div className="flex items-center justify-between px-6 py-4">
-      <Heading level="h2">{t("orders.payment.title")}</Heading>
+      <Heading level="h2">收款</Heading>
 
       {order.payment_status && (
         <StatusBadge
@@ -65,7 +65,7 @@ const Total = ({ order }: { order: HttpTypes.AdminOrder }) => {
     <div>
       <div className="flex items-center justify-between px-6 py-4">
         <Text size="small" weight="plus" leading="compact">
-          {t("orders.payment.totalPaidByCustomer")}
+          实收
         </Text>
 
         <Text size="small" weight="plus" leading="compact">
@@ -76,7 +76,7 @@ const Total = ({ order }: { order: HttpTypes.AdminOrder }) => {
       {totalRefunded > 0 && (
         <div className="flex items-center justify-between px-6 py-4">
           <Text size="small" weight="plus" leading="compact">
-            {t("orders.payment.totalRefunded")}
+            已退
           </Text>
 
           <Text size="small" weight="plus" leading="compact">
@@ -88,7 +88,7 @@ const Total = ({ order }: { order: HttpTypes.AdminOrder }) => {
       {order.status !== "canceled" && totalPending > 0 && (
         <div className="flex items-center justify-between px-6 py-4">
           <Text size="small" weight="plus" leading="compact">
-            {t("orders.payment.totalPending")}
+            待收
           </Text>
 
           <Text size="small" weight="plus" leading="compact">

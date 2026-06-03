@@ -137,7 +137,7 @@
     "add": "Add",
     "select": "Select",
     "browse": "Browse",
-    "logout": "Logout",
+    "logout": "退出登录",
     "send": "Send",
     "hide": "Hide",
     "export": "Export",
@@ -151,7 +151,7 @@
     "search": {
       "label": "搜索",
       "title": "搜索",
-      "description": "搜索迭界AI岗位商场中的授权订单、岗位商品、开发者和更多内容。",
+      "description": "搜索迭界AI岗位商城中的授权订单、岗位商品、开发者和更多内容。",
       "allAreas": "全部范围",
       "navigation": "Navigation",
       "openResult": "Open result",
@@ -214,7 +214,7 @@
       },
       "settings": {
         "goToSettings": "Settings",
-        "goToStore": "迭界AI岗位商场",
+        "goToStore": "迭界AI岗位商城",
         "goToUsers": "Users",
         "goToRegions": "Regions",
         "goToTaxRegions": "Tax Regions",
@@ -242,8 +242,8 @@
         }
       },
       "store": {
-        "label": "迭界AI岗位商场",
-        "storeSettings": "商场设置"
+        "label": "迭界AI岗位商城",
+        "storeSettings": "审核中心设置"
       },
       "actions": {
         "logout": "Log out"
@@ -258,10 +258,10 @@
         "extensions": "Extensions"
       },
       "main": {
-        "store": "迭界AI岗位商场",
-        "marketplace": "迭界AI岗位商场",
-        "storeSettings": "商场设置",
-        "marketplaceSettings": "商场设置"
+        "store": "迭界AI岗位商城",
+        "marketplace": "迭界AI岗位商城",
+        "storeSettings": "审核中心设置",
+        "marketplaceSettings": "审核中心设置"
       },
       "settings": {
         "header": "Settings",
@@ -349,14 +349,14 @@
   "errorBoundary": {
     "badRequestTitle": "400 - Bad request",
     "badRequestMessage": "The request could not be understood by the server due to malformed syntax.",
-    "notFoundTitle": "404 - There is no page at this address",
-    "notFoundMessage": "Check the URL and try again, or use the search bar to find what you are looking for.",
+    "notFoundTitle": "404 - 页面不存在",
+    "notFoundMessage": "请检查地址后重试。",
     "internalServerErrorTitle": "500 - Internal server error",
     "internalServerErrorMessage": "An unexpected error occurred on the server. Please try again later.",
     "defaultTitle": "An error occurred",
     "defaultMessage": "An unexpected error occurred while rendering this page.",
-    "noMatchMessage": "The page you are looking for does not exist.",
-    "backToDashboard": "Back to dashboard"
+    "noMatchMessage": "页面不存在。",
+    "backToDashboard": "返回"
   },
   "addresses": {
     "title": "Addresses",
@@ -544,9 +544,9 @@
     "deleteVariantWarning": "You are about to delete the variant {{title}}. This action cannot be undone.",
     "productStatus": {
       "draft": "Draft",
-      "published": "Published",
-      "proposed": "Proposed",
-      "rejected": "Rejected"
+      "published": "已发布",
+      "proposed": "待审核",
+      "rejected": "已驳回"
     },
     "columns": {
       "product_display": "Product",
@@ -2506,10 +2506,10 @@
     "invite": "Invite"
   },
   "marketplace": {
-    "domain": "迭界AI岗位商场",
-    "manageMarketplaceDetails": "管理迭界AI岗位商场资料",
+    "domain": "迭界AI岗位商城",
+    "manageMarketplaceDetails": "管理迭界AI岗位商城资料",
     "edit": {
-      "header": "编辑迭界AI岗位商场"
+      "header": "编辑迭界AI岗位商城"
     }
   },
   "store": {
@@ -3033,7 +3033,7 @@
   "login": {
     "forgotPassword": "忘记密码？<0>重置</0>",
     "title": "{{name}}",
-    "hint": "平台运营后台：审核岗位、管理授权订单和执行审计。",
+    "hint": "审核中心：只处理岗位上架、安全扫描和价格合规。",
     "sessionExpired": "登录已过期"
   },
   "invite": {

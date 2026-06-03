@@ -1,10 +1,8 @@
 import { Children, ReactNode } from "react";
 import { Heading } from "@medusajs/ui";
-import { useTranslation } from "react-i18next";
 
 export const PayoutListTitle = () => {
-  const { t } = useTranslation();
-  return <Heading>{t("payouts.domain")}</Heading>;
+  return <Heading>结算记录</Heading>;
 };
 
 export const PayoutListActions = ({

@@ -10,6 +10,7 @@
 
 - vendor 能创建带 `roleTokenPricing` 的岗位商品。
 - admin 只能审核通过合法岗位定价：`currency = CNY`、输入/输出 Token 单价非负、`platformFeeBps = 0`、`developerReceivableBps = 10000`。
+- vendor 创建商品前能上传 OpenClaw 导出的 `role_package/` 目录，云端只返回公开包收据和安全校验结果。
 - buyer 购买或授权后，云端能从真实订单事实推导 `/dijie/my-roles` 和 `/dijie/execution-token`。
 - OpenClaw 本地端用 execution token 执行岗位，生成 `AuditSummary.modelProxyUsage`。
 - 云端 `/dijie/audit` 持久化审计记录，并派生 `role_usage` 开发者应收账。
@@ -78,6 +79,7 @@ buyer actor/customer id:
 roleListingId/product id:
 packageId:
 packageVersion:
+role package upload receipt:
 developerRef:
 listingOwnerRef:
 billingBeneficiaryRef:
@@ -94,14 +96,50 @@ auditRecordId:
 developerReceivableCents from role_usage:
 ```
 
-## Step 1: Vendor Creates Role Listing
+## Step 1: Vendor Uploads Role Package
+
+在 vendor 创建页选择 OpenClaw 导出的 `role_package/` 目录，或者直接调用 vendor 上传 endpoint：
+
+```bash
+curl '<cloud-base-url>/vendor/dijie/role-packages' \
+  -H 'Authorization: Bearer <vendor-cloud-access-token>' \
+  -H 'Content-Type: application/json' \
+  --data '{
+    "files": [
+      {
+        "path": "role_package/manifest.json",
+        "content": "{\"manifestVersion\":1,\"rolePackageId\":\"pkg_demo\",\"version\":\"0.1.0\",\"name\":\"Demo Role\",\"entrypoint\":\"role_package/adapters/openclaw-adapter.ts\",\"permissions\":[],\"files\":[]}"
+      },
+      { "path": "role_package/listing.md", "content": "# Demo Role" },
+      { "path": "role_package/README.md", "content": "# Demo Role" },
+      { "path": "role_package/adapters/openclaw-adapter.ts", "content": "export {}" },
+      { "path": "role_package/validation/smoke-test.md", "content": "# Smoke" }
+    ]
+  }'
+```
+
+Expected result:
+
+- `ok: true`
+- `package.packageId`
+- `package.packageVersion`
+- `package.manifestSummary.manifestRef = "role_package/manifest.json"`
+- `package.manifestSummary.entrypoint` is a `role_package/` relative path
+- response contains only public receipt data and file hashes/sizes, not raw package content
+
+Failure checks:
+
+- A manifest containing `roleListingId`, `executionId`, `entitlementId`, `deviceId`, `workspaceRef`, order/wallet facts, provider auth, raw token, cloud bearer, local absolute path, prompt, or chat history must be rejected.
+- Missing `role_package/listing.md`, `role_package/README.md`, adapter/wrapper/example, or validation/smoke material must be rejected.
+
+## Step 2: Vendor Creates Role Listing
 
 Use the vendor UI to create a role product with:
 
 - one-time authorization price in CNY
 - input Token price in cents per million
 - output Token price in cents per million
-- package identity: `packageId` and `packageVersion`
+- package identity: `packageId`, `packageVersion`, and `role_package/manifest.json` from the upload receipt
 - developer, listing owner, and billing beneficiary refs
 
 Expected result:
@@ -122,7 +160,7 @@ Failure checks:
 - Try leaving one Token price blank or negative. The listing must not be accepted as a valid executable role.
 - Try changing platform fee away from zero through any available surface. Admin review must block publication.
 
-## Step 2: Admin Reviews Listing
+## Step 3: Admin Reviews Listing
 
 Use the admin UI product detail page to review the role section.
 
@@ -143,7 +181,7 @@ curl '<cloud-base-url>/dijie/roles'
 
 Confirm the role projection includes `pricing` and `roleTokenPricing`, but no secrets, raw package auth, or local absolute paths.
 
-## Step 3: Buyer Purchases Or Authorizes Role
+## Step 4: Buyer Purchases Or Authorizes Role
 
 Use the buyer account to purchase the approved role listing through the normal marketplace checkout path.
 
@@ -173,7 +211,7 @@ Expected response:
 
 Use the returned `entitlementId` in later steps. In the current implementation it may be an `order_group.id` or `order.id`.
 
-## Step 4: Request Execution Token
+## Step 5: Request Execution Token
 
 From OpenClaw AICS UI or the Gateway method `dijie.executionToken.request`, request an execution token with:
 
@@ -222,7 +260,7 @@ Failure checks:
 - Unpaid or canceled order returns a hard failure.
 - Missing issuer env returns 503.
 
-## Step 5: Run The Local Role
+## Step 6: Run The Local Role
 
 In OpenClaw, run the role builder through the existing main-system flow, not a second chat box. Developer mode is the current role, work identity, and process stage inside the same primary conversation surface. For the development bridge this may be done from the AICS diagnostics page, but the natural-language entry remains OpenClaw's primary conversation surface.
 
@@ -250,7 +288,7 @@ Expected local result:
 - `AuditSummary.modelProxyUsage` is present.
 - If audit upload is required, cloud audit failure makes the local run fail explicitly.
 
-## Step 6: Verify Audit Upload And Billing Summary
+## Step 7: Verify Audit Upload And Billing Summary
 
 Successful audit upload returns:
 
@@ -270,7 +308,7 @@ Failure checks:
 - Disable audit store. `/dijie/audit` must return 503.
 - Make the store throw. `/dijie/audit` must return 502.
 
-## Step 7: Read Safe Execution Summary
+## Step 8: Read Safe Execution Summary
 
 Read the execution with the same buyer cloud bearer:
 
@@ -282,12 +320,16 @@ curl '<cloud-base-url>/dijie/executions/<executionId>' \
 Expected response:
 
 - `ok: true`
-- `execution.executionId`
-- `execution.actorId`
 - `execution.roleListingId`
-- `execution.entitlementId`
+- `execution.packageId`
+- `execution.packageVersion`
+- `execution.developerRef`
+- `execution.listingOwnerRef`
+- `execution.billingBeneficiaryRef`
 - `execution.status`
 - `execution.pricing`
+- `execution.roleTokenPricing`
+- `execution.billingSummary`
 - `execution.modelProxyUsage`
 - `execution.toolUsage`
 - `execution.changedFiles`
@@ -296,6 +338,13 @@ Expected response:
 
 The response must not include:
 
+- `execution.executionId`
+- `execution.actorId`
+- `execution.entitlementId`
+- `execution.deviceId`
+- `execution.workspaceRef`
+- `execution.localGatewayId`
+- order or wallet facts
 - raw execution token
 - cloud bearer
 - provider key or provider auth

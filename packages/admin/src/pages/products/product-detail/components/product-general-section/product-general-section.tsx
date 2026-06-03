@@ -1,21 +1,16 @@
-import { PencilSquare, Trash } from "@medusajs/icons";
-import { Container, Heading, StatusBadge, usePrompt } from "@medusajs/ui";
-
-import { useTranslation } from "react-i18next";
-import { useNavigate } from "react-router-dom";
+import { Container, Heading, StatusBadge, Text } from "@medusajs/ui";
 
 import { HttpTypes } from "@medusajs/types";
-import { ActionMenu } from "../../../../../components/common/action-menu";
-import { SectionRow } from "../../../../../components/common/section";
-import { useDeleteProduct } from "../../../../../hooks/api/products";
 
 const productStatusColor = (status: string) => {
   switch (status) {
     case "draft":
       return "grey";
     case "proposed":
+    case "submitted":
       return "orange";
     case "published":
+    case "approved":
       return "green";
     case "rejected":
       return "red";
@@ -24,37 +19,55 @@ const productStatusColor = (status: string) => {
   }
 };
 
+const productStatusLabel = (status: string) => {
+  switch (status) {
+    case "draft":
+      return "草稿";
+    case "proposed":
+    case "submitted":
+      return "待审核";
+    case "published":
+    case "approved":
+      return "已通过";
+    case "rejected":
+      return "已驳回";
+    default:
+      return status;
+  }
+};
+
+const asRecord = (value: unknown): Record<string, unknown> => {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+};
+
+const getRoleMetadata = (product: HttpTypes.AdminProduct) => {
+  return asRecord(asRecord(product.metadata).dijieRole);
+};
+
+const getRoleReviewState = (product: HttpTypes.AdminProduct) => {
+  const role = getRoleMetadata(product);
+  return role.reviewState ?? role.review_state ?? product.status;
+};
+
+const readString = (...values: unknown[]) => {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim()) {
+      return value.trim();
+    }
+  }
+
+  return undefined;
+};
+
 export const ProductGeneralSection = ({
   product,
 }: {
   product: HttpTypes.AdminProduct;
 }) => {
-  const { t } = useTranslation();
-  const prompt = usePrompt();
-  const navigate = useNavigate();
-
-  const { mutateAsync } = useDeleteProduct(product.id);
-
-  const handleDelete = async () => {
-    const res = await prompt({
-      title: t("general.areYouSure"),
-      description: t("products.deleteWarning", {
-        title: product.title,
-      }),
-      confirmText: t("actions.delete"),
-      cancelText: t("actions.cancel"),
-    });
-
-    if (!res) {
-      return;
-    }
-
-    await mutateAsync(undefined, {
-      onSuccess: () => {
-        navigate("..");
-      },
-    });
-  };
+  const role = getRoleMetadata(product);
+  const title = readString(role.title, product.title) ?? "-";
 
   return (
     <Container className="divide-y p-0" data-testid="product-general-section">
@@ -62,63 +75,24 @@ export const ProductGeneralSection = ({
         className="flex items-center justify-between px-6 py-4"
         data-testid="product-general-header"
       >
-        <Heading data-testid="product-general-title">{product.title}</Heading>
+        <div className="flex flex-col gap-y-1">
+          <Text size="small" className="text-ui-fg-subtle">
+            岗位名称
+          </Text>
+          <Heading data-testid="product-general-title">{title}</Heading>
+        </div>
         <div
           className="flex items-center gap-x-4"
           data-testid="product-general-actions"
         >
           <StatusBadge
-            color={productStatusColor(product.status)}
+            color={productStatusColor(String(getRoleReviewState(product)))}
             data-testid="product-status-badge"
           >
-            {t(`products.productStatus.${product.status}`)}
+            {productStatusLabel(String(getRoleReviewState(product)))}
           </StatusBadge>
-          <ActionMenu
-            groups={[
-              {
-                actions: [
-                  {
-                    label: t("actions.edit"),
-                    to: "edit",
-                    icon: <PencilSquare />,
-                  },
-                ],
-              },
-              {
-                actions: [
-                  {
-                    label: t("actions.delete"),
-                    onClick: handleDelete,
-                    icon: <Trash />,
-                  },
-                ],
-              },
-            ]}
-            data-testid="product-general-action-menu"
-          />
         </div>
       </div>
-
-      <SectionRow
-        title={t("fields.description")}
-        value={product.description}
-        data-testid="product-description-row"
-      />
-      <SectionRow
-        title={t("fields.subtitle")}
-        value={product.subtitle}
-        data-testid="product-subtitle-row"
-      />
-      <SectionRow
-        title={t("fields.handle")}
-        value={`/${product.handle}`}
-        data-testid="product-handle-row"
-      />
-      <SectionRow
-        title={t("fields.discountable")}
-        value={product.discountable ? t("fields.true") : t("fields.false")}
-        data-testid="product-discountable-row"
-      />
     </Container>
   );
 };
