@@ -11,6 +11,7 @@
 - vendor 能创建带 `roleTokenPricing` 的岗位商品。
 - admin 只能审核通过合法岗位定价：`currency = CNY`、输入/输出 Token 单价非负、`platformFeeBps = 0`、`developerReceivableBps = 10000`。
 - vendor 创建商品前能上传 OpenClaw 导出的 `role_package/` 目录，云端只返回公开包收据和安全校验结果。
+- 上传的 `role_package/` 只包含岗位业务逻辑、流程、经验、能力需求和验收材料；实施工具由本地 OpenClaw/迭界AI主系统按 `requiredCapabilities` 选择、授权、执行和审计。
 - buyer 购买或授权后，云端能从真实订单事实推导 `/dijie/my-roles` 和 `/dijie/execution-token`。
 - OpenClaw 本地端用 execution token 执行岗位，生成 `AuditSummary.modelProxyUsage`。
 - 云端 `/dijie/audit` 持久化审计记录，并派生 `role_usage` 开发者应收账。
@@ -108,11 +109,12 @@ curl '<cloud-base-url>/vendor/dijie/role-packages' \
     "files": [
       {
         "path": "role_package/manifest.json",
-        "content": "{\"manifestVersion\":1,\"rolePackageId\":\"pkg_demo\",\"version\":\"0.1.0\",\"name\":\"Demo Role\",\"entrypoint\":\"role_package/adapters/openclaw-adapter.ts\",\"permissions\":[],\"files\":[]}"
+        "content": "{\"manifestVersion\":1,\"rolePackageId\":\"pkg_demo\",\"version\":\"0.1.0\",\"name\":\"Demo Role\",\"entrypoint\":\"role_package/adapters/openclaw-adapter.ts\",\"permissions\":[\"workspace.read\"],\"requiredCapabilities\":[\"workspace.read\",\"document.write\",\"human.confirm\"],\"files\":[]}"
       },
       { "path": "role_package/listing.md", "content": "# Demo Role" },
       { "path": "role_package/README.md", "content": "# Demo Role" },
-      { "path": "role_package/adapters/openclaw-adapter.ts", "content": "export {}" },
+      { "path": "role_package/knowledge/business-workflow.md", "content": "# Business workflow\nDescribe the human job process, judgment rules, experience, failure modes, and acceptance examples." },
+      { "path": "role_package/adapters/openclaw-adapter.ts", "content": "export const capabilityMapping = ['workspace.read', 'document.write', 'human.confirm']" },
       { "path": "role_package/validation/smoke-test.md", "content": "# Smoke" }
     ]
   }'
@@ -125,12 +127,14 @@ Expected result:
 - `package.packageVersion`
 - `package.manifestSummary.manifestRef = "role_package/manifest.json"`
 - `package.manifestSummary.entrypoint` is a `role_package/` relative path
+- `package.manifestSummary.requiredCapabilities` lists abstract local OpenClaw capabilities, not packaged tool implementations
 - response contains only public receipt data and file hashes/sizes, not raw package content
 
 Failure checks:
 
 - A manifest containing `roleListingId`, `executionId`, `entitlementId`, `deviceId`, `workspaceRef`, order/wallet facts, provider auth, raw token, cloud bearer, local absolute path, prompt, or chat history must be rejected.
-- Missing `role_package/listing.md`, `role_package/README.md`, adapter/wrapper/example, or validation/smoke material must be rejected.
+- Missing `role_package/listing.md`, `role_package/README.md`, business knowledge/workflow/experience material, adapter/wrapper/example capability mapping, `requiredCapabilities`, or validation/smoke material must be rejected.
+- A package containing `role_package/tools/`, `role_package/mcp-servers/`, API clients, browser/file/command tool implementations, or manifest `toolDefinitions` must be rejected. 岗位包声明能力需求，本地 OpenClaw 负责真实工具调用。
 
 ## Step 2: Vendor Creates Role Listing
 
@@ -146,6 +150,7 @@ Expected result:
 
 - The product metadata includes `metadata.dijieRole.kind = "role_product"`.
 - The product metadata contains only public listing metadata; it does not contain `modeStage`, role-builder prompts, chat history, `RoleBuildBrief`, workspace refs, execution ids, raw tokens, or provider secrets.
+- The product metadata may include a safe `manifestSummary.requiredCapabilities` summary, but must not describe the role as shipping its own implementation tools.
 - `metadata.dijieRole.pricing.kind = "one_time_authorization"`.
 - `metadata.dijieRole.pricing.platformFeeBps = 0`.
 - `metadata.dijieRole.pricing.developerReceivableBps = 10000`.
@@ -180,6 +185,7 @@ curl '<cloud-base-url>/dijie/roles'
 ```
 
 Confirm the role projection includes `pricing` and `roleTokenPricing`, but no secrets, raw package auth, or local absolute paths.
+Confirm UI copy describes岗位能力 / 本地能力需求 rather than “岗位自带工具”.
 
 ## Step 4: Buyer Purchases Or Authorizes Role
 

@@ -22,7 +22,7 @@ function productWithRole(overrides: Record<string, unknown> = {}) {
         capabilities: ["资料收集", "简报生成"],
         manifestSummary: {
           entrypoint: "role_package/manifest.json",
-          tools: ["browser.search"],
+          requiredCapabilities: ["browser.use", "workspace.read"],
           sandbox: "workspace-write",
           secretsRequired: ["BROWSER_API_KEY"],
         },

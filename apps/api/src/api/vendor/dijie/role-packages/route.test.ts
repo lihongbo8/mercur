@@ -31,6 +31,7 @@ function validManifest() {
     name: "商品图检查岗位",
     entrypoint: "role_package/adapters/openclaw-adapter.ts",
     permissions: ["workspace.read", "workspace.write"],
+    requiredCapabilities: ["workspace.read", "image.inspect", "document.write", "human.confirm"],
     files: [
       {
         path: "role_package/manifest.json",
@@ -56,8 +57,13 @@ function validFiles() {
       content: "# Role package\n",
     },
     {
+      path: "role_package/knowledge/business-workflow.md",
+      content: "# 业务流程\n先检查图片清晰度，再判断标题和图片是否一致，最后输出修改清单。\n",
+    },
+    {
       path: "role_package/adapters/openclaw-adapter.ts",
-      content: "export const adapter = 'openclaw';\n",
+      content:
+        "export const capabilityMapping = ['workspace.read', 'image.inspect', 'document.write'];\n",
     },
     {
       path: "role_package/validation/smoke-test.md",
@@ -83,7 +89,13 @@ describe("POST /vendor/dijie/role-packages", () => {
           manifestRef: "role_package/manifest.json",
           name: "商品图检查岗位",
           permissions: ["workspace.read", "workspace.write"],
-          fileCount: 5,
+          requiredCapabilities: [
+            "workspace.read",
+            "image.inspect",
+            "document.write",
+            "human.confirm",
+          ],
+          fileCount: 6,
         },
       },
     });
@@ -198,5 +210,42 @@ describe("POST /vendor/dijie/role-packages", () => {
     expect(JSON.stringify(res.body)).toContain(
       "role_package/manifest.json is required and must contain valid JSON.",
     );
+  });
+
+  it("rejects packages that ship implementation tools instead of abstract capabilities", async () => {
+    const res = response();
+    const manifest = {
+      ...validManifest(),
+      toolDefinitions: [
+        {
+          name: "browser_tool",
+          implementation: "open browser directly",
+        },
+      ],
+    };
+
+    await POST(
+      {
+        body: {
+          files: [
+            {
+              path: "role_package/manifest.json",
+              content: JSON.stringify(manifest),
+            },
+            ...validFiles().slice(1),
+            {
+              path: "role_package/tools/browser-tool.ts",
+              content: "export async function browserTool() { return 'runs locally'; }\n",
+            },
+          ],
+        },
+      } as never,
+      res as never,
+    );
+
+    expect(res.statusCode).toBe(400);
+    expect(JSON.stringify(res.body)).toContain("toolDefinitions");
+    expect(JSON.stringify(res.body)).toContain("must not ship implementation tools");
+    expect(JSON.stringify(res.body)).toContain("requiredCapabilities");
   });
 });

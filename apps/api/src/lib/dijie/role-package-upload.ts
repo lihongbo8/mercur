@@ -17,6 +17,7 @@ export type DijieRolePackageUploadSummary = {
     manifestRef: string;
     name: string;
     permissions: string[];
+    requiredCapabilities: string[];
     fileCount: number;
   };
   files: Array<{
@@ -35,6 +36,22 @@ const REQUIRED_PACKAGE_FILES = [
   "role_package/listing.md",
   "role_package/README.md",
 ];
+
+const TOOL_IMPLEMENTATION_KEY_NAMES = new Set([
+  "browsertool",
+  "commandtool",
+  "filetool",
+  "implementationtool",
+  "implementationtools",
+  "mcpserver",
+  "mcpservers",
+  "tooldefinition",
+  "tooldefinitions",
+  "toolimplementation",
+  "toolimplementations",
+  "toolruntime",
+  "tools",
+]);
 
 const BACKEND_ONLY_KEY_NAMES = new Set([
   "actorid",
@@ -84,6 +101,11 @@ const SENSITIVE_KEY_PATTERN =
   /(api[_-]?key|secret|provider[_-]?(auth|key)|access[_-]?token|refresh[_-]?token|bearer|cloud[_-]?bearer|raw[_-]?(execution[_-]?)?token|execution[_-]?token)/i;
 const BACKEND_ONLY_TEXT_PATTERN =
   /\b(?:actorId|chatHistory|cloudBearer|conversationHistory|developerModeContext|deviceId|entitlementId|executionId|localGatewayId|modeStage|orderGroupId|orderId|pricingSnapshot|prompt|roleBuildBrief|roleListingId|walletId|workspaceRef)\b/i;
+const REQUIRED_CAPABILITY_PATTERN = /^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$/u;
+const TOOL_IMPLEMENTATION_PATH_PATTERN =
+  /(^|\/)(tool-?implementations?|tools?|mcp-?servers?|browser-?tools?|command-?tools?|api-?clients?)(\/|[-_.])/iu;
+const ROLE_KNOWLEDGE_PATH_PATTERN =
+  /(^|\/)(business|knowledge|playbooks?|sops?|workflows?|experience|failure-modes?|examples?)(\/|[-_.])|[-_.](business|knowledge|playbook|sop|workflow|experience|failure-mode|example)\./iu;
 
 function asRecord(value: unknown): UnknownRecord {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -127,6 +149,40 @@ function hasUnsafeRelativePathSegment(value: string): boolean {
     .some((segment) => segment === "..");
 }
 
+function isToolImplementationPath(value: string): boolean {
+  return TOOL_IMPLEMENTATION_PATH_PATTERN.test(value);
+}
+
+function validateRequiredCapabilities(value: unknown, path: string, issues: string[]): string[] {
+  if (!Array.isArray(value)) {
+    issues.push(`${path} must be a non-empty array of abstract local OpenClaw capabilities.`);
+    return [];
+  }
+
+  const capabilities = stringArray(value);
+  if (capabilities.length === 0) {
+    issues.push(`${path} must include at least one abstract local OpenClaw capability.`);
+    return [];
+  }
+
+  for (const capability of capabilities) {
+    if (!REQUIRED_CAPABILITY_PATTERN.test(capability)) {
+      issues.push(`${path} entries must be stable capability names like workspace.read or human.confirm.`);
+      break;
+    }
+    if (
+      SENSITIVE_KEY_PATTERN.test(capability) ||
+      PROVIDER_SECRET_PATTERN.test(capability) ||
+      BACKEND_ONLY_VALUE_PATTERN.test(capability)
+    ) {
+      issues.push(`${path} entries must not contain secrets, backend ids, or provider auth material.`);
+      break;
+    }
+  }
+
+  return [...new Set(capabilities)];
+}
+
 function sha256(content: string): string {
   return crypto.createHash("sha256").update(content).digest("hex");
 }
@@ -158,6 +214,11 @@ function scanValue(value: unknown, path: string, issues: string[]) {
     const normalizedKey = key.replace(/[^a-zA-Z0-9]/g, "").toLowerCase();
     if (BACKEND_ONLY_KEY_NAMES.has(normalizedKey)) {
       issues.push(`${path}.${key} is a backend-only field and cannot be stored in a role package.`);
+    }
+    if (TOOL_IMPLEMENTATION_KEY_NAMES.has(normalizedKey)) {
+      issues.push(
+        `${path}.${key} must not define implementation tools; declare requiredCapabilities for local OpenClaw instead.`,
+      );
     }
     if (!["secretsRequired", "secrets_required"].includes(key) && SENSITIVE_KEY_PATTERN.test(key)) {
       issues.push(`${path}.${key} must not contain secret, token, or provider auth fields.`);
@@ -231,6 +292,11 @@ export function validateDijieRolePackageUpload(input: unknown): DijieRolePackage
   const name = stringField(manifest, "name");
   const entrypoint = stringField(manifest, "entrypoint");
   const permissions = stringArray(manifest.permissions);
+  const requiredCapabilities = validateRequiredCapabilities(
+    manifest.requiredCapabilities ?? manifest.required_capabilities,
+    "role package manifest requiredCapabilities",
+    issues,
+  );
 
   if (!packageId) {
     issues.push("role package manifest rolePackageId is required.");
@@ -261,6 +327,11 @@ export function validateDijieRolePackageUpload(input: unknown): DijieRolePackage
     ) {
       issues.push(`${file.path} must be inside role_package/ and must be relative.`);
     }
+    if (isToolImplementationPath(file.path)) {
+      issues.push(
+        `${file.path} must not ship implementation tools; role packages declare requiredCapabilities and local OpenClaw executes tools.`,
+      );
+    }
     if (file.content) {
       scanValue(file.content, file.path, issues);
     }
@@ -286,6 +357,9 @@ export function validateDijieRolePackageUpload(input: unknown): DijieRolePackage
   if (!packagePaths.some((path) => /(validation|validate|smoke|tests?|spec)(\/|[-_.]|\.)/i.test(path))) {
     issues.push("missing role_package validation or smoke test material");
   }
+  if (!packagePaths.some((path) => ROLE_KNOWLEDGE_PATH_PATTERN.test(path))) {
+    issues.push("missing role_package business knowledge, workflow, experience, or example material");
+  }
 
   scanValue(manifest, "manifest", issues);
 
@@ -303,6 +377,7 @@ export function validateDijieRolePackageUpload(input: unknown): DijieRolePackage
         manifestRef: "role_package/manifest.json",
         name,
         permissions,
+        requiredCapabilities,
         fileCount: files.length,
       },
       files: files.map((file) => ({

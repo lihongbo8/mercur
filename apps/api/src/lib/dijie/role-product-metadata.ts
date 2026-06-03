@@ -16,7 +16,7 @@ export type DijieRoleReviewState = "draft" | "submitted" | "approved" | "rejecte
 
 export type DijieRoleManifestSummary = {
   entrypoint?: string;
-  tools?: string[];
+  requiredCapabilities?: string[];
   permissions?: string[];
   sandbox?: "readonly" | "workspace-write" | "networked" | "custom";
   inputs?: string[];
@@ -162,9 +162,12 @@ function reviewStateFromRole(role: UnknownRecord): DijieRoleReviewState | undefi
 function manifestSummaryFromRole(role: UnknownRecord): DijieRoleManifestSummary {
   const manifest = asRecord(role.manifestSummary ?? role.manifest_summary);
   const sandbox = stringField(manifest, "sandbox");
+  const requiredCapabilities = stringArray(
+    manifest.requiredCapabilities ?? manifest.required_capabilities ?? manifest.tools,
+  );
   return {
     ...(stringField(manifest, "entrypoint") ? { entrypoint: stringField(manifest, "entrypoint") } : {}),
-    ...(stringArray(manifest.tools).length > 0 ? { tools: stringArray(manifest.tools) } : {}),
+    ...(requiredCapabilities.length > 0 ? { requiredCapabilities } : {}),
     ...(stringArray(manifest.permissions).length > 0
       ? { permissions: stringArray(manifest.permissions) }
       : {}),
