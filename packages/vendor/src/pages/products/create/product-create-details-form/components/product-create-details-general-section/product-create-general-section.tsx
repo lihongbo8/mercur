@@ -206,6 +206,10 @@ export const ProductCreateGeneralSection = () => {
   const rolePackageReady = Boolean(
     form.watch("role_package_id") && form.watch("role_package_version"),
   );
+  const roleRequiredCapabilities = (form.watch("role_required_capabilities") || "")
+    .split(/[\n,]/)
+    .map((capability) => capability.trim())
+    .filter(Boolean);
   const rolePackageValidationError =
     form.formState.errors.role_package_id ||
     form.formState.errors.role_package_version ||
@@ -217,7 +221,11 @@ export const ProductCreateGeneralSection = () => {
         ? ROLE_PACKAGE_INVALID_MESSAGE
         : ROLE_PACKAGE_REQUIRED_MESSAGE
       : rolePackageUpload.message ||
-        (rolePackageReady ? "资料包已就绪。" : "上传主系统导出的岗位资料包。"));
+        (rolePackageReady
+          ? roleRequiredCapabilities.length > 0
+            ? `资料包已就绪，已同步 ${roleRequiredCapabilities.length} 项本地能力需求。`
+            : "资料包已就绪。"
+          : "上传主系统导出的岗位资料包。"));
   const rolePackageStatus: RolePackageStatus = rolePackageUpload.running
     ? "检查中"
     : rolePackageUpload.error || rolePackageValidationError
@@ -276,9 +284,30 @@ export const ProductCreateGeneralSection = () => {
           shouldValidate: true,
         });
       }
+      const requiredCapabilities =
+        uploadedPackage.manifestSummary?.requiredCapabilities;
+      const normalizedRequiredCapabilities = Array.isArray(requiredCapabilities)
+        ? requiredCapabilities
+            .filter((capability): capability is string => typeof capability === "string")
+            .map((capability) => capability.trim())
+            .filter(Boolean)
+        : [];
+      if (Array.isArray(requiredCapabilities)) {
+        form.setValue(
+          "role_required_capabilities",
+          normalizedRequiredCapabilities.join("\n"),
+          {
+            shouldDirty: true,
+            shouldValidate: true,
+          },
+        );
+      }
       setRolePackageUpload({
         running: false,
-        message: "资料包已就绪。",
+        message:
+          normalizedRequiredCapabilities.length > 0
+            ? `资料包已就绪，已同步 ${normalizedRequiredCapabilities.length} 项本地能力需求。`
+            : "资料包已就绪。",
       });
     } catch {
       setRolePackageUpload({
@@ -375,6 +404,13 @@ export const ProductCreateGeneralSection = () => {
         <Form.Field
           control={form.control}
           name="role_manifest_ref"
+          render={({ field }) => (
+            <input {...field} type="hidden" value={field.value ?? ""} />
+          )}
+        />
+        <Form.Field
+          control={form.control}
+          name="role_required_capabilities"
           render={({ field }) => (
             <input {...field} type="hidden" value={field.value ?? ""} />
           )}

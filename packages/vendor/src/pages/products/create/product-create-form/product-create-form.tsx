@@ -239,6 +239,7 @@ export const ProductCreateForm = ({
       role_output_token_price_cents_per_million,
       role_package_id,
       role_package_version,
+      role_required_capabilities,
       ...rest
     } = values as any
     const secCatProductKey =
@@ -665,6 +666,18 @@ export const ProductCreateForm = ({
           role_manifest_ref.trim()
             ? role_manifest_ref.trim()
             : undefined
+        const requiredCapabilities = parseRoleCapabilities(
+          role_required_capabilities
+        )
+        const manifestSummary =
+          roleManifestRef || requiredCapabilities.length > 0
+            ? {
+                ...(roleManifestRef ? { entrypoint: roleManifestRef } : {}),
+                ...(requiredCapabilities.length > 0
+                  ? { requiredCapabilities }
+                  : {}),
+              }
+            : undefined
 
         const metadata = {
           ...(existing ?? {}),
@@ -695,13 +708,7 @@ export const ProductCreateForm = ({
               developerReceivableBps: 10000,
             },
             scopes: DEFAULT_ROLE_SCOPES,
-            ...(roleManifestRef
-              ? {
-                  manifestSummary: {
-                    entrypoint: roleManifestRef,
-                  },
-                }
-              : {}),
+            ...(manifestSummary ? { manifestSummary } : {}),
           },
         }
         if (!secCatProductKey) return metadata
@@ -795,6 +802,7 @@ export const ProductCreateForm = ({
           "role_input_token_price_cents_per_million",
           "role_output_token_price_cents_per_million",
           "role_manifest_ref",
+          "role_required_capabilities",
         ]
         break
       case Tab.ORGANIZE:
@@ -912,6 +920,7 @@ export const ProductCreateForm = ({
                       "role_input_token_price_cents_per_million",
                       "role_output_token_price_cents_per_million",
                       "role_manifest_ref",
+                      "role_required_capabilities",
                     ]
                     break
                   case Tab.ORGANIZE:

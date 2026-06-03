@@ -155,13 +155,13 @@ function isToolImplementationPath(value: string): boolean {
 
 function validateRequiredCapabilities(value: unknown, path: string, issues: string[]): string[] {
   if (!Array.isArray(value)) {
-    issues.push(`${path} must be a non-empty array of abstract local OpenClaw capabilities.`);
+    issues.push(`${path} must be a non-empty array of abstract OpenClaw capability needs.`);
     return [];
   }
 
   const capabilities = stringArray(value);
   if (capabilities.length === 0) {
-    issues.push(`${path} must include at least one abstract local OpenClaw capability.`);
+    issues.push(`${path} must include at least one abstract OpenClaw capability need.`);
     return [];
   }
 
@@ -217,7 +217,7 @@ function scanValue(value: unknown, path: string, issues: string[]) {
     }
     if (TOOL_IMPLEMENTATION_KEY_NAMES.has(normalizedKey)) {
       issues.push(
-        `${path}.${key} must not define implementation tools; declare requiredCapabilities for local OpenClaw instead.`,
+        `${path}.${key} must not define implementation tools or tool schemas; declare requiredCapabilities and let the local OpenClaw tool protocol execute them instead.`,
       );
     }
     if (!["secretsRequired", "secrets_required"].includes(key) && SENSITIVE_KEY_PATTERN.test(key)) {
@@ -329,7 +329,7 @@ export function validateDijieRolePackageUpload(input: unknown): DijieRolePackage
     }
     if (isToolImplementationPath(file.path)) {
       issues.push(
-        `${file.path} must not ship implementation tools; role packages declare requiredCapabilities and local OpenClaw executes tools.`,
+        `${file.path} must not ship implementation tools or tool schemas; role packages declare requiredCapabilities and local OpenClaw executes through tools.catalog/tools.effective/tools.invoke.`,
       );
     }
     if (file.content) {

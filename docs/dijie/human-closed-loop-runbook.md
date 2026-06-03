@@ -11,7 +11,7 @@
 - vendor 能创建带 `roleTokenPricing` 的岗位商品。
 - admin 只能审核通过合法岗位定价：`currency = CNY`、输入/输出 Token 单价非负、`platformFeeBps = 0`、`developerReceivableBps = 10000`。
 - vendor 创建商品前能上传 OpenClaw 导出的 `role_package/` 目录，云端只返回公开包收据和安全校验结果。
-- 上传的 `role_package/` 只包含岗位业务逻辑、流程、经验、能力需求和验收材料；实施工具由本地 OpenClaw/迭界AI主系统按 `requiredCapabilities` 选择、授权、执行和审计。
+- 上传的 `role_package/` 只包含岗位业务逻辑、流程、经验、能力需求和验收材料；实施工具由本地 OpenClaw/迭界AI主系统通过 OpenClaw `tools.catalog`、`tools.effective`、`tools.invoke` 选择、授权、执行和审计。
 - buyer 购买或授权后，云端能从真实订单事实推导 `/dijie/my-roles` 和 `/dijie/execution-token`。
 - OpenClaw 本地端用 execution token 执行岗位，生成 `AuditSummary.modelProxyUsage`。
 - 云端 `/dijie/audit` 持久化审计记录，并派生 `role_usage` 开发者应收账。
@@ -127,14 +127,14 @@ Expected result:
 - `package.packageVersion`
 - `package.manifestSummary.manifestRef = "role_package/manifest.json"`
 - `package.manifestSummary.entrypoint` is a `role_package/` relative path
-- `package.manifestSummary.requiredCapabilities` lists abstract local OpenClaw capabilities, not packaged tool implementations
+- `package.manifestSummary.requiredCapabilities` lists abstract OpenClaw capability needs, not packaged tool implementations or tool schemas
 - response contains only public receipt data and file hashes/sizes, not raw package content
 
 Failure checks:
 
 - A manifest containing `roleListingId`, `executionId`, `entitlementId`, `deviceId`, `workspaceRef`, order/wallet facts, provider auth, raw token, cloud bearer, local absolute path, prompt, or chat history must be rejected.
 - Missing `role_package/listing.md`, `role_package/README.md`, business knowledge/workflow/experience material, adapter/wrapper/example capability mapping, `requiredCapabilities`, or validation/smoke material must be rejected.
-- A package containing `role_package/tools/`, `role_package/mcp-servers/`, API clients, browser/file/command tool implementations, or manifest `toolDefinitions` must be rejected. 岗位包声明能力需求，本地 OpenClaw 负责真实工具调用。
+- A package containing `role_package/tools/`, `role_package/mcp-servers/`, API clients, browser/file/command tool implementations, tool schemas, or manifest `toolDefinitions` must be rejected. 岗位包声明能力需求，本地 OpenClaw 负责通过 OpenClaw 工具协议真实调用工具。
 
 ## Step 2: Vendor Creates Role Listing
 
@@ -144,6 +144,7 @@ Use the vendor UI to create a role product with:
 - input Token price in cents per million
 - output Token price in cents per million
 - package identity: `packageId`, `packageVersion`, and `role_package/manifest.json` from the upload receipt
+- local capability needs: copy `package.manifestSummary.requiredCapabilities` from the upload receipt into `metadata.dijieRole.manifestSummary.requiredCapabilities`
 - developer, listing owner, and billing beneficiary refs
 
 Expected result:
@@ -151,6 +152,7 @@ Expected result:
 - The product metadata includes `metadata.dijieRole.kind = "role_product"`.
 - The product metadata contains only public listing metadata; it does not contain `modeStage`, role-builder prompts, chat history, `RoleBuildBrief`, workspace refs, execution ids, raw tokens, or provider secrets.
 - The product metadata may include a safe `manifestSummary.requiredCapabilities` summary, but must not describe the role as shipping its own implementation tools.
+- Vendor/admin/buyer readback describes `requiredCapabilities` as local capability needs, not packaged tools.
 - `metadata.dijieRole.pricing.kind = "one_time_authorization"`.
 - `metadata.dijieRole.pricing.platformFeeBps = 0`.
 - `metadata.dijieRole.pricing.developerReceivableBps = 10000`.

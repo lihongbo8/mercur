@@ -79,6 +79,7 @@ export const ProductCreateBaseSchema = z.object({
     .min(1, "请输入调用单价")
     .regex(/^\d+$/, "请输入非负整数"),
   role_capabilities: z.string().optional(),
+  role_required_capabilities: z.string().optional(),
   role_manifest_ref: z
     .string()
     .optional()
@@ -191,6 +192,7 @@ export const PRODUCT_CREATE_FORM_DEFAULTS: Partial<
   origin_country: "",
   role_authorization_fee_yuan: "",
   role_capabilities: "",
+  role_required_capabilities: "",
   role_input_token_price_cents_per_million: "0",
   role_manifest_ref: "",
   role_output_token_price_cents_per_million: "0",

@@ -42,6 +42,7 @@ Root._tabMeta = {
     "role_input_token_price_cents_per_million",
     "role_output_token_price_cents_per_million",
     "role_manifest_ref",
+    "role_required_capabilities",
   ],
 } satisfies TabDefinition;
 
