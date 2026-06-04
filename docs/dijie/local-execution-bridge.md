@@ -2,9 +2,17 @@
 
 ## Product Boundary
 
-迭界AI云端使用 Mercur/Medusa 作为账号、岗位商场、订单、一次授权、审核和开发者中心的业务实现基础。OpenClaw fork 不是外接插件，也不是被削成纯 SaaS 后端；它改名和迁移业务规则后就是迭界AI主系统本体，保留原有对话、编程、workspace、session、Gateway、工具调用、文件读写、测试和 artifact 生成能力。
+迭界AI云端使用 Mercur/Medusa 作为账号、岗位商场、订单、一次授权、审核和开发者中心的业务实现基础。OpenClaw fork 不是外接插件，也不是被削成纯 SaaS 后端；它改名和迁移业务规则后就是迭界AI主系统本体，保留原有对话、编程、workspace、session、Gateway、工具调用、文件读写、测试、memory 和 artifact 生成能力。
 
 云端不直接操作本地文件，本地端不直接修改订单、钱包、授权或审核状态。两边通过短期执行授权和审计摘要连接。
+
+产品边界固定为：
+
+```text
+云端 = SaaS 管理层，负责账号、岗位商城、岗位商品、订单授权、审核、结算、execution token 和安全审计摘要。
+本地端 = 私有资料和真实执行层，负责 workspace、文件、素材、页面截图、本地工具调用、本地岗位实例运行库和本地岗位实例工作记忆。
+岗位本身 = 无状态能力模板，不保存用户资料、运行库、工作记忆或长期状态。
+```
 
 ## Adaptation Boundary
 
@@ -30,6 +38,8 @@ Mercur/Medusa 侧原则：
 原有 admin / review 能力 -> 改编为岗位包审核和平台治理
 原有 module / service 模式 -> 改编为 entitlement、audit、payout 记录
 ```
+
+账号边界：平台审核账号仅用于管理后台审核；本地端、使用者中心、开发者中心和岗位商城默认复用同一个迭界AI账号，不做额外账号链接。
 
 禁止绕过商城原有商业事实源另造影子商城、影子订单、影子账号。除非原框架没有合适设施，或者复用会破坏权限、审计、账本、生命周期边界，否则默认必须先改编原有能力。
 
@@ -113,20 +123,44 @@ Mercur/Medusa 侧原则：
 -> 本地 Gateway 请求 execution token
 -> 云端校验账号、entitlement、listing 状态、设备绑定和资源限制
 -> 云端签发短期 execution token
+-> 本地调度层创建或加载岗位实例
+-> 本地调度层读取岗位实例运行库和工作记忆，组装运行上下文
 -> 迭界AI主系统 runtime 在 workspace 中执行
--> 本地生成 RoleResult 和 AuditSummary
--> 云端记录审计摘要、artifact metadata 和执行状态
+-> 本地回写运行记录、质量问题、素材索引和记忆候选
+-> 本地生成 RoleResult 和 AuditSummary 安全摘要
+-> 云端记录审计摘要、artifact metadata、计费/结算派生和执行状态
 ```
 
 真人验收步骤见 [迭界AI真人闭环验收 Runbook](./human-closed-loop-runbook.md)。该 runbook 用来记录真实账号、真实岗位商品、真实订单授权、本地执行、审计上传和安全审计读取的证据。
+
+## Local Role Instance Storage Boundary
+
+岗位商品和岗位包都不能自带数据库或记忆。用户授权岗位后，本地端才在当前 workspace 下创建“岗位实例”，并由本地调度层托管该实例的运行库和工作记忆。
+
+本地岗位实例可以保存：
+
+```text
+日常状态
+巡检记录
+素材索引
+质量问题
+任务执行历史
+工具调用摘要
+产品保真标准
+用户偏好
+常见错误和修正方式
+记忆候选
+```
+
+这些资料默认留在本地。云端只接收必要的安全摘要、审计投影、计费字段、能力画像、候选记忆摘要或用户明确确认后的同步内容。云端岗位商品、公开 listing、`metadata.dijieRole` 和开发者中心表单都不能保存本地原始素材、页面截图、完整运行历史、本地工作记忆、使用者模式私有记忆或记忆候选原文。
 
 ## Current OpenClaw UI Bridge
 
 迭界AI主系统页面当前只作为桥接状态和审计调试面板，不作为第二套岗位生成对话框。用户自然语言入口必须继续使用 OpenClaw 原本主对话框；所谓使用者模式、开发者模式，只能表达同一聊天框下当前角色、工作身份和流程阶段，不能暗示为另一套聊天入口、另一套会话实体或另一套聊天产品。
 
-岗位包生成的正式前端流程是对话优先：开发者在主对话里只补充业务逻辑、业务事实和岗位经验，直到主系统明确岗位要解决什么业务问题、给谁用、业务流程如何判断、希望完成什么结果。输入、输出、业务规则、验收标准、包结构、OpenClaw 工具协议边界、验证材料、定价意图和审核资料都由主系统内置资料包和开发者模式流程处理。主系统再把业务逻辑沉淀成内部 `RoleBuildBrief`，用隔离 workspace 生成 `role_package/`。这个 `role_package/` 是人类岗位流程、业务逻辑、经验、判断标准、常见失败模式、验收样例和抽象能力需求的公开包；实施工具由本地 OpenClaw/迭界AI主系统通过 OpenClaw `tools.catalog`、`tools.effective`、`tools.invoke` 选择、授权、调用和审计，不能打进岗位包里。
+岗位包生成的正式前端流程是对话优先：开发者在主对话里只补充业务逻辑、业务事实和通用岗位经验，直到主系统明确岗位要解决什么业务问题、给谁用、业务流程如何判断、希望完成什么结果。输入、输出、业务规则、验收标准、包结构、OpenClaw 工具协议边界、验证材料、定价意图和审核资料都由主系统内置资料包和开发者模式流程处理。主系统再把业务逻辑沉淀成内部 `RoleBuildBrief`，用隔离 workspace 生成 `role_package/`。这个 `role_package/` 是无状态能力模板，只保存人类岗位流程、公开业务逻辑、通用经验、判断标准、常见失败模式、验收样例和抽象能力需求；实施工具由本地 OpenClaw/迭界AI主系统通过 OpenClaw `tools.catalog`、`tools.effective`、`tools.invoke` 调用和审计，不能打进岗位包里。用户素材、运行库、工作记忆、使用者模式私有记忆和岗位实例状态也不能打进岗位包。
 
-同一个主系统前端有两个用户模式：`使用者模式` 和 `开发者模式`。使用者模式用于购买、安装和运行已有岗位；开发者模式由明确的模式切换、命令或开发者中心入口唤醒。进入开发者模式后，不是打开新的聊天产品，而是让原主对话进入岗位开发的当前工作身份和流程阶段：它只向开发者追问业务逻辑，平台内置资料包负责岗位包结构、协议、验收、验证和上传标准，并交付下载/上传到开发者中心的动作。
+同一个主系统前端有两个用户模式：`使用者模式` 和 `开发者模式`。使用者模式用于购买/授权、启用和运行已有岗位；开发者模式由明确的模式切换、命令或开发者中心入口唤醒。进入开发者模式后，不是打开新的聊天产品，而是让原主对话进入岗位开发的当前工作身份和流程阶段：它只向开发者追问业务逻辑，平台内置资料包负责岗位包结构、协议、验收、验证和上传标准，并交付下载/上传到开发者中心的动作。
 
 开发者模式必须切换上下文、权限、文案和可用动作。它可以读取本次开发者提供的需求、素材、公开协议和隔离 workspace；不能把使用者模式里的普通工作上下文、已购买岗位运行历史、主系统私有记忆或密钥当成岗位包生成输入。
 
@@ -144,7 +178,7 @@ Mercur/Medusa 侧原则：
 
 ## Cloud Developer Center Boundary
 
-Mercur/Medusa 云端仍是岗位商场、使用者中心和开发者中心的事实源，但第一版开发者中心不做完整云端 AI 助手，也不新增岗位生成聊天框。云端只管理账号、开发者身份、product/listing、订单授权、审核状态、执行授权、审计摘要和结算派生。
+Mercur/Medusa 云端仍是岗位商场、使用者中心和开发者中心的事实源，但第一版开发者中心不做完整云端 AI 助手，也不新增岗位生成聊天框。云端只管理账号、开发者身份、product/listing、订单授权、审核状态、执行授权、审计摘要和结算派生；不管理用户本地素材、岗位实例运行库或岗位实例工作记忆。
 
 内部开发者在 OpenClaw/迭界AI主系统的开发者模式里只表达业务逻辑。输入、输出、业务规则、异常处理、验收标准、测试样例、岗位包结构、OpenClaw 工具协议边界、验证材料和上传标准由本地主系统内置资料包和开发者模式流程自动处理成内部 `RoleBuildBrief` 和 `role_package/`。开发者中心不能要求内部开发者把这些维度逐项手填成商品表单字段，也不能保存开发者模式的原始提示词、对话历史、`modeStage` 或私有 workspace 上下文。
 
@@ -157,7 +191,7 @@ Mercur/Medusa 云端仍是岗位商场、使用者中心和开发者中心的事
 
 对不用迭界AI开发者模式、选择用其他软件自行开发岗位包的外部开发者，输入、输出、业务规则、异常处理、验收标准和测试样例可以作为公开岗位包交付规范；这些规范应进入岗位包清单、包内文档或审核材料，而不是变成云端生成助手或 per-user 执行事实。
 
-`metadata.dijieRole` 只能保存可公开 listing metadata 和审核/结算需要的稳定快照。它不能保存 `RoleBuildBrief`、开发者模式 prompt、聊天记录、`modeStage`、`executionId`、`actorId`、`entitlementId`、订单/钱包事实、`deviceId`、`workspaceRef`、`localGatewayId`、cloud bearer、raw execution token、provider auth 或 secret 原文。这些字段只允许在本地主系统开发者模式流程、平台桥、execution token、审计构建器、结算派生器和云端 API 内部按需流转。
+`metadata.dijieRole` 只能保存可公开 listing metadata 和审核/结算需要的稳定快照。它不能保存 `RoleBuildBrief`、开发者模式 prompt、聊天记录、`modeStage`、`executionId`、`actorId`、`entitlementId`、订单/钱包事实、`deviceId`、`workspaceRef`、`localGatewayId`、cloud bearer、raw execution token、provider auth、secret 原文、本地岗位实例运行库、本地岗位实例工作记忆、使用者模式私有记忆或记忆候选原文。这些字段只允许在本地主系统开发者模式流程、平台桥、execution token、审计构建器、结算派生器、本地调度层和云端 API 内部按需流转。
 
 ```text
 填写 roleListingId / entitlementId / deviceId / workspaceRef / localGatewayId
@@ -222,7 +256,7 @@ Admin 审核页必须在发布前校验一次授权费和 `roleTokenPricing`：�
 
 `POST /dijie/entitlements/verify` 与 `GET /dijie/roles` 使用同一个严格 parser。也就是说，不能出现“公开岗位列表不显示，但 verifier 仍然把普通商品当成可执行岗位”的旁路。
 
-`GET /dijie/my-roles` 是本地迭界AI主系统同步“我的岗位”的最小入口。它要求已认证 customer actor，并从真实 `order_group` / `order` / line item 与 product facts 推导已安装岗位：
+`GET /dijie/my-roles` 是本地迭界AI主系统同步“我的岗位”的最小入口。它要求已认证 customer actor，并从真实 `order_group` / `order` / line item 与 product facts 推导已授权岗位：
 
 - 订单必须属于当前 customer。
 - 订单必须已付款，取消或未付款订单不产生岗位授权。
