@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import {
+  createDijieRoleDetailReadModel,
   createDijieInstalledRolesFromMarketplaceFacts,
   createDijieRoleListingFromProduct,
 } from "./role-listings";
@@ -71,6 +72,54 @@ describe("Dijie role listing projection", () => {
       roleTokenPricing,
       scopes: ["role.execute", "audit.write"],
     });
+  });
+
+  it("creates a buyer role detail read model without raw marketplace metadata", () => {
+    const listing = createDijieRoleListingFromProduct(roleProduct);
+    const related = createDijieRoleListingFromProduct({
+      ...roleProduct,
+      id: "prod_role_writer",
+      title: "商品文案岗位",
+      subtitle: "整理商品卖点并生成文案",
+      handle: "writer-role",
+      metadata: {
+        dijieRole: {
+          ...(roleProduct.metadata.dijieRole as Record<string, unknown>),
+          packageId: "pkg_writer",
+        },
+      },
+    });
+
+    expect(listing).toBeDefined();
+    expect(related).toBeDefined();
+    const detail = createDijieRoleDetailReadModel(listing!, [listing!, related!]);
+
+    expect(detail).toMatchObject({
+      id: "prod_role_researcher",
+      title: "资料研究岗位",
+      detailSections: {
+        roleDetails: ["适合做资料收集和结构化总结。", "整理资料并输出简报"],
+        requiredCapabilities: ["资料收集"],
+      },
+      authorizationSummary: {
+        authorizationFeeCents: 19900,
+        currency: "CNY",
+        inputTokenCentsPerMillion: 120,
+        outputTokenCentsPerMillion: 360,
+      },
+      relatedRoles: [
+        {
+          id: "prod_role_writer",
+          title: "商品文案岗位",
+          subtitle: "整理商品卖点并生成文案",
+          handle: "writer-role",
+        },
+      ],
+    });
+    const serialized = JSON.stringify(detail);
+    expect(serialized).not.toContain("metadata.dijieRole");
+    expect(serialized).not.toContain("roleBuildBrief");
+    expect(serialized).not.toContain("executionId");
   });
 
   it("does not publish products without one-time role authorization pricing", () => {

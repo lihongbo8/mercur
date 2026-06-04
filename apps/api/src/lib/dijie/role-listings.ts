@@ -30,6 +30,22 @@ export type DijieRoleListing = {
   scopes: string[];
 };
 
+export type DijieRoleDetailReadModel = DijieRoleListing & {
+  detailSections: {
+    roleDetails: string[];
+    executionStandards: string[];
+    requiredCapabilities: string[];
+    failureBoundaries: string[];
+  };
+  authorizationSummary: {
+    authorizationFeeCents: number;
+    currency: "CNY";
+    inputTokenCentsPerMillion: number;
+    outputTokenCentsPerMillion: number;
+  };
+  relatedRoles: Array<Pick<DijieRoleListing, "id" | "title" | "subtitle" | "handle">>;
+};
+
 export type DijieInstalledRole = {
   entitlementId: string;
   entitlementSource: "order_group" | "order";
@@ -97,6 +113,61 @@ export function createDijieRoleListingFromProduct(productInput: unknown): DijieR
     pricing: role.pricing,
     roleTokenPricing: role.roleTokenPricing,
     scopes: role.scopes,
+  };
+}
+
+function createRoleDetails(listing: DijieRoleListing): string[] {
+  return [
+    listing.description,
+    listing.subtitle,
+  ].filter((value): value is string => Boolean(value));
+}
+
+function createExecutionStandards(listing: DijieRoleListing): string[] {
+  return listing.capabilities.length > 0
+    ? listing.capabilities.map((capability) => `${capability}：按岗位包公开规则执行并输出可审计结果。`)
+    : ["按岗位包公开规则执行并输出可审计结果。"];
+}
+
+function createFailureBoundaries(listing: DijieRoleListing): string[] {
+  const capabilityHint =
+    listing.capabilities.length > 0
+      ? `未获得 ${listing.capabilities[0]} 所需本地能力时停止执行。`
+      : "未获得所需本地能力时停止执行。";
+  return [
+    capabilityHint,
+    "授权、确认点或审计回读缺失时停止执行。",
+    "岗位包只提供业务规则和能力需求，不包含本地工具实现。",
+  ];
+}
+
+export function createDijieRoleDetailReadModel(
+  listing: DijieRoleListing,
+  allListings: DijieRoleListing[],
+): DijieRoleDetailReadModel {
+  return {
+    ...listing,
+    detailSections: {
+      roleDetails: createRoleDetails(listing),
+      executionStandards: createExecutionStandards(listing),
+      requiredCapabilities: listing.capabilities,
+      failureBoundaries: createFailureBoundaries(listing),
+    },
+    authorizationSummary: {
+      authorizationFeeCents: listing.pricing.authorizationFeeCents,
+      currency: "CNY",
+      inputTokenCentsPerMillion: listing.roleTokenPricing.inputTokenCentsPerMillion,
+      outputTokenCentsPerMillion: listing.roleTokenPricing.outputTokenCentsPerMillion,
+    },
+    relatedRoles: allListings
+      .filter((candidate) => candidate.id !== listing.id)
+      .slice(0, 3)
+      .map((candidate) => ({
+        id: candidate.id,
+        title: candidate.title,
+        subtitle: candidate.subtitle,
+        handle: candidate.handle,
+      })),
   };
 }
 
@@ -255,6 +326,15 @@ export async function listDijieRoleListings(queryGraph: DijieQueryGraph): Promis
   return data
     .map(createDijieRoleListingFromProduct)
     .filter((listing): listing is DijieRoleListing => Boolean(listing));
+}
+
+export async function getDijieRoleDetailReadModel(params: {
+  roleListingId: string;
+  queryGraph: DijieQueryGraph;
+}): Promise<DijieRoleDetailReadModel | null> {
+  const listings = await listDijieRoleListings(params.queryGraph);
+  const listing = listings.find((candidate) => candidate.id === params.roleListingId);
+  return listing ? createDijieRoleDetailReadModel(listing, listings) : null;
 }
 
 export async function listDijieInstalledRoles(params: {
