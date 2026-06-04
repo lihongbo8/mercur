@@ -91,6 +91,10 @@ export function createDijieRoleListingFromProduct(productInput: unknown): DijieR
   }
   const role = roleResult.value;
   const seller = sellerRecord(product);
+  const capabilities =
+    role.capabilities.length > 0
+      ? role.capabilities
+      : role.manifestSummary.requiredCapabilities ?? [];
   return {
     id,
     title: nonEmptyString(role.title) ?? nonEmptyString(product.title) ?? "未命名岗位",
@@ -109,7 +113,7 @@ export function createDijieRoleListingFromProduct(productInput: unknown): DijieR
     packageId: role.packageId,
     packageVersion: role.packageVersion,
     protocolVersion: role.protocolVersion,
-    capabilities: role.capabilities,
+    capabilities,
     pricing: role.pricing,
     roleTokenPricing: role.roleTokenPricing,
     scopes: role.scopes,

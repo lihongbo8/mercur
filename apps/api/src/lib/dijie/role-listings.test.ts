@@ -122,6 +122,48 @@ describe("Dijie role listing projection", () => {
     expect(serialized).not.toContain("executionId");
   });
 
+  it("projects manifest required capabilities when legacy role capabilities are empty", () => {
+    const listing = createDijieRoleListingFromProduct({
+      ...roleProduct,
+      id: "prod_role_image_review",
+      title: "商品图检查岗位",
+      metadata: {
+        dijieRole: {
+          ...(roleProduct.metadata.dijieRole as Record<string, unknown>),
+          packageId: "pkg_image_review",
+          capabilities: [],
+          manifestSummary: {
+            entrypoint: "roles/image-review.ts",
+            requiredCapabilities: [
+              "workspace.read",
+              "image.inspect",
+              "document.write",
+              "human.confirm",
+            ],
+            sandbox: "workspace-write",
+          },
+        },
+      },
+    });
+
+    expect(listing).toBeDefined();
+    expect(listing!.capabilities).toEqual([
+      "workspace.read",
+      "image.inspect",
+      "document.write",
+      "human.confirm",
+    ]);
+
+    const detail = createDijieRoleDetailReadModel(listing!, [listing!]);
+    expect(detail.detailSections.requiredCapabilities).toEqual([
+      "workspace.read",
+      "image.inspect",
+      "document.write",
+      "human.confirm",
+    ]);
+    expect(JSON.stringify(detail)).not.toContain("manifestSummary");
+  });
+
   it("does not publish products without one-time role authorization pricing", () => {
     expect(
       createDijieRoleListingFromProduct({

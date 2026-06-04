@@ -390,7 +390,7 @@ describe("GET /dijie/executions/:executionId", () => {
         expect(executionId).toBe("exec_123");
         return [feedbackStorage];
       },
-      async retrieveDijieRoleCapabilityProfile(input: {
+      async retrieveDijieRoleCapabilityProfileForRole(input: {
         packageId: string;
         packageVersion?: string;
         roleListingId?: string | null;

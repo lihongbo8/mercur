@@ -318,7 +318,7 @@ export type DijieSchedulerBackboneReader = {
   retrieveDijieRoleFeedbackPacketsByExecutionId: (
     executionId: string,
   ) => Promise<DijieRoleFeedbackPacketStorageRecord[]>;
-  retrieveDijieRoleCapabilityProfile: (input: {
+  retrieveDijieRoleCapabilityProfileForRole: (input: {
     packageId: string;
     packageVersion?: string;
     roleListingId?: string | null;

@@ -102,8 +102,8 @@ function isSchedulerBackboneReader(value: unknown): value is DijieSchedulerBackb
     typeof value === "object" &&
     typeof (value as { retrieveDijieRoleFeedbackPacketsByExecutionId?: unknown })
       .retrieveDijieRoleFeedbackPacketsByExecutionId === "function" &&
-    typeof (value as { retrieveDijieRoleCapabilityProfile?: unknown })
-      .retrieveDijieRoleCapabilityProfile === "function"
+    typeof (value as { retrieveDijieRoleCapabilityProfileForRole?: unknown })
+      .retrieveDijieRoleCapabilityProfileForRole === "function"
   );
 }
 
@@ -425,7 +425,7 @@ async function retrieveSchedulerReadback(
   if (reader) {
     const [feedbackPackets, capabilityProfile] = await Promise.all([
       reader.retrieveDijieRoleFeedbackPacketsByExecutionId(record.execution_id),
-      reader.retrieveDijieRoleCapabilityProfile({
+      reader.retrieveDijieRoleCapabilityProfileForRole({
         packageId: record.package_id,
         packageVersion: record.package_version,
         roleListingId: record.role_listing_id,

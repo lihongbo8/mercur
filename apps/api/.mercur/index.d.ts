@@ -430,6 +430,9 @@ export type Routes = {
             $id: typeof import("@mercurjs/core/api/admin/sellers/[id]/route");
         };
         custom: typeof import("../../src/api/admin/custom/route");
+        dijie: {
+            reviewCenter: typeof import("../../src/api/admin/dijie/review-center/route");
+        };
     };
     auth: {
         $actorType: {
@@ -696,6 +699,7 @@ export type Routes = {
         };
         uploads: typeof import("@mercurjs/core/api/vendor/uploads/route");
         dijie: {
+            receivables: typeof import("../../src/api/vendor/dijie/receivables/route");
             rolePackages: typeof import("../../src/api/vendor/dijie/role-packages/route");
         };
     };
@@ -709,6 +713,8 @@ export type Routes = {
             $executionId: typeof import("../../src/api/dijie/executions/[executionId]/route");
         };
         myRoles: typeof import("../../src/api/dijie/my-roles/route");
-        roles: typeof import("../../src/api/dijie/roles/route");
+        roles: typeof import("../../src/api/dijie/roles/route") & {
+            $roleListingId: typeof import("../../src/api/dijie/roles/[roleListingId]/route");
+        };
     };
 };
