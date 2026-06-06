@@ -1,8 +1,8 @@
 import {
   Buildings,
+  ChatBubbleLeftRight,
   CloudArrowUp,
   EllipsisHorizontal,
-  MagnifyingGlass,
   Plus,
   Tag,
   User,
@@ -16,7 +16,6 @@ import { Shell } from "../../layout/shell";
 
 import { useNavigate } from "react-router-dom";
 import { useMe, useSelectSeller, useSellers } from "../../../hooks/api";
-import { useSearch } from "../../../providers/search-provider";
 import { UserMenu } from "../user-menu";
 import { useDocumentDirection } from "../../../hooks/use-document-direction";
 import components from "virtual:mercur/components";
@@ -86,7 +85,6 @@ const MainSidebar = () => {
         <div className="flex flex-1 flex-col justify-between">
           <div className="flex flex-1 flex-col">
             <nav className="flex flex-col gap-y-1 py-3">
-              <Searchbar />
               {routesWithNested.map((route) => {
                 return <NavItem key={route.to} {...route} />;
               })}
@@ -251,9 +249,15 @@ export const Header = () => {
 export const useCoreRoutes = (): Omit<INavItem, "pathname">[] => {
   return [
     {
+      icon: <ChatBubbleLeftRight />,
+      label: "开发对话",
+      to: "/",
+    },
+    {
       icon: <Tag />,
       label: "岗位商品",
       to: "/products",
+      activePathExcludes: ["/products/create"],
     },
     {
       icon: <CloudArrowUp />,
@@ -277,38 +281,10 @@ export const useCoreRoutes = (): Omit<INavItem, "pathname">[] => {
     },
     {
       icon: <Buildings />,
-      label: "工具资源",
+      label: "能力资源",
       to: "/tool-resources",
     },
   ];
-};
-
-const Searchbar = () => {
-  const { t } = useTranslation();
-  const { toggleSearch } = useSearch();
-
-  return (
-    <div className="px-3">
-      <button
-        onClick={toggleSearch}
-        className={clx(
-          "bg-ui-bg-subtle text-ui-fg-subtle flex w-full items-center gap-x-2.5 rounded-md px-2 py-1 outline-none",
-          "hover:bg-ui-bg-subtle-hover",
-          "focus-visible:shadow-borders-focus",
-        )}
-      >
-        <MagnifyingGlass />
-        <div className="flex-1 text-start">
-          <Text size="small" leading="compact" weight="plus">
-            {t("app.search.label")}
-          </Text>
-        </div>
-        <Text size="small" leading="compact" className="text-ui-fg-muted">
-          ⌘K
-        </Text>
-      </button>
-    </div>
-  );
 };
 
 const UtilitySection = () => {

@@ -1,4 +1,5 @@
 import type { DijieExecutionTokenPricing, DijieRoleTokenPricing } from "./execution-token";
+import type { DijieRoleListingStorageRecord } from "./role-listing-store";
 import {
   isPublicDijieRoleProduct,
   normalizeDijieRoleProductMetadataFromProduct,
@@ -48,7 +49,7 @@ export type DijieRoleDetailReadModel = DijieRoleListing & {
 
 export type DijieInstalledRole = {
   entitlementId: string;
-  entitlementSource: "order_group" | "order";
+  entitlementSource: "local_entitlement" | "order_group" | "order";
   orderId: string | null;
   authorizedAt: string | null;
   role: DijieRoleListing;
@@ -68,6 +69,23 @@ function asRecord(value: unknown): UnknownRecord {
 
 function nonEmptyString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function dateString(value: unknown): string | undefined {
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return value.toISOString();
+  }
+  return nonEmptyString(value);
+}
+
+function stringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .filter((item): item is string => typeof item === "string")
+    .map((item) => item.trim())
+    .filter(Boolean);
 }
 
 function metadata(record: UnknownRecord): UnknownRecord {
@@ -117,6 +135,54 @@ export function createDijieRoleListingFromProduct(productInput: unknown): DijieR
     pricing: role.pricing,
     roleTokenPricing: role.roleTokenPricing,
     scopes: role.scopes,
+  };
+}
+
+export function createDijieRoleListingFromStoredRecord(
+  recordInput: unknown,
+): DijieRoleListing | undefined {
+  const record = asRecord(recordInput) as UnknownRecord & Partial<DijieRoleListingStorageRecord>;
+  const id = nonEmptyString(record.id);
+  const title = nonEmptyString(record.title);
+  const packageId = nonEmptyString(record.package_id);
+  const packageVersion = nonEmptyString(record.package_version);
+  if (!id || !title || !packageId || !packageVersion) {
+    return undefined;
+  }
+  if (record.listing_status !== "published" || record.review_state !== "approved") {
+    return undefined;
+  }
+
+  const capabilities = Array.isArray(record.capabilities)
+    ? stringArray(record.capabilities)
+    : [];
+  const manifestSummary = asRecord(record.manifest_summary);
+  const fallbackCapabilities = stringArray(
+    manifestSummary.requiredCapabilities ?? manifestSummary.required_capabilities,
+  );
+  const pricing = record.pricing as DijieExecutionTokenPricing | undefined;
+  const roleTokenPricing = record.role_token_pricing as DijieRoleTokenPricing | undefined;
+  if (!pricing || !roleTokenPricing) {
+    return undefined;
+  }
+
+  return {
+    id,
+    title,
+    subtitle: nonEmptyString(record.subtitle) ?? null,
+    description: nonEmptyString(record.description) ?? null,
+    handle: id,
+    listingStatus: record.listing_status,
+    reviewState: record.review_state,
+    developerId: nonEmptyString(record.developer_ref) ?? null,
+    developerName: null,
+    packageId,
+    packageVersion,
+    protocolVersion: "2026-05",
+    capabilities: capabilities.length > 0 ? capabilities : fallbackCapabilities,
+    pricing,
+    roleTokenPricing,
+    scopes: Array.isArray(record.scopes) ? stringArray(record.scopes) : ["role.execute", "audit.write"],
   };
 }
 
@@ -244,18 +310,47 @@ function uniqueByEntitlementAndRole(roles: DijieInstalledRole[]): DijieInstalled
 
 export function createDijieInstalledRolesFromMarketplaceFacts(params: {
   products: unknown[];
+  roleListings?: unknown[];
+  entitlements?: unknown[];
   orderGroups: unknown[];
   orders: unknown[];
 }): DijieInstalledRole[] {
   const listings = new Map<string, DijieRoleListing>();
-  for (const product of params.products) {
-    const listing = createDijieRoleListingFromProduct(product);
+  const storedListings = (params.roleListings ?? [])
+    .map(createDijieRoleListingFromStoredRecord)
+    .filter((listing): listing is DijieRoleListing => Boolean(listing));
+  const listingFacts = storedListings.length > 0
+    ? storedListings
+    : params.products
+        .map(createDijieRoleListingFromProduct)
+        .filter((listing): listing is DijieRoleListing => Boolean(listing));
+  for (const listing of listingFacts) {
     if (listing) {
       listings.set(listing.id, listing);
     }
   }
 
   const installed: DijieInstalledRole[] = [];
+  for (const entitlementInput of params.entitlements ?? []) {
+    const entitlement = asRecord(entitlementInput);
+    if (entitlement.entitlement_status !== "authorized") {
+      continue;
+    }
+    const entitlementId = nonEmptyString(entitlement.id);
+    const roleListingId = nonEmptyString(entitlement.role_listing_id);
+    const role = roleListingId ? listings.get(roleListingId) : undefined;
+    if (!entitlementId || !role) {
+      continue;
+    }
+    installed.push({
+      entitlementId,
+      entitlementSource: "local_entitlement",
+      orderId: nonEmptyString(entitlement.order_id) ?? null,
+      authorizedAt: dateString(entitlement.authorized_at) ?? null,
+      role,
+    });
+  }
+
   const orderGroupsByOrderId = new Map<string, string>();
   for (const orderGroupInput of params.orderGroups) {
     const orderGroup = asRecord(orderGroupInput);
@@ -311,6 +406,42 @@ export function createDijieInstalledRolesFromMarketplaceFacts(params: {
 }
 
 export async function listDijieRoleListings(queryGraph: DijieQueryGraph): Promise<DijieRoleListing[]> {
+  try {
+    const { data = [] } = await queryGraph({
+      entity: "dijie_role_listing",
+      fields: [
+        "id",
+        "package_id",
+        "package_version",
+        "developer_ref",
+        "title",
+        "subtitle",
+        "description",
+        "category",
+        "listing_status",
+        "review_state",
+        "capabilities",
+        "manifest_summary",
+        "pricing",
+        "role_token_pricing",
+        "scopes",
+      ],
+      filters: {
+        listing_status: "published",
+        review_state: "approved",
+      },
+      pagination: { take: 100 },
+    });
+    const storedListings = data
+      .map(createDijieRoleListingFromStoredRecord)
+      .filter((listing): listing is DijieRoleListing => Boolean(listing));
+    if (storedListings.length > 0) {
+      return storedListings;
+    }
+  } catch {
+    // Older local databases may not have the stored listing table yet; keep product fallback.
+  }
+
   const { data = [] } = await queryGraph({
     entity: "product",
     fields: [
@@ -345,6 +476,49 @@ export async function listDijieInstalledRoles(params: {
   actorId: string;
   queryGraph: DijieQueryGraph;
 }): Promise<DijieInstalledRole[]> {
+  const storedListingResult = await params.queryGraph({
+    entity: "dijie_role_listing",
+    fields: [
+      "id",
+      "package_id",
+      "package_version",
+      "developer_ref",
+      "title",
+      "subtitle",
+      "description",
+      "category",
+      "listing_status",
+      "review_state",
+      "capabilities",
+      "manifest_summary",
+      "pricing",
+      "role_token_pricing",
+      "scopes",
+    ],
+    filters: {
+      listing_status: "published",
+      review_state: "approved",
+    },
+    pagination: { take: 100 },
+  }).catch(() => ({ data: [] }));
+  const entitlementResult = await params.queryGraph({
+    entity: "dijie_role_entitlement",
+    fields: [
+      "id",
+      "actor_id",
+      "role_listing_id",
+      "entitlement_status",
+      "source",
+      "order_id",
+      "authorized_at",
+    ],
+    filters: {
+      actor_id: params.actorId,
+      entitlement_status: "authorized",
+    },
+    pagination: { take: 100 },
+  }).catch(() => ({ data: [] }));
+
   const [productResult, orderGroupResult, orderResult] = await Promise.all([
     params.queryGraph({
       entity: "product",
@@ -411,6 +585,8 @@ export async function listDijieInstalledRoles(params: {
 
   return createDijieInstalledRolesFromMarketplaceFacts({
     products: productResult.data ?? [],
+    roleListings: storedListingResult.data ?? [],
+    entitlements: entitlementResult.data ?? [],
     orderGroups: orderGroupResult.data ?? [],
     orders: orderResult.data ?? [],
   });

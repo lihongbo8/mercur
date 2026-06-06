@@ -8,7 +8,6 @@ import {
   Link,
   Outlet,
   UIMatch,
-  useLocation,
   useMatches,
   useNavigation,
 } from "react-router-dom"
@@ -17,8 +16,8 @@ import components from "virtual:mercur/components"
 import { KeybindProvider } from "../../../providers/keybind-provider"
 import { useGlobalShortcuts } from "../../../providers/keybind-provider/hooks"
 import { useSidebar } from "../../../providers/sidebar-provider"
-import { useMe } from "../../../hooks/api"
 import { ProgressBar } from "../../common/progress-bar"
+import { DeveloperAiAssistantDock } from "../../dijie/developer-ai-assistant"
 
 export const Shell = ({ children }: PropsWithChildren) => {
   const globalShortcuts = useGlobalShortcuts()
@@ -45,10 +44,10 @@ export const Shell = ({ children }: PropsWithChildren) => {
             )}
           >
             <Gutter>
-              <StoreSetupWidget />
               <Outlet />
             </Gutter>
           </main>
+          <DeveloperAiAssistantDock />
         </div>
       </div>
     </KeybindProvider>
@@ -265,25 +264,4 @@ const MobileSidebarContainer = ({ children }: PropsWithChildren) => {
       </RadixDialog.Portal>
     </RadixDialog.Root>
   )
-}
-
-const isTopLevelRoute = (pathname: string) => {
-  const clean = pathname.replace(/\/$/, "")
-  const segments = clean.split("/").filter(Boolean)
-  return segments.length === 1
-}
-
-const StoreSetupWidget = () => {
-  const StoreSetup = components.StoreSetup as
-    | React.ComponentType<{ seller: any }>
-    | undefined
-  const { seller_member } = useMe()
-  const seller = seller_member?.seller
-  const location = useLocation()
-
-  if (!StoreSetup || !seller || !isTopLevelRoute(location.pathname)) {
-    return null
-  }
-
-  return <StoreSetup seller={seller} />
 }

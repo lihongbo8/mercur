@@ -1,4 +1,6 @@
 import type { MedusaRequest, MedusaResponse } from "@medusajs/framework/http";
+import { resolveDijieAccessContext } from "../../../../lib/dijie/access-context";
+import type { DijieAccountAccessProfileReader } from "../../../../lib/dijie/account-access-store";
 import {
   createDijieAuditExecutionReadModel,
   DIJIE_AUDIT_MODULE,
@@ -6,6 +8,9 @@ import {
   type DijieAuditExecutionRecordReader,
   type DijieAuditStorageRecord,
 } from "../../../../lib/dijie/audit-store";
+import {
+  canAccessDijieExecutionData,
+} from "../../../../lib/dijie/data-permissions";
 import {
   createDijieRoleCapabilityProfileReadModel,
   createDijieRoleFeedbackPacketReadModel,
@@ -46,6 +51,32 @@ function stringField(record: UnknownRecord, field: string): string | undefined {
 function actorIdFromRequest(req: MedusaRequest): string | undefined {
   const authContext = (req as MedusaRequest & { auth_context?: UnknownRecord }).auth_context;
   return authContext ? stringField(authContext, "actor_id") : undefined;
+}
+
+function authContextFromRequest(req: MedusaRequest): UnknownRecord | undefined {
+  return (req as MedusaRequest & { auth_context?: UnknownRecord }).auth_context;
+}
+
+function isAccountAccessProfileReader(
+  value: unknown,
+): value is DijieAccountAccessProfileReader {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    typeof (value as { retrieveDijieAccountAccessProfile?: unknown })
+      .retrieveDijieAccountAccessProfile === "function"
+  );
+}
+
+function resolveAccountAccessProfileReader(
+  req: MedusaRequest,
+): DijieAccountAccessProfileReader | undefined {
+  try {
+    const service = req.scope.resolve(DIJIE_AUDIT_MODULE) as unknown;
+    return isAccountAccessProfileReader(service) ? service : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function arrayField(value: unknown): unknown[] {
@@ -622,7 +653,11 @@ export async function GET(req: MedusaRequest, res: MedusaResponse) {
     });
   }
 
-  if (result.record.actor_id !== actorId) {
+  const access = await resolveDijieAccessContext({
+    authContext: authContextFromRequest(req),
+    profileReader: resolveAccountAccessProfileReader(req),
+  });
+  if (!access || !canAccessDijieExecutionData(access, result.record)) {
     return res.status(403).json({
       ok: false,
       error: "Dijie execution audit record is not available to this actor.",

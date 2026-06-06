@@ -150,6 +150,10 @@ function hasUnsafeRelativePathSegment(value: string): boolean {
 }
 
 function isToolImplementationPath(value: string): boolean {
+  const normalized = value.replace(/\\/g, "/").toLowerCase();
+  if (/(^|\/)tool[_-]?requirements\.md$/u.test(normalized)) {
+    return false;
+  }
   return TOOL_IMPLEMENTATION_PATH_PATTERN.test(value);
 }
 
@@ -258,6 +262,12 @@ function readUploadFiles(input: UnknownRecord): DijieRolePackageUploadFile[] {
       },
     ];
   });
+}
+
+export function readDijieRolePackageUploadFilesForStorage(
+  value: unknown,
+): DijieRolePackageUploadFile[] {
+  return readUploadFiles(asRecord(value));
 }
 
 function readManifest(input: UnknownRecord, files: DijieRolePackageUploadFile[]): UnknownRecord {

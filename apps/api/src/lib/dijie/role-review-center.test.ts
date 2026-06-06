@@ -44,6 +44,50 @@ function roleProduct(overrides: Record<string, unknown> = {}) {
 }
 
 describe("Dijie review center read model", () => {
+  it("projects stored role listings as the primary admin review queue", () => {
+    const model = createDijieReviewCenterReadModel(
+      [
+        {
+          id: "djrole_image_review",
+          package_id: "djpkg_image_review",
+          package_version: "1.0.0",
+          developer_ref: "acct_dev",
+          title: "商品图检查岗位",
+          subtitle: "检查商品图是否清晰、合规、适合上架。",
+          listing_status: "proposed",
+          review_state: "submitted",
+          manifest_summary: {
+            requiredCapabilities: ["workspace.read", "browser.use"],
+          },
+          pricing: { currency: "CNY" },
+          confirmation_points: 2,
+        },
+      ],
+      { adminAccountId: "admin_001" },
+    );
+
+    expect(model).toMatchObject({
+      sampleRoleTitle: "商品图检查岗位",
+      dialogContext: {
+        subject: {
+          roleListingId: "djrole_image_review",
+          packageId: "djpkg_image_review",
+          reviewId: "review_djrole_image_review",
+        },
+      },
+      statusPanel: {
+        pendingRoles: 1,
+      },
+    });
+    expect(model.queue[0]).toMatchObject({
+      id: "djrole_image_review",
+      packageId: "djpkg_image_review",
+      reviewState: "submitted",
+      listingStatus: "proposed",
+      requiredCapabilities: ["workspace.read", "browser.use"],
+    });
+  });
+
   it("projects the admin UI as one role review with checklist items", () => {
     const model = createDijieReviewCenterReadModel([roleProduct()], {
       adminAccountId: "admin_001",

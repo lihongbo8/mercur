@@ -97,7 +97,6 @@ export const ProductListDataTable = () => {
       count={count}
       pageSize={PAGE_SIZE}
       filters={filters}
-      search
       pagination
       isLoading={isLoading}
       queryObject={raw}

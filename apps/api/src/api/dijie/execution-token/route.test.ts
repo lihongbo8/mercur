@@ -188,6 +188,36 @@ describe("POST /dijie/execution-token", () => {
     }
   });
 
+  it("does not mint a token when the entitlement verifier rejects the request", async () => {
+    process.env.DIJIE_EXECUTION_TOKEN_ISSUER_ENABLED = "true";
+    process.env.DIJIE_EXECUTION_TOKEN_PRIVATE_KEY_PEM = privateKeyPem;
+    process.env.DIJIE_ENTITLEMENT_VERIFY_URL = "https://dijie.test/verify-entitlement";
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async () =>
+      new Response(
+        JSON.stringify({
+          ok: false,
+          error: "No paid one-time role authorization was found for this customer.",
+        }),
+        { status: 403 },
+      );
+
+    try {
+      const res = response();
+      await POST(request(validBody()) as never, res as never);
+
+      expect(res.statusCode).toBe(403);
+      expect(res.body).toEqual({
+        ok: false,
+        error: "No paid one-time role authorization was found for this customer.",
+      });
+      expect(res.body).not.toHaveProperty("grant");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   it("fails closed when entitlement verifier omits role token pricing", async () => {
     process.env.DIJIE_EXECUTION_TOKEN_ISSUER_ENABLED = "true";
     process.env.DIJIE_EXECUTION_TOKEN_PRIVATE_KEY_PEM = privateKeyPem;

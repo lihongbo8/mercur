@@ -24,6 +24,32 @@ export type DijieDialogContext = {
   billingAccountId: string;
 };
 
+export type DijieDialogBillingPolicy = {
+  billingAccountId: string;
+  payerAccountId: string;
+  metered: true;
+  modelAllowed: boolean;
+  chargedBy: "system_platform";
+  billableModelUsage: boolean;
+  ledgerSource:
+    | "marketplace_assist"
+    | "developer_assist"
+    | "admin_review_assist"
+    | "user_assist"
+    | "role_usage";
+  requiresEntitlement: boolean;
+  note: string;
+};
+
+export type DijieDialogBillingSurfacePolicy = {
+  surface: DijieDialogSurface;
+  mode: DijieDialogMode;
+  accountType: DijieDialogAccountType;
+  billableModelUsage: boolean;
+  ledgerSource: DijieDialogBillingPolicy["ledgerSource"];
+  requiresEntitlement: boolean;
+};
+
 type UnknownRecord = Record<string, unknown>;
 
 const ACCOUNT_TYPES = new Set<DijieDialogAccountType>(["buyer", "developer", "admin"]);
@@ -166,4 +192,162 @@ export function createDijieDeveloperDialogContext(params: {
       ...(params.packageId ? { packageId: params.packageId } : {}),
     },
   });
+}
+
+export function createDijieBuyerStorefrontDialogContext(params: {
+  buyerAccountId: string;
+  roleListingId?: string;
+}): DijieDialogContext {
+  return createDijieDialogContext({
+    accountId: params.buyerAccountId,
+    accountType: "buyer",
+    surface: "buyer_storefront",
+    mode: "user",
+    subject: {
+      ...(params.roleListingId ? { roleListingId: params.roleListingId } : {}),
+    },
+  });
+}
+
+export function createDijieUserCenterDialogContext(params: {
+  buyerAccountId: string;
+  roleListingId?: string;
+  entitlementId?: string;
+}): DijieDialogContext {
+  return createDijieDialogContext({
+    accountId: params.buyerAccountId,
+    accountType: "buyer",
+    surface: "user_center",
+    mode: "user",
+    subject: {
+      ...(params.roleListingId ? { roleListingId: params.roleListingId } : {}),
+      ...(params.entitlementId ? { entitlementId: params.entitlementId } : {}),
+    },
+  });
+}
+
+export const DIJIE_DIALOG_BILLING_SURFACE_MATRIX: DijieDialogBillingSurfacePolicy[] = [
+  {
+    surface: "buyer_storefront",
+    mode: "user",
+    accountType: "buyer",
+    billableModelUsage: true,
+    ledgerSource: "marketplace_assist",
+    requiresEntitlement: false,
+  },
+  {
+    surface: "user_center",
+    mode: "user",
+    accountType: "buyer",
+    billableModelUsage: true,
+    ledgerSource: "user_assist",
+    requiresEntitlement: false,
+  },
+  {
+    surface: "developer_center",
+    mode: "developer",
+    accountType: "developer",
+    billableModelUsage: true,
+    ledgerSource: "developer_assist",
+    requiresEntitlement: false,
+  },
+  {
+    surface: "openclaw_local",
+    mode: "developer",
+    accountType: "developer",
+    billableModelUsage: true,
+    ledgerSource: "developer_assist",
+    requiresEntitlement: false,
+  },
+  {
+    surface: "admin_review",
+    mode: "review",
+    accountType: "admin",
+    billableModelUsage: true,
+    ledgerSource: "admin_review_assist",
+    requiresEntitlement: false,
+  },
+  {
+    surface: "openclaw_local",
+    mode: "user",
+    accountType: "buyer",
+    billableModelUsage: true,
+    ledgerSource: "role_usage",
+    requiresEntitlement: true,
+  },
+];
+
+export function getDijieDialogBillingPolicy(
+  context: DijieDialogContext,
+): DijieDialogBillingPolicy {
+  const base = {
+    billingAccountId: context.billingAccountId,
+    payerAccountId: context.billingAccountId,
+    metered: true as const,
+    chargedBy: "system_platform" as const,
+  };
+
+  if (context.surface === "admin_review") {
+    return {
+      ...base,
+      modelAllowed: true,
+      billableModelUsage: true,
+      ledgerSource: "admin_review_assist",
+      requiresEntitlement: false,
+      note: "审核助手费用归平台审核账号，不自动改变审核结论。",
+    };
+  }
+
+  if (context.surface === "developer_center") {
+    return {
+      ...base,
+      modelAllowed: true,
+      billableModelUsage: true,
+      ledgerSource: "developer_assist",
+      requiresEntitlement: false,
+      note: "开发者中心 AI 开发助手费用归开发者账号，用于岗位包生成、能力匹配和上传前验收。",
+    };
+  }
+
+  if (context.surface === "openclaw_local" && context.mode === "developer") {
+    return {
+      ...base,
+      modelAllowed: true,
+      billableModelUsage: true,
+      ledgerSource: "developer_assist",
+      requiresEntitlement: false,
+      note: "本地端开发者模式助手费用归开发者账号，只辅助岗位包生成和调试。",
+    };
+  }
+
+  if (context.surface === "buyer_storefront") {
+    return {
+      ...base,
+      modelAllowed: true,
+      billableModelUsage: true,
+      ledgerSource: "marketplace_assist",
+      requiresEntitlement: false,
+      note: "商城对话只做购买前咨询和入口引导；若调用模型，费用归当前登录账号，不写入岗位执行用量。",
+    };
+  }
+
+  if (context.surface === "openclaw_local" && context.mode === "user") {
+    return {
+      ...base,
+      modelAllowed: true,
+      billableModelUsage: true,
+      ledgerSource: "role_usage",
+      requiresEntitlement: true,
+      note: "本地端使用者模式进入正式岗位执行链路，必须校验授权并写入岗位用量。",
+    };
+  }
+
+  return {
+    ...base,
+    modelAllowed: true,
+    billableModelUsage: true,
+    ledgerSource: "user_assist",
+    requiresEntitlement: false,
+    note: "使用者中心普通助手费用归当前使用者账号，不写入岗位执行用量。",
+  };
 }

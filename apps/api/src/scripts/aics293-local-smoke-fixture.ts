@@ -148,6 +148,24 @@ async function createActors(container: ExecArgs["container"], stamp: number) {
   };
 }
 
+async function grantAdminReviewRole(params: { userId: string; stamp: number }) {
+  const client = new Client({
+    connectionString: process.env.DATABASE_URL,
+  });
+  await client.connect();
+
+  try {
+    await client.query(
+      `insert into user_rbac_role (id, user_id, rbac_role_id, created_at, updated_at)
+       values ($1, $2, 'role_super_admin', now(), now())
+       on conflict do nothing`,
+      [`usrbac_aics293_admin_${params.stamp}`, params.userId],
+    );
+  } finally {
+    await client.end();
+  }
+}
+
 async function createMarketplaceFacts(params: {
   buyerCustomerId: string;
   sellerId: string;
@@ -295,6 +313,7 @@ async function createMarketplaceFacts(params: {
 export default async function createAics293LocalSmokeFixture({ container }: ExecArgs) {
   const stamp = Date.now();
   const actors = await createActors(container, stamp);
+  await grantAdminReviewRole({ userId: actors.admin.userId, stamp });
   const facts = await createMarketplaceFacts({
     buyerCustomerId: actors.buyer.customerId,
     sellerId: actors.vendor.sellerId,

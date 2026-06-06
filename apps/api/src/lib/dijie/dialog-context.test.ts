@@ -1,8 +1,12 @@
 import { describe, expect, it } from "bun:test";
 import {
+  DIJIE_DIALOG_BILLING_SURFACE_MATRIX,
   createDijieAdminReviewDialogContext,
+  createDijieBuyerStorefrontDialogContext,
   createDijieDeveloperDialogContext,
   createDijieOpenClawUserDialogContext,
+  createDijieUserCenterDialogContext,
+  getDijieDialogBillingPolicy,
   normalizeDijieDialogContext,
 } from "./dialog-context";
 
@@ -100,5 +104,152 @@ describe("Dijie dialog context", () => {
         mode: "review",
       }),
     ).toBeNull();
+  });
+
+  it("keeps billing policy explicit for every dialog surface", () => {
+    expect(
+      getDijieDialogBillingPolicy(
+        createDijieBuyerStorefrontDialogContext({
+          buyerAccountId: "cus_001",
+          roleListingId: "prod_role_001",
+        }),
+      ),
+    ).toMatchObject({
+      billingAccountId: "cus_001",
+      payerAccountId: "cus_001",
+      billableModelUsage: true,
+      ledgerSource: "marketplace_assist",
+      requiresEntitlement: false,
+    });
+
+    expect(
+      getDijieDialogBillingPolicy(
+        createDijieUserCenterDialogContext({
+          buyerAccountId: "cus_001",
+          entitlementId: "ent_001",
+        }),
+      ),
+    ).toMatchObject({
+      billingAccountId: "cus_001",
+      payerAccountId: "cus_001",
+      billableModelUsage: true,
+      ledgerSource: "user_assist",
+      requiresEntitlement: false,
+    });
+
+    expect(
+      getDijieDialogBillingPolicy(
+        createDijieAdminReviewDialogContext({
+          adminAccountId: "admin_001",
+          roleListingId: "prod_role_001",
+        }),
+      ),
+    ).toMatchObject({
+      billingAccountId: "admin_001",
+      payerAccountId: "admin_001",
+      billableModelUsage: true,
+      ledgerSource: "admin_review_assist",
+      requiresEntitlement: false,
+    });
+
+    expect(
+      getDijieDialogBillingPolicy(
+        createDijieDeveloperDialogContext({
+          developerAccountId: "dev_001",
+          packageId: "pkg_role_001",
+        }),
+      ),
+    ).toMatchObject({
+      billingAccountId: "dev_001",
+      payerAccountId: "dev_001",
+      billableModelUsage: true,
+      ledgerSource: "developer_assist",
+      requiresEntitlement: false,
+    });
+
+    expect(
+      getDijieDialogBillingPolicy(
+        createDijieDeveloperDialogContext({
+          developerAccountId: "dev_001",
+          surface: "openclaw_local",
+          packageId: "pkg_role_001",
+        }),
+      ),
+    ).toMatchObject({
+      billingAccountId: "dev_001",
+      payerAccountId: "dev_001",
+      billableModelUsage: true,
+      ledgerSource: "developer_assist",
+      requiresEntitlement: false,
+    });
+
+    expect(
+      getDijieDialogBillingPolicy(
+        createDijieOpenClawUserDialogContext({
+          buyerAccountId: "cus_001",
+          roleListingId: "prod_role_001",
+          entitlementId: "ordgrp_001",
+        }),
+      ),
+    ).toMatchObject({
+      billingAccountId: "cus_001",
+      payerAccountId: "cus_001",
+      billableModelUsage: true,
+      ledgerSource: "role_usage",
+      requiresEntitlement: true,
+    });
+  });
+
+  it("documents every model-capable dialog entry in the billing surface matrix", () => {
+    expect(DIJIE_DIALOG_BILLING_SURFACE_MATRIX).toEqual([
+      {
+        surface: "buyer_storefront",
+        mode: "user",
+        accountType: "buyer",
+        billableModelUsage: true,
+        ledgerSource: "marketplace_assist",
+        requiresEntitlement: false,
+      },
+      {
+        surface: "user_center",
+        mode: "user",
+        accountType: "buyer",
+        billableModelUsage: true,
+        ledgerSource: "user_assist",
+        requiresEntitlement: false,
+      },
+      {
+        surface: "developer_center",
+        mode: "developer",
+        accountType: "developer",
+        billableModelUsage: true,
+        ledgerSource: "developer_assist",
+        requiresEntitlement: false,
+      },
+      {
+        surface: "openclaw_local",
+        mode: "developer",
+        accountType: "developer",
+        billableModelUsage: true,
+        ledgerSource: "developer_assist",
+        requiresEntitlement: false,
+      },
+      {
+        surface: "admin_review",
+        mode: "review",
+        accountType: "admin",
+        billableModelUsage: true,
+        ledgerSource: "admin_review_assist",
+        requiresEntitlement: false,
+      },
+      {
+        surface: "openclaw_local",
+        mode: "user",
+        accountType: "buyer",
+        billableModelUsage: true,
+        ledgerSource: "role_usage",
+        requiresEntitlement: true,
+      },
+    ]);
   });
 });

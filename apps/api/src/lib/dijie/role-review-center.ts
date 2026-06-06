@@ -3,6 +3,10 @@ import {
   type DijieRoleReviewState,
   type DijieRoleListingStatus,
 } from "./role-product-metadata";
+import type {
+  DijieRoleListingStorageRecord,
+  DijieStoredRoleReviewState,
+} from "./role-listing-store";
 import {
   createDijieAdminReviewDialogContext,
   type DijieDialogContext,
@@ -28,7 +32,7 @@ export type DijieReviewQueueItem = {
   developerName: string | null;
   packageId: string | null;
   packageVersion: string | null;
-  reviewState: DijieRoleReviewState | "unknown";
+  reviewState: DijieRoleReviewState | DijieStoredRoleReviewState | "unknown";
   reviewStateLabel: string;
   listingStatus: DijieRoleListingStatus | "unknown";
   materialCompleteness: "待复核" | "已完整";
@@ -102,6 +106,20 @@ function roleReviewState(role: UnknownRecord): DijieRoleReviewState | "unknown" 
   return "unknown";
 }
 
+function storedRoleReviewState(role: UnknownRecord): DijieStoredRoleReviewState | "unknown" {
+  const raw = nonEmptyString(role.reviewState) ?? nonEmptyString(role.review_state);
+  if (
+    raw === "draft" ||
+    raw === "submitted" ||
+    raw === "needs_changes" ||
+    raw === "approved" ||
+    raw === "rejected"
+  ) {
+    return raw;
+  }
+  return "unknown";
+}
+
 function roleListingStatus(role: UnknownRecord): DijieRoleListingStatus | "unknown" {
   const raw = nonEmptyString(role.listingStatus) ?? nonEmptyString(role.listing_status);
   if (
@@ -122,6 +140,8 @@ function reviewStateLabel(state: DijieReviewQueueItem["reviewState"]): string {
       return "待审核";
     case "approved":
       return "已通过";
+    case "needs_changes":
+      return "要求补充";
     case "rejected":
       return "已驳回";
     case "draft":
@@ -146,7 +166,71 @@ function issueHintsContainSafetyProblem(issues: string[]): boolean {
   );
 }
 
+function asStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return [
+    ...new Set(
+      value
+        .filter((item): item is string => typeof item === "string")
+        .map((item) => item.trim())
+        .filter(Boolean),
+    ),
+  ];
+}
+
+function isStoredRoleListing(value: UnknownRecord): value is DijieRoleListingStorageRecord & {
+  id: string;
+} {
+  return Boolean(
+    nonEmptyString(value.id) &&
+      nonEmptyString(value.package_id) &&
+      nonEmptyString(value.package_version) &&
+      nonEmptyString(value.title),
+  );
+}
+
+function createStoredReviewQueueItem(
+  roleInput: unknown,
+): DijieReviewQueueItem | undefined {
+  const role = asRecord(roleInput);
+  if (!isStoredRoleListing(role)) {
+    return undefined;
+  }
+
+  const reviewState = storedRoleReviewState(role);
+  const listingStatus = roleListingStatus(role);
+  const requiredCapabilities = asStringArray(asRecord(role.manifest_summary).requiredCapabilities);
+  const hasPricing = Object.keys(asRecord(role.pricing)).length > 0;
+
+  return {
+    id: role.id,
+    title: role.title,
+    subtitle: nonEmptyString(role.subtitle) ?? null,
+    developerName: nonEmptyString(role.developer_ref) ?? null,
+    packageId: role.package_id,
+    packageVersion: role.package_version,
+    reviewState,
+    reviewStateLabel: reviewStateLabel(reviewState),
+    listingStatus,
+    materialCompleteness: "已完整",
+    safetySummary: "未命中敏感项",
+    pricingAndBilling: hasPricing ? "已配置" : "待确认",
+    auditReadback: "脱敏",
+    confirmationPoints: Number.isInteger(role.confirmation_points)
+      ? Math.max(0, Number(role.confirmation_points))
+      : 0,
+    requiredCapabilities,
+  };
+}
+
 function createReviewQueueItem(productInput: unknown): DijieReviewQueueItem | undefined {
+  const storedItem = createStoredReviewQueueItem(productInput);
+  if (storedItem) {
+    return storedItem;
+  }
+
   const product = asRecord(productInput);
   const id = nonEmptyString(product.id);
   const role = roleMetadata(product);
@@ -238,6 +322,32 @@ export async function getDijieReviewCenterReadModel(
   queryGraph: DijieReviewCenterQueryGraph,
   options: { adminAccountId?: string } = {},
 ): Promise<DijieReviewCenterReadModel> {
+  const storedListings = await queryGraph({
+    entity: "dijie_role_listing",
+    fields: [
+      "id",
+      "package_id",
+      "package_version",
+      "developer_ref",
+      "title",
+      "subtitle",
+      "description",
+      "category",
+      "listing_status",
+      "review_state",
+      "capabilities",
+      "manifest_summary",
+      "pricing",
+      "confirmation_points",
+      "submitted_at",
+    ],
+    pagination: { take: 100 },
+  });
+  const storedQueue = createDijieReviewCenterReadModel(storedListings.data ?? [], options);
+  if (storedQueue.queue.length > 0) {
+    return storedQueue;
+  }
+
   const { data = [] } = await queryGraph({
     entity: "product",
     fields: [

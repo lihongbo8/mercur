@@ -37,15 +37,15 @@ function response(): TestResponse {
 function request(
   store?: unknown,
   params: Record<string, string> = { executionId: "exec_123" },
-  actorId: string | null = "cus_123",
+  authContext: string | Record<string, unknown> | null = "cus_123",
 ) {
+  const resolvedAuthContext =
+    typeof authContext === "string" ? { actor_id: authContext } : authContext;
   return {
     params,
-    ...(actorId
+    ...(resolvedAuthContext
       ? {
-          auth_context: {
-            actor_id: actorId,
-          },
+          auth_context: resolvedAuthContext,
         }
       : {}),
     scope: {
@@ -463,6 +463,35 @@ describe("GET /dijie/executions/:executionId", () => {
     expect(res.body).toMatchObject({
       ok: false,
       error: "Dijie execution audit record is not available to this actor.",
+    });
+  });
+
+  it("allows scoped role staff to read assigned role execution data", async () => {
+    const storageRecord = createDijieAuditStorageRecord(record);
+    const store = {
+      async retrieveDijieAuditRecordByExecutionId() {
+        return storageRecord;
+      },
+    };
+
+    const res = response();
+    await GET(
+      request(store, { executionId: "exec_123" }, {
+        actor_id: "member_role_staff",
+        actor_type: "member",
+        metadata: {
+          accountLevel: "operator",
+          localSystemAccess: true,
+          dataScopes: ["role:role_123"],
+        },
+      }) as never,
+      res as never,
+    );
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toMatchObject({
+      ok: true,
+      roleListingId: "role_123",
     });
   });
 

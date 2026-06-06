@@ -155,7 +155,7 @@ export const useGlobalShortcuts = () => {
       keys: {
         Mac: ["G", "T"],
       },
-      label: "工具资源",
+      label: "能力资源",
       type: "pageShortcut",
       to: "/tool-resources",
     },

@@ -298,7 +298,7 @@ export function getRouteMap({
               {
                 path: "/tool-resources",
                 errorElement: <ErrorBoundary />,
-                handle: { breadcrumb: () => "工具资源" },
+                handle: { breadcrumb: () => "能力资源" },
                 lazy: async () => {
                   const { ToolResourcesPage } =
                     await import("./pages/tool-resources");

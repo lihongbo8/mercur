@@ -6,7 +6,7 @@ export const StoreDeveloperResourcesSection = () => {
   return (
     <Container className="p-0">
       <div className="flex items-center justify-between border-b px-6 py-4">
-        <Heading level="h2">工具资源</Heading>
+        <Heading level="h2">能力资源</Heading>
         <Tooltip content="开发者中心常用入口">
           <Text size="small" className="text-ui-fg-muted">
             ?

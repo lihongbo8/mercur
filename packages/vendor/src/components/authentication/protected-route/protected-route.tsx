@@ -1,7 +1,6 @@
 import { Spinner } from "@medusajs/icons";
 import { Navigate, Outlet, useLocation } from "react-router-dom";
 import { useMe } from "../../../hooks/api/members";
-import { SearchProvider } from "../../../providers/search-provider";
 import { SidebarProvider } from "../../../providers/sidebar-provider";
 
 export const ProtectedRoute = () => {
@@ -22,9 +21,7 @@ export const ProtectedRoute = () => {
 
   return (
     <SidebarProvider>
-      <SearchProvider>
-        <Outlet />
-      </SearchProvider>
+      <Outlet />
     </SidebarProvider>
   );
 };

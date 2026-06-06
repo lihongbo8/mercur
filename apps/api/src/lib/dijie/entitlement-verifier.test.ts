@@ -101,6 +101,153 @@ describe("verifyDijieEntitlement", () => {
     });
   });
 
+  it("approves zero-price authorizations against stored RoleListing records", async () => {
+    const storedInput = {
+      ...input,
+      roleListingId: "djrole_image_qc",
+      entitlementId: "ordgrp_zero",
+    };
+    const result = await verifyDijieEntitlement(storedInput, async ({ entity }) => {
+      if (entity === "order_group") {
+        return {
+          data: [
+            {
+              id: storedInput.entitlementId,
+              customer_id: storedInput.actorId,
+              orders: [
+                {
+                  id: "order_zero",
+                  status: "completed",
+                  payment_collections: [],
+                  items: [{ product_id: storedInput.roleListingId }],
+                },
+              ],
+            },
+          ],
+        };
+      }
+      if (entity === "order") {
+        return { data: [] };
+      }
+      if (entity === "dijie_role_listing") {
+        return {
+          data: [
+            {
+              id: storedInput.roleListingId,
+              package_id: "pkg_product_image_qc",
+              package_version: "0.1.0",
+              developer_ref: "member_123",
+              listing_owner_ref: "seller_123",
+              billing_beneficiary_ref: "member_123",
+              title: "商品图检查岗位",
+              listing_status: "published",
+              review_state: "approved",
+              capabilities: ["workspace.read", "image.inspect"],
+              manifest_summary: {
+                requiredCapabilities: ["workspace.read", "image.inspect"],
+              },
+              pricing: {
+                kind: "one_time_authorization",
+                authorizationFeeCents: 0,
+                currency: "CNY",
+                platformFeeBps: 0,
+                developerReceivableCents: 0,
+              },
+              role_token_pricing: roleTokenPricing,
+              scopes: ["role.execute", "audit.write"],
+            },
+          ],
+        };
+      }
+      if (entity === "dijie_role_entitlement") {
+        return { data: [] };
+      }
+      throw new Error("legacy product fallback should not be used");
+    });
+
+    expect(result).toEqual({
+      ok: true,
+      packageId: "pkg_product_image_qc",
+      packageVersion: "0.1.0",
+      developerRef: "member_123",
+      listingOwnerRef: "seller_123",
+      billingBeneficiaryRef: "member_123",
+      pricing: {
+        kind: "one_time_authorization",
+        authorizationFeeCents: 0,
+        currency: "CNY",
+        platformFeeBps: 0,
+        developerReceivableCents: 0,
+      },
+      roleTokenPricing,
+      scopes: ["role.execute", "audit.write"],
+    });
+  });
+
+  it("approves execution against a local entitlement before checking paid orders", async () => {
+    const storedInput = {
+      ...input,
+      roleListingId: "djrole_image_qc",
+      entitlementId: "djent_1",
+    };
+    const result = await verifyDijieEntitlement(storedInput, async ({ entity }) => {
+      if (entity === "dijie_role_listing") {
+        return {
+          data: [
+            {
+              id: storedInput.roleListingId,
+              package_id: "pkg_product_image_qc",
+              package_version: "0.1.0",
+              developer_ref: "member_123",
+              listing_owner_ref: "seller_123",
+              billing_beneficiary_ref: "member_123",
+              title: "商品图检查岗位",
+              listing_status: "published",
+              review_state: "approved",
+              capabilities: ["workspace.read", "image.inspect"],
+              manifest_summary: {
+                requiredCapabilities: ["workspace.read", "image.inspect"],
+              },
+              pricing: {
+                kind: "one_time_authorization",
+                authorizationFeeCents: 0,
+                currency: "CNY",
+                platformFeeBps: 0,
+                developerReceivableCents: 0,
+              },
+              role_token_pricing: roleTokenPricing,
+              scopes: ["role.execute", "audit.write"],
+            },
+          ],
+        };
+      }
+      if (entity === "dijie_role_entitlement") {
+        return {
+          data: [
+            {
+              id: storedInput.entitlementId,
+              actor_id: storedInput.actorId,
+              role_listing_id: storedInput.roleListingId,
+              entitlement_status: "authorized",
+              source: "zero_price",
+              authorized_at: new Date("2026-06-04T00:00:00.000Z"),
+            },
+          ],
+        };
+      }
+      throw new Error("paid order fallback should not be used");
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      packageId: "pkg_product_image_qc",
+      packageVersion: "0.1.0",
+      developerRef: "member_123",
+      listingOwnerRef: "seller_123",
+      billingBeneficiaryRef: "member_123",
+    });
+  });
+
   it("rejects role listings that include a marketplace platform cut", async () => {
     const result = await verifyDijieEntitlement(
       input,

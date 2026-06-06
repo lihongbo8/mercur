@@ -33,7 +33,7 @@ function response(): TestResponse {
 
 function request() {
   return {
-    auth_context: { actor_id: "admin_001" },
+    auth_context: { actor_id: "marketplace_owner_001", actor_type: "marketplace_owner" },
     scope: {
       resolve() {
         return {
@@ -91,11 +91,11 @@ describe("GET /admin/dijie/review-center", () => {
         title: "审核中心",
         sampleRoleTitle: "商品图检查岗位",
         dialogContext: {
-          accountId: "admin_001",
+          accountId: "marketplace_owner_001",
           accountType: "admin",
           surface: "admin_review",
           mode: "review",
-          billingAccountId: "admin_001",
+          billingAccountId: "marketplace_owner_001",
           subject: {
             roleListingId: "prod_image_review_role",
             packageId: "pkg_image_review_role",
@@ -120,5 +120,19 @@ describe("GET /admin/dijie/review-center", () => {
     expect(serialized).not.toContain('"agents"');
     expect(serialized).not.toContain("三智能体");
     expect(serialized).not.toContain("metadata.dijieRole");
+  });
+
+  it("rejects ordinary accounts without review data permission", async () => {
+    const req = request();
+    req.auth_context = { actor_id: "member_001", actor_type: "member" };
+    const res = response();
+
+    await GET(req as never, res as never);
+
+    expect(res.statusCode).toBe(403);
+    expect(res.body).toMatchObject({
+      ok: false,
+      error: "当前账号没有岗位审核数据权限。",
+    });
   });
 });

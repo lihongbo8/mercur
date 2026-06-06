@@ -77,6 +77,50 @@ function request() {
   };
 }
 
+function storedListingRequest() {
+  return {
+    scope: {
+      resolve() {
+        return {
+          graph: async (input: { entity: string }) => {
+            if (input.entity === "dijie_role_listing") {
+              return {
+                data: [
+                  {
+                    id: "djrole_image_qc",
+                    package_id: "pkg_product_image_qc",
+                    package_version: "0.1.0",
+                    developer_ref: "member_123",
+                    title: "商品图检查岗位",
+                    subtitle: "检查商品图片质量",
+                    description: "输出图片质量问题和修改建议。",
+                    listing_status: "published",
+                    review_state: "approved",
+                    capabilities: ["workspace.read", "image.inspect"],
+                    manifest_summary: {
+                      requiredCapabilities: ["workspace.read", "image.inspect"],
+                    },
+                    pricing: {
+                      kind: "one_time_authorization",
+                      authorizationFeeCents: 0,
+                      currency: "CNY",
+                      platformFeeBps: 0,
+                      developerReceivableCents: 0,
+                    },
+                    role_token_pricing: roleTokenPricing,
+                    scopes: ["role.execute", "audit.write"],
+                  },
+                ],
+              };
+            }
+            throw new Error("product fallback should not be used when stored listings exist");
+          },
+        };
+      },
+    },
+  };
+}
+
 describe("GET /dijie/roles", () => {
   it("returns public Dijie role listings from marketplace products", async () => {
     const res = response();
@@ -101,6 +145,35 @@ describe("GET /dijie/roles", () => {
             currency: "CNY",
             platformFeeBps: 0,
             developerReceivableCents: 29900,
+          },
+          roleTokenPricing,
+        },
+      ],
+    });
+  });
+
+  it("prefers stored role listings over legacy product metadata", async () => {
+    const res = response();
+    await GET(storedListingRequest() as never, res as never);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toMatchObject({
+      ok: true,
+      roles: [
+        {
+          id: "djrole_image_qc",
+          title: "商品图检查岗位",
+          listingStatus: "published",
+          reviewState: "approved",
+          packageId: "pkg_product_image_qc",
+          packageVersion: "0.1.0",
+          capabilities: ["workspace.read", "image.inspect"],
+          pricing: {
+            kind: "one_time_authorization",
+            authorizationFeeCents: 0,
+            currency: "CNY",
+            platformFeeBps: 0,
+            developerReceivableCents: 0,
           },
           roleTokenPricing,
         },

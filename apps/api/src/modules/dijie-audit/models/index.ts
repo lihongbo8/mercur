@@ -1,5 +1,14 @@
+export { default as DijieAccountAccessProfile } from "./dijie-account-access-profile";
 export { default as DijieAuditRecord } from "./dijie-audit-record";
+export { default as DijieDialogMessage } from "./dijie-dialog-message";
+export { default as DijieDialogSession } from "./dijie-dialog-session";
 export { default as DijieEvolutionCandidate } from "./dijie-evolution-candidate";
+export { default as DijieLedgerEntry } from "./dijie-ledger-entry";
 export { default as DijieMemoryCandidate } from "./dijie-memory-candidate";
 export { default as DijieRoleCapabilityProfile } from "./dijie-role-capability-profile";
+export { default as DijieRoleEntitlement } from "./dijie-role-entitlement";
 export { default as DijieRoleFeedbackPacket } from "./dijie-role-feedback-packet";
+export { default as DijieRoleListing } from "./dijie-role-listing";
+export { default as DijieRolePackage } from "./dijie-role-package";
+export { default as DijieRolePackageDraft } from "./dijie-role-package-draft";
+export { default as DijieRoleReview } from "./dijie-role-review";

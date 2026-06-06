@@ -17,7 +17,11 @@ import {
 
 import { Form } from "@components/common/form";
 import { useTabbedForm } from "@components/tabbed-form";
-import { uploadDijieRolePackageQuery } from "@lib/client";
+import {
+  fetchLatestDijieRolePackageDraftQuery,
+  submitDijieRolePackageDraftQuery,
+  uploadDijieRolePackageQuery,
+} from "@lib/client";
 import { ProductCreateSchemaType } from "../../../types";
 
 const ROLE_PACKAGE_UPLOAD_ERROR_MESSAGE =
@@ -47,6 +51,23 @@ type DeveloperModeStatusProps = {
   running: boolean;
 };
 
+type RolePackageDraftSummary = {
+  draftId?: string;
+  status?: string;
+  packageId?: string | null;
+  packageVersion?: string | null;
+  fileCount?: number;
+  manifestSummary?: {
+    manifestRef?: string;
+    requiredCapabilities?: string[];
+  } | null;
+  qualityReport?: {
+    score?: number;
+    ok?: boolean;
+  };
+  blockingIssues?: string[];
+};
+
 const DeveloperModeStatus = ({ ready, running }: DeveloperModeStatusProps) => {
   const status = running ? "同步中" : ready ? "可提交" : "待资料包";
 
@@ -69,6 +90,45 @@ const DeveloperModeStatus = ({ ready, running }: DeveloperModeStatusProps) => {
         <Link to="/products" title="查看岗位商品状态">
           查看状态
         </Link>
+      </Button>
+    </div>
+  );
+};
+
+const LatestRolePackageDraftPanel = ({
+  draft,
+  running,
+  onUseDraft,
+}: {
+  draft: RolePackageDraftSummary | null;
+  running: boolean;
+  onUseDraft: () => void;
+}) => {
+  if (!draft) {
+    return null;
+  }
+
+  const blockingCount = draft.blockingIssues?.length ?? 0;
+  const ready = draft.status === "ready" && blockingCount === 0;
+
+  return (
+    <div className="flex flex-col gap-3 rounded-lg border border-ui-border-base bg-ui-bg-base px-4 py-3 shadow-elevation-card-rest md:flex-row md:items-center md:justify-between">
+      <div className="flex min-w-0 flex-col gap-y-1">
+        <div className="flex items-center gap-x-2">
+          <Text size="small" weight="plus">
+            AI 生成岗位包草稿
+          </Text>
+          <StatusBadge color={ready ? "green" : "orange"}>
+            {ready ? "可承接" : "待处理"}
+          </StatusBadge>
+        </div>
+        <Text size="xsmall" className="text-ui-fg-subtle">
+          {draft.packageId ?? draft.draftId} · {draft.fileCount ?? 0} 个文件 · 质量评分{" "}
+          {draft.qualityReport?.score ?? 0}
+        </Text>
+      </div>
+      <Button size="small" variant="secondary" type="button" disabled={!ready || running} onClick={onUseDraft}>
+        {running ? "承接中" : "承接草稿"}
       </Button>
     </div>
   );
@@ -173,6 +233,8 @@ export const ProductCreateGeneralSection = () => {
     message?: string;
     error?: string;
   }>({ running: false });
+  const [latestDraft, setLatestDraft] = useState<RolePackageDraftSummary | null>(null);
+  const [draftSubmitRunning, setDraftSubmitRunning] = useState(false);
 
   useEffect(() => {
     const hiddenPriceFields = [
@@ -202,6 +264,26 @@ export const ProductCreateGeneralSection = () => {
       },
     );
   }, [form, usagePrice]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    fetchLatestDijieRolePackageDraftQuery()
+      .then((result) => {
+        if (!cancelled) {
+          setLatestDraft((result as { draft?: RolePackageDraftSummary | null })?.draft ?? null);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setLatestDraft(null);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const rolePackageReady = Boolean(
     form.watch("role_package_id") && form.watch("role_package_version"),
@@ -319,8 +401,66 @@ export const ProductCreateGeneralSection = () => {
     }
   };
 
+  const handleUseLatestDraft = async () => {
+    if (!latestDraft?.draftId || draftSubmitRunning) {
+      return;
+    }
+
+    setDraftSubmitRunning(true);
+    setRolePackageUpload({ running: true });
+    try {
+      const result = await submitDijieRolePackageDraftQuery(latestDraft.draftId) as {
+        packageId?: string;
+        packageVersion?: string;
+      };
+      if (!result.packageId || !result.packageVersion) {
+        throw new Error("岗位包草稿提交返回不完整");
+      }
+      form.setValue("role_package_id", result.packageId, {
+        shouldDirty: true,
+        shouldValidate: true,
+      });
+      form.setValue("role_package_version", result.packageVersion, {
+        shouldDirty: true,
+        shouldValidate: true,
+      });
+      const manifestRef = latestDraft.manifestSummary?.manifestRef;
+      if (manifestRef) {
+        form.setValue("role_manifest_ref", manifestRef, {
+          shouldDirty: true,
+          shouldValidate: true,
+        });
+      }
+      const requiredCapabilities = latestDraft.manifestSummary?.requiredCapabilities ?? [];
+      form.setValue("role_required_capabilities", requiredCapabilities.join("\n"), {
+        shouldDirty: true,
+        shouldValidate: true,
+      });
+      setRolePackageUpload({
+        running: false,
+        message:
+          requiredCapabilities.length > 0
+            ? `AI 草稿已承接，已同步 ${requiredCapabilities.length} 项本地能力需求。`
+            : "AI 草稿已承接。",
+      });
+      setLatestDraft({ ...latestDraft, status: "submitted" });
+    } catch {
+      setRolePackageUpload({
+        running: false,
+        error: "AI 草稿承接失败，请重新生成或手动上传岗位资料包。",
+      });
+    } finally {
+      setDraftSubmitRunning(false);
+    }
+  };
+
   return (
     <div id="general" className="flex flex-col gap-y-6">
+      <LatestRolePackageDraftPanel
+        draft={latestDraft}
+        running={draftSubmitRunning}
+        onUseDraft={handleUseLatestDraft}
+      />
       <div className="flex flex-col gap-y-2">
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           <Form.Field

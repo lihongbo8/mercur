@@ -39,7 +39,7 @@ Mercur/Medusa 侧原则：
 原有 module / service 模式 -> 改编为 entitlement、audit、payout 记录
 ```
 
-账号边界：平台审核账号仅用于管理后台审核；本地端、使用者中心、开发者中心和岗位商城默认复用同一个迭界AI账号，不做额外账号链接。
+账号边界：岗位市场审核账号仅用于系统开发者/商城管理者审核上架，不属于购买本地系统的客户账号体系；本地端、使用者中心、开发者中心和岗位商城默认复用同一个迭界AI账号，不做额外账号链接。账号复用不代表数据全通，本地主系统只能由管理成员使用和配置，岗位员工、岗位使用者和开发者都必须按账号等级与 `dataScopes` 读取自己的岗位、包、授权、执行和收益数据。当前本地账号权限落在 `DijieAccountAccessProfile`，由 `GET /dijie/account/access` 回读、`PATCH /dijie/local/accounts/:accountId/access` 配置。审核入口必须显式具备 `marketplaceOwnerAccess` 或审核 scope，不能由本地主系统最高权限自动继承。
 
 禁止绕过商城原有商业事实源另造影子商城、影子订单、影子账号。除非原框架没有合适设施，或者复用会破坏权限、审计、账本、生命周期边界，否则默认必须先改编原有能力。
 
@@ -102,15 +102,16 @@ Mercur/Medusa 侧原则：
 
 ## First Pricing Rule
 
-第一版岗位侧只收一次授权费，平台不抽岗位分成：
+第一版计费必须区分“计量、收费、收益归属”。所有对话、主系统模型用量、岗位执行模型用量和本地执行资源都进入统一计量；是否调用模型、费用记到哪个账号、收益归平台还是岗位开发者，是三个独立判断。
 
 - 开发者为岗位 listing 设置授权价格。
 - 开发者为岗位 listing 设置模型用量单价：`metadata.dijieRole.roleTokenPricing.inputTokenCentsPerMillion` 和 `outputTokenCentsPerMillion`，单位为分/百万 Token。
-- 第一版岗位商品币种固定为 `CNY`，一次授权费和岗位 Token 单价都必须是非负整数分值，`platformFeeBps = 0`，`developerReceivableBps = 10000`。
+- 第一版岗位商品币种固定为 `CNY`，一次授权费和岗位 Token 单价都必须是非负整数分值。
 - 用户第一次购买/授权岗位时付款。
-- 岗位授权费 100% 归开发者，`platformFeeBps = 0`。
-- 平台收入来自用户直接使用迭界AI主系统时产生的 token、模型、工具和执行用量计费，不从岗位费用里再抽成。
-- 用户进入某个岗位执行上下文后，该岗位运行产生的模型 Token 费用归岗位开发者所有，不能归入平台主系统收入。
+- 平台收入来自用户直接使用迭界AI主系统时产生的 token、模型、工具和执行用量计费；这些费用由系统平台按账号费用归属收费。
+- 用户进入某个岗位执行上下文后，岗位模型用量按岗位 listing 的开发者定价收费；平台基准价、真实模型成本和开发者挂牌价必须分开记录。
+- 岗位开发者收益来自开发者挂牌 Token 单价和平台基准 Token 单价之间的差额，授权费收益按 listing 定价规则进入开发者应收。
+- 平台基准价、开发者定价合理性、费率阈值和价格风险先放进审核页/审核工作流，不新增独立费率管理页面。
 - 用户后续运行该岗位不按运行时长额外计费；岗位运行的可计费资源先按模型 Token 账处理，后续若增加其他岗位用量类型也必须归岗位开发者。
 - 运行时仍需要资源限制，例如单次最长运行时间、并发数、最大 artifact 大小和最大模型代理调用量。这些限制用于保护系统，不作为隐藏计费。
 
@@ -212,14 +213,17 @@ Mercur/Medusa 云端仍是岗位商场、使用者中心和开发者中心的事
 
 ## Billing Ledgers
 
-第一版把平台收入和岗位开发者收入拆成三条账本语义，后续落数据库时必须保持拆分：
+第一版把平台收入和岗位开发者收入拆成账本语义，后续落数据库时必须保持拆分：
 
 - `UsageLedger / main_system_usage`：用户直接使用迭界AI主系统产生的模型 token、工具执行、runtime 资源、下载和安装。收入归平台。
-- `UsageLedger / role_usage`：用户使用某个岗位时产生的模型 Token 用量。它由审计摘要中的模型用量乘以 `roleTokenPricing` 快照派生，`platformReceivableCents = 0`，`developerReceivableCents = Token费用`，收入归岗位开发者。
-- `MarketplaceOrderLedger`：岗位商场购买/授权事实。`platformFeeBps = 0`，`platformFeeCents = 0`。
-- `DeveloperPayoutLedger`：开发者应收。岗位授权费和岗位运行 Token 费用都必须进入开发者应收，不允许用平台抽成减少开发者应收。
+- `UsageLedger / dialog_usage`：商城、使用者中心、开发者中心、审核助手和本地主系统对话的统一计量。即使某个入口当前不调用模型，也要保留会话和管理辅助计量口径。
+- `UsageLedger / role_usage`：用户使用某个岗位时产生的模型 Token 用量。它由审计摘要中的模型用量、真实模型成本、平台基准 Token 单价和 `roleTokenPricing` 开发者挂牌价共同派生。
+- `MarketplaceOrderLedger`：岗位商场购买/授权事实，记录授权费、账号、岗位、订单和 entitlement 来源。
+- `DeveloperPayoutLedger`：开发者应收。岗位授权费和岗位运行 Token 差价收益进入开发者应收。
 
-当前 `apps/api/src/lib/dijie/ledgers.ts` 是纯业务规则层，还没有写入数据库。它先用于保护分账边界：主系统计费归平台；岗位购买/授权费归开发者；岗位运行中产生的模型 Token 费用也归开发者；重复运行岗位不变成运行时长计费。
+当前 `apps/api/src/lib/dijie/ledgers.ts` 是纯业务规则层，还没有写入数据库。它先用于保护分账边界：主系统计费归平台；岗位购买/授权费归开发者；岗位运行中的 Token 收费按平台基准价和开发者挂牌价拆账；重复运行岗位不变成运行时长计费。
+
+`DialogSession` / `DialogMessage` / `LedgerEntry` 是 AICS-293 本地版第一刀持久化事实层。`POST /dijie/dialog/messages` 返回 `sessionId` 和 `ledgerEntryId`，并为每次对话写入 `dialog_usage`。`GET /dijie/dialog/sessions`、`GET /dijie/dialog/sessions/:sessionId` 和 `GET /dijie/ledger/entries` 只返回安全投影；普通账号只能看自己的记录，本地主系统成员必须按 `dataScopes` 读取授权范围内的费用/计量记录。
 
 ## Current Role Marketplace Read Endpoints
 
@@ -256,14 +260,15 @@ Admin 审核页必须在发布前校验一次授权费和 `roleTokenPricing`：�
 
 `POST /dijie/entitlements/verify` 与 `GET /dijie/roles` 使用同一个严格 parser。也就是说，不能出现“公开岗位列表不显示，但 verifier 仍然把普通商品当成可执行岗位”的旁路。
 
-`GET /dijie/my-roles` 是本地迭界AI主系统同步“我的岗位”的最小入口。它要求已认证 customer actor，并从真实 `order_group` / `order` / line item 与 product facts 推导已授权岗位：
+`GET /dijie/my-roles` 是本地迭界AI主系统同步“我的岗位”的最小入口。它要求已认证账号，并优先读取本地 `RoleEntitlement` 与新 `RoleListing` 主数据；旧路径继续从真实 `order_group` / `order` / line item 与 product facts 兼容推导已授权岗位：
 
-- 订单必须属于当前 customer。
-- 订单必须已付款，取消或未付款订单不产生岗位授权。
-- line item 必须能匹配对应岗位 product。
+- 本地 `RoleEntitlement` 必须属于当前账号，且状态为 `authorized`。
+- 旧订单兼容路径中，订单必须属于当前 customer。
+- 旧订单兼容路径中，订单必须已付款，取消或未付款订单不产生岗位授权。
+- 旧订单兼容路径中，line item 必须能匹配对应岗位 product。
 - 响应返回 `entitlementId`、`orderId`、`authorizedAt` 和嵌套的 `role` 安全投影。
 
-当前版本不新增 entitlement 表，也不返回假岗位卡片。OpenClaw 侧的 `dijie.marketplace.roles.list` 默认读取 `/dijie/my-roles`；云端不可达、未登录、响应结构不包含 roles 时，本地主系统必须失败提示，不能 fallback 成同步成功。
+当前版本已新增本地 `RoleEntitlement` 第一刀，用于 0 元授权和本地执行授权校验；付费岗位仍必须走真实 checkout/订单事实，不能伪造已支付授权。OpenClaw 侧的 `dijie.marketplace.roles.list` 默认读取 `/dijie/my-roles`；云端不可达、未登录、响应结构不包含 roles 时，本地主系统必须失败提示，不能 fallback 成同步成功。
 
 ## Current Execution Token Endpoint
 
@@ -292,19 +297,54 @@ execution token 必须固化以下业务快照，后续审计、结算、争议�
 
 ## Current Entitlement Verifier
 
-`POST /dijie/entitlements/verify` 是云端内部 verifier。它要求 `DIJIE_INTERNAL_BRIDGE_BEARER`，并用 Mercur/Medusa 的 marketplace facts 判断一次授权是否成立：
+`POST /dijie/entitlements/verify` 是云端内部 verifier。它要求 `DIJIE_INTERNAL_BRIDGE_BEARER`，并优先用本地 `RoleEntitlement` 判断授权是否成立；旧订单路径继续用 Mercur/Medusa 的 marketplace facts 兼容判断一次授权是否成立：
 
-- `roleListingId` 对应的 product 必须存在。
-- product metadata 必须在 `metadata.dijieRole` 内显式声明可执行 listing 状态和审核状态：`listingStatus = "published"` 且 `reviewState = "approved"`。
-- product metadata 必须在 `metadata.dijieRole.pricing` 内显式声明 `one_time_authorization` 一次授权费；product-level 旧价格字段不能作为执行授权依据。
-- product metadata 必须能给出 `packageId`、`packageVersion`、`developerRef`、`listingOwnerRef`、`billingBeneficiaryRef`。
-- `entitlementId` 当前先映射为 `order_group.id` 或 `order.id`。
-- 对应订单必须属于 `actorId` 这个 customer。
-- 订单必须已付款，并且 line item 必须包含这个 `roleListingId`。
+- 本地 `RoleEntitlement` 必须属于 `actorId`，绑定请求里的 `roleListingId`，且状态为 `authorized`。
+- 本地 `RoleListing` 必须是 `published` 且 `approved`，并给出 `packageId`、`packageVersion`、`developerRef`、`listingOwnerRef`、`billingBeneficiaryRef` 和一次授权定价。
+- 旧订单路径中，`roleListingId` 对应的 product 必须存在。
+- 旧订单路径中，product metadata 必须在 `metadata.dijieRole` 内显式声明可执行 listing 状态和审核状态：`listingStatus = "published"` 且 `reviewState = "approved"`。
+- 旧订单路径中，product metadata 必须在 `metadata.dijieRole.pricing` 内显式声明 `one_time_authorization` 一次授权费；product-level 旧价格字段不能作为执行授权依据。
+- 旧订单路径中，product metadata 必须能给出 `packageId`、`packageVersion`、`developerRef`、`listingOwnerRef`、`billingBeneficiaryRef`。
+- 旧订单路径中，`entitlementId` 可映射为 `order_group.id` 或 `order.id`。
+- 旧订单路径中，对应订单必须属于 `actorId` 这个 customer。
+- 旧订单路径中，订单必须已付款，并且 line item 必须包含这个 `roleListingId`。
 
-第一版不新增 entitlement 表，先从真实订单和 product listing metadata 推导授权。后续可以把这个 verifier 的结果落成正式 entitlement record，但不能绕过订单和审核事实。
+0 元岗位可以由 `POST /dijie/authorizations` 生成本地 `RoleEntitlement`；付费岗位必须由 checkout 完成事实生成授权，不能绕过订单和审核事实。
 
-协议里的 `entitlementId` 表示“授权引用”，不是固定数据库表名。当前它可引用 `order_group.id` 或 `order.id`；未来引入正式 entitlement 表时，必须保留旧订单引用用于审计和兼容，不能重写历史执行记录。
+协议里的 `entitlementId` 表示“授权引用”，当前可引用本地 `RoleEntitlement.id`、旧 `order_group.id` 或旧 `order.id`。必须保留旧订单引用用于审计和兼容，不能重写历史执行记录。
+
+## Current Cloud Dialog Model Bridge
+
+云端对话模型桥是 Mercur/Medusa API 进程内的统一模型入口，不属于某一个页面。开发者中心、使用者/买家侧、审核中心和审核员工作台都必须通过同一个 resolver 调用 OpenClaw/OpenCloud 模型能力，再由各自的 surface、mode、权限和计费策略决定能不能调用模型。
+
+当前共享入口：
+
+- `POST /dijie/dialog/messages`
+  - `surface=buyer_storefront`：买家岗位商城/使用者入口。
+  - `surface=user_center`：使用者中心入口。
+  - `surface=developer_center`：开发者中心 AI 对话；当消息是岗位包生成意图时会生成并保存 `role_package` 草稿。
+  - `surface=admin_review`：平台审核助手/审核员工作台；只辅助总结、查缺失、评估风险和起草意见，不自动改变审核结果。
+  - `surface=openclaw_local`：本地主系统桥接入口，仅允许具备本地主系统权限的账号。
+- `POST /vendor/dijie/role-packages/generate`
+  - 开发者中心岗位包生成的专用兼容入口，内部使用同一个 `resolveDijieOpenClawDialogModelBridge()`。
+
+API 进程启动时配置一次模型桥即可覆盖这些入口：
+
+```bash
+DIJIE_OPENCLAW_MODEL_BRIDGE=cli
+DIJIE_OPENCLAW_CLI_PATH=openclaw
+DIJIE_OPENCLAW_MODEL_BRIDGE_EXECUTION=local
+DIJIE_OPENCLAW_MODEL=<provider/model>
+DIJIE_OPENCLAW_MODEL_TIMEOUT_MS=120000
+```
+
+也可以通过依赖注入注册 `DIJIE_OPENCLAW_MODEL_BRIDGE`，只要对象暴露 `completeDijieDialogMessage()` 方法。环境变量方式和依赖注入方式必须返回同一类安全响应：只回传 assistant reply 和脱敏后的 usage；不能把 provider key、raw model request/response、cloud bearer、execution token、本地绝对路径或 OpenClaw raw stdout/stderr 写入对话、草稿、审核记录或审计记录。
+
+模型桥未配置时：
+
+- 普通对话可按 surface 返回本地规则 fallback，并标记 `modelCalled=false`。
+- 开发者岗位包生成必须失败关闭，返回“模型桥暂未配置”，不能伪造岗位包草稿。
+- 审核助手前端可展示本地审核规则 fallback，但不能声称已完成模型审核。
 
 ## Current Audit Upload Endpoint
 

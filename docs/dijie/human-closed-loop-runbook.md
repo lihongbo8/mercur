@@ -12,7 +12,7 @@
 - admin 只能审核通过合法岗位定价：`currency = CNY`、输入/输出 Token 单价非负、`platformFeeBps = 0`、`developerReceivableBps = 10000`。
 - vendor 创建商品前能上传 OpenClaw 导出的 `role_package/` 目录，云端只返回公开包收据和安全校验结果。
 - 上传的 `role_package/` 只包含岗位业务逻辑、流程、经验、能力需求和验收材料；实施工具由本地 OpenClaw/迭界AI主系统通过 OpenClaw `tools.catalog`、`tools.effective`、`tools.invoke` 选择、授权、执行和审计。
-- buyer 购买或授权后，云端能从真实订单事实推导 `/dijie/my-roles` 和 `/dijie/execution-token`。
+- buyer 购买或授权后，云端能从本地 `RoleEntitlement` 或真实订单事实推导 `/dijie/my-roles` 和 `/dijie/execution-token`。
 - OpenClaw 本地端用 execution token 执行岗位，生成 `AuditSummary.modelProxyUsage`。
 - 云端 `/dijie/audit` 持久化审计记录，并派生 `role_usage` 开发者应收账。
 - `GET /dijie/executions/:executionId` 只返回安全计费摘要，不返回 raw token、cloud bearer、provider key、本地绝对路径或模型原始请求/响应。
@@ -20,7 +20,7 @@
 不在本轮验收：
 
 - 钱包和开发者收益页。
-- 正式 entitlement 表。
+- 付费 checkout 完成后写入正式授权事实。
 - 平台抽成策略。
 - 终端用户免手填 cloud bearer 的正式账号桥。
 
@@ -28,11 +28,12 @@
 
 ### Cloud / marketplace
 
-准备一套可丢弃的测试账号：
+准备两类可丢弃的测试账号：
 
-- vendor/developer 账号：用于创建岗位商品。
-- admin 账号：用于审核岗位商品。
-- buyer/customer 账号：用于购买并执行岗位。
+- 迭界AI通用账号：用于使用者中心、开发者中心、岗位商城、购买授权和执行岗位。
+- 岗位市场运营方账号：仅用于系统开发者/商城管理者审核岗位上架；本地自用版可先跳过真人审核，若保留流程也只用这个内部账号。
+
+除岗位市场运营方账号外，不拆 buyer/customer/vendor/developer 多套账号；同一个迭界AI账号可同时进入使用者和开发者相关入口。账号可复用，但数据权限必须隔离：本地主系统和 OpenClaw 本地配置只允许管理成员账号进入；岗位员工账号只能读取自己岗位 scope 内的数据；最高权限测试账号只在本地自用系统入口通用，不自动拥有岗位市场审核权。
 
 云端 API 需要启用 execution token 签发和审计验签：
 

@@ -16,6 +16,21 @@ type CountrySelectProps = ComponentPropsWithoutRef<typeof Select> & {
   onChange?: (value: string) => void;
 };
 
+const normalizeIntlLanguage = (language: string) => {
+  const normalized = language === "zhCN"
+    ? "zh-CN"
+    : language === "zhTW"
+      ? "zh-TW"
+      : language;
+
+  try {
+    Intl.getCanonicalLocales(normalized);
+    return normalized;
+  } catch {
+    return "en-US";
+  }
+};
+
 const getDisplayNames = (language: string) => {
   try {
     return new Intl.DisplayNames([language], { type: "region" });
@@ -34,8 +49,9 @@ export const CountrySelect: ComponentType<CountrySelectProps> = forwardRef<
   useImperativeHandle(ref, () => innerRef.current as HTMLButtonElement);
 
   const localizedCountries = useMemo(() => {
-    const displayNames = getDisplayNames(i18n.language);
-    const collator = new Intl.Collator(i18n.language, { sensitivity: "base" });
+    const language = normalizeIntlLanguage(i18n.language);
+    const displayNames = getDisplayNames(language);
+    const collator = new Intl.Collator(language, { sensitivity: "base" });
 
     return countries
       .map((country) => ({

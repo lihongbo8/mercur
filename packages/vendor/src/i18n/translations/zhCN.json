@@ -2317,10 +2317,24 @@
       }
     }
   },
+  "payouts": {
+    "domain": "结算",
+    "payout": "结算",
+    "noRecords": "暂无结算记录",
+    "status": {
+      "pending": "待处理",
+      "processing": "处理中",
+      "paid": "已结算",
+      "failed": "失败",
+      "canceled": "已取消"
+    }
+  },
   "profile": {
     "domain": "个人资料",
     "manageYourProfileDetails": "管理您的个人资料详细信息。",
     "fields": {
+      "firstName": "名",
+      "lastName": "姓",
       "languageLabel": "语言",
       "usageInsightsLabel": "使用见解"
     },
@@ -2375,7 +2389,43 @@
     "domain": "开发者",
     "manageYourStoresDetails": "管理开发者资料",
     "editStore": "编辑开发者资料",
+    "handleTooltip": "标识会作为开发者主页的 URL 后缀。留空时会根据名称自动生成。",
+    "validation": {
+      "nameRequired": "请输入名称",
+      "nameTooLong": "名称最多 100 个字符",
+      "emailInvalid": "请输入有效邮箱"
+    },
+    "profileCompletion": {
+      "title": "完善开发者资料",
+      "steps": {
+        "storeDetails": "补全开发者基本资料",
+        "address": "补全联系地址",
+        "companyDetails": "补全公司或主体信息",
+        "paymentDetails": "补全结算收款信息"
+      }
+    },
+    "status": {
+      "active": "可用",
+      "pendingApproval": "待审核",
+      "suspended": "已停用",
+      "terminated": "已终止"
+    },
+    "alert": {
+      "pendingApproval": {
+        "title": "开发者资料已提交",
+        "description": "资料提交成功，平台确认后会更新开发者中心状态。"
+      },
+      "suspended": {
+        "title": "开发者账号已停用",
+        "description": "开发者账号已被平台停用，请联系平台管理员。"
+      },
+      "terminated": {
+        "title": "开发者账号已终止",
+        "description": "开发者账号已被平台终止，请联系平台管理员。"
+      }
+    },
     "defaultCurrency": "默认货币",
+    "defaultLocale": "默认语言",
     "defaultRegion": "默认地区",
     "defaultSalesChannel": "默认销售渠道",
     "defaultLocation": "默认位置",
@@ -2389,11 +2439,79 @@
     "removeCurrencyWarning_one": "您即将从您的商店中移除 {{count}} 个货币。确保您已从所有价格中移除该货币。",
     "removeCurrencyWarning_other": "您即将从您的商店中移除 {{count}} 个货币。确保您已从所有价格中移除该货币。",
     "currencyAlreadyAdded": "该货币已添加到您的商店。",
+    "company": "主体信息",
+    "manageCompanyDetails": "管理公司或主体信息",
+    "logo": "标识图",
+    "banner": "横幅图",
+    "address": {
+      "header": "联系地址",
+      "defaultName": "总部",
+      "nameLabel": "地址名称",
+      "namePlaceholder": "总部",
+      "empty": {
+        "title": "暂无联系地址",
+        "message": "还没有可显示的记录"
+      },
+      "edit": {
+        "header": "编辑联系地址",
+        "description": "更新开发者联系地址。",
+        "successToast": "联系地址已更新"
+      },
+      "validation": {
+        "nameRequired": "请输入地址名称",
+        "countryRequired": "请选择国家/地区"
+      }
+    },
+    "paymentDetails": {
+      "header": "结算收款信息",
+      "empty": {
+        "title": "暂无结算收款信息",
+        "message": "还没有可显示的记录"
+      },
+      "edit": {
+        "header": "编辑结算收款信息",
+        "description": "更新开发者结算收款信息。",
+        "successToast": "结算收款信息已更新"
+      },
+      "fields": {
+        "countryCode": "国家/地区",
+        "holderName": "账户名称",
+        "bankName": "银行名称",
+        "iban": "IBAN",
+        "bic": "SWIFT / BIC",
+        "swiftBic": "SWIFT / BIC",
+        "routingNumber": "Routing number",
+        "achRoutingNumber": "ACH routing number",
+        "accountNumber": "账号"
+      },
+      "validation": {
+        "countryRequired": "请选择国家/地区",
+        "accountNameRequired": "请输入账户名称"
+      }
+    },
+    "professionalDetails": {
+      "header": "公司或主体信息",
+      "empty": {
+        "title": "暂无公司或主体信息",
+        "message": "还没有可显示的记录"
+      },
+      "edit": {
+        "header": "编辑公司或主体信息",
+        "description": "更新开发者公司或主体信息。",
+        "successToast": "公司或主体信息已更新"
+      },
+      "fields": {
+        "corporateName": "公司/主体名称",
+        "registrationNumber": "注册号",
+        "taxId": "税号"
+      }
+    },
     "edit": {
-      "header": "编辑商店"
+      "header": "编辑开发者资料",
+      "websiteHint": "必须包含协议，例如 https://"
     },
     "toast": {
-      "update": "商店更新成功",
+      "update": "开发者资料更新成功",
       "currenciesUpdated": "货币更新成功",
       "currenciesRemoved": "从商店中成功移除货币",
       "updatedTaxInclusivitySuccessfully": "含税定价更新成功"
@@ -2684,6 +2802,18 @@
     "hint": "开发者登录后管理岗位包、上架授权和结算。",
     "submit": "登录"
   },
+  "storeSelect": {
+    "title": "选择开发者店铺",
+    "subtitle": "选择一个店铺，继续管理岗位商品、审核状态和结算。",
+    "pendingApproval": "待审核",
+    "addNewStore": "新增店铺",
+    "status": {
+      "open": "可用",
+      "pendingApproval": "待审核",
+      "suspended": "已停用",
+      "terminated": "已终止"
+    }
+  },
   "invite": {
     "title": "欢迎使用Medusa",
     "hint": "在下面创建您的账户",
@@ -2862,6 +2992,7 @@
     "requiredQuantity": "所需数量",
     "description": "描述",
     "email": "电子邮件",
+    "website": "网站",
     "password": "密码",
     "repeatPassword": "重复密码",
     "confirmPassword": "确认密码",

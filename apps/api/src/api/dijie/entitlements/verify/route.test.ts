@@ -153,4 +153,82 @@ describe("POST /dijie/entitlements/verify", () => {
       scopes: ["role.execute", "audit.write"],
     });
   });
+
+  it("approves stored local entitlements before checking paid order facts", async () => {
+    process.env.DIJIE_INTERNAL_BRIDGE_BEARER = "bridge-secret";
+    const body = {
+      ...validBody,
+      roleListingId: "djrole_image_qc",
+      entitlementId: "djent_1",
+    };
+
+    const res = response();
+    await POST(
+      request({
+        body,
+        authorization: "Bearer bridge-secret",
+        queryGraph: async ({ entity }) => {
+          if (entity === "dijie_role_listing") {
+            return {
+              data: [
+                {
+                  id: body.roleListingId,
+                  package_id: "pkg_product_image_qc",
+                  package_version: "0.1.0",
+                  developer_ref: "member_123",
+                  listing_owner_ref: "seller_123",
+                  billing_beneficiary_ref: "member_123",
+                  title: "商品图检查岗位",
+                  listing_status: "published",
+                  review_state: "approved",
+                  capabilities: ["workspace.read", "image.inspect"],
+                  manifest_summary: {
+                    requiredCapabilities: ["workspace.read", "image.inspect"],
+                  },
+                  pricing: {
+                    kind: "one_time_authorization",
+                    authorizationFeeCents: 0,
+                    currency: "CNY",
+                    platformFeeBps: 0,
+                    developerReceivableCents: 0,
+                  },
+                  role_token_pricing: roleTokenPricing,
+                  scopes: ["role.execute", "audit.write"],
+                },
+              ],
+            };
+          }
+          if (entity === "dijie_role_entitlement") {
+            return {
+              data: [
+                {
+                  id: body.entitlementId,
+                  actor_id: body.actorId,
+                  role_listing_id: body.roleListingId,
+                  entitlement_status: "authorized",
+                  source: "zero_price",
+                  authorized_at: new Date("2026-06-04T00:00:00.000Z"),
+                },
+              ],
+            };
+          }
+          throw new Error("paid order fallback should not be used");
+        },
+      }) as never,
+      res as never,
+    );
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toMatchObject({
+      ok: true,
+      packageId: "pkg_product_image_qc",
+      packageVersion: "0.1.0",
+      developerRef: "member_123",
+      billingBeneficiaryRef: "member_123",
+      pricing: {
+        authorizationFeeCents: 0,
+      },
+      roleTokenPricing,
+    });
+  });
 });

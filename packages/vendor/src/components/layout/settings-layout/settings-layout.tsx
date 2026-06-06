@@ -42,7 +42,7 @@ const useSettingRoutes = (): INavItem[] => {
         to: "/settings/profile",
       },
       {
-        label: "工具资源",
+        label: "能力资源",
         to: "/tool-resources",
       },
       ...extensionNavItems,
@@ -57,7 +57,7 @@ const useSettingRoutes = (): INavItem[] => {
  */
 const getSafeFromValue = (from: string) => {
   if (from.startsWith("/settings")) {
-    return "/products";
+    return "/";
   }
 
   return from;
@@ -92,7 +92,7 @@ const SettingsSidebar = () => {
 };
 
 const Header = () => {
-  const [from, setFrom] = useState("/orders");
+  const [from, setFrom] = useState("/");
 
   const { t } = useTranslation();
   const location = useLocation();
