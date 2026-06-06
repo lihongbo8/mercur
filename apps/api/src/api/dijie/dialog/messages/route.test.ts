@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { DIJIE_AUDIT_MODULE } from "../../../../lib/dijie/audit-store";
 import { DIJIE_OPENCLAW_MODEL_BRIDGE } from "../../../../lib/dijie/dialog-model-bridge";
+import { DIJIE_ROLE_PACKAGE_REQUIRED_OUTPUT_PATHS } from "../../../../lib/dijie/role-package-generator";
 import { POST } from "./route";
 
 type TestResponse = {
@@ -483,7 +484,7 @@ describe("POST /dijie/dialog/messages", () => {
       res as never,
     );
 
-    expect(bridgeCalls).toBe(3);
+    expect(bridgeCalls).toBe(DIJIE_ROLE_PACKAGE_REQUIRED_OUTPUT_PATHS.length);
     expect(res.statusCode).toBe(200);
     expect(res.body).toMatchObject({
       ok: true,
