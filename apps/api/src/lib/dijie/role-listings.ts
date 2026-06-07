@@ -296,16 +296,28 @@ function ordersFromOrderGroups(orderGroups: unknown[]): UnknownRecord[] {
   });
 }
 
-function uniqueByEntitlementAndRole(roles: DijieInstalledRole[]): DijieInstalledRole[] {
-  const seen = new Set<string>();
-  return roles.filter((role) => {
-    const key = `${role.entitlementId}:${role.role.id}`;
-    if (seen.has(key)) {
-      return false;
+function entitlementSourceRank(source: DijieInstalledRole["entitlementSource"]): number {
+  if (source === "local_entitlement") {
+    return 0;
+  }
+  if (source === "order_group") {
+    return 1;
+  }
+  return 2;
+}
+
+function uniqueInstalledRoles(roles: DijieInstalledRole[]): DijieInstalledRole[] {
+  const byRoleId = new Map<string, DijieInstalledRole>();
+  for (const role of roles) {
+    const existing = byRoleId.get(role.role.id);
+    if (
+      !existing ||
+      entitlementSourceRank(role.entitlementSource) < entitlementSourceRank(existing.entitlementSource)
+    ) {
+      byRoleId.set(role.role.id, role);
     }
-    seen.add(key);
-    return true;
-  });
+  }
+  return [...byRoleId.values()];
 }
 
 export function createDijieInstalledRolesFromMarketplaceFacts(params: {
@@ -402,7 +414,7 @@ export function createDijieInstalledRolesFromMarketplaceFacts(params: {
     }
   }
 
-  return uniqueByEntitlementAndRole(installed);
+  return uniqueInstalledRoles(installed);
 }
 
 export async function listDijieRoleListings(queryGraph: DijieQueryGraph): Promise<DijieRoleListing[]> {

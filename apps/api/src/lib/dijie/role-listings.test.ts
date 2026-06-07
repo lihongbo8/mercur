@@ -215,4 +215,49 @@ describe("Dijie role listing projection", () => {
       },
     });
   });
+
+  it("deduplicates installed roles by role and prefers materialized local entitlements", () => {
+    const installed = createDijieInstalledRolesFromMarketplaceFacts({
+      products: [roleProduct],
+      entitlements: [
+        {
+          id: "djent_paid",
+          actor_id: "cus_001",
+          role_listing_id: "prod_role_researcher",
+          entitlement_status: "authorized",
+          source: "checkout",
+          order_id: "ordgrp_paid",
+          authorized_at: "2026-06-01T00:00:00.000Z",
+        },
+      ],
+      orderGroups: [
+        {
+          id: "ordgrp_paid",
+          customer_id: "cus_001",
+          orders: [
+            {
+              id: "order_paid",
+              status: "completed",
+              payment_collections: [
+                { status: "captured", amount: 19900, captured_amount: 19900 },
+              ],
+              items: [{ product_id: "prod_role_researcher" }],
+            },
+          ],
+        },
+      ],
+      orders: [],
+    });
+
+    expect(installed).toHaveLength(1);
+    expect(installed[0]).toMatchObject({
+      entitlementId: "djent_paid",
+      entitlementSource: "local_entitlement",
+      orderId: "ordgrp_paid",
+      role: {
+        id: "prod_role_researcher",
+        title: "资料研究岗位",
+      },
+    });
+  });
 });

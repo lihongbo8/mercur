@@ -67,7 +67,17 @@ export default defineMiddlewares({
             middlewares: [authenticate("customer", ["session", "bearer"])],
         },
         {
+            matcher: "/dijie/authorizations",
+            method: ["POST"],
+            middlewares: [authenticate("customer", ["session", "bearer"])],
+        },
+        {
             matcher: "/dijie/my-roles",
+            method: ["GET"],
+            middlewares: [authenticate("customer", ["session", "bearer"])],
+        },
+        {
+            matcher: "/dijie/ledger/entries",
             method: ["GET"],
             middlewares: [authenticate("customer", ["session", "bearer"])],
         },

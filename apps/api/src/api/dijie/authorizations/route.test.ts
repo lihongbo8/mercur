@@ -56,6 +56,7 @@ function request(options: {
     fields: string[];
     filters?: Record<string, unknown>;
   }) => Promise<{ data?: unknown[] }>;
+  queryAsFunction?: boolean;
 } = {}) {
   return {
     body:
@@ -66,6 +67,13 @@ function request(options: {
     scope: {
       resolve(name: string) {
         if (name === "query" && options.queryGraph) {
+          if (options.queryAsFunction) {
+            const query = (() => undefined) as unknown as {
+              graph: NonNullable<typeof options.queryGraph>;
+            };
+            query.graph = options.queryGraph;
+            return query;
+          }
           return { graph: options.queryGraph };
         }
         if (name !== DIJIE_AUDIT_MODULE || !options.service) {
@@ -276,6 +284,55 @@ describe("POST /dijie/authorizations", () => {
         pricing: paidPricing,
       },
     });
+  });
+
+  it("accepts Medusa query as a callable service with a graph method", async () => {
+    const calls: unknown[] = [];
+    const res = response();
+    await POST(
+      request({
+        actorId: "cus_001",
+        roleListingId: "djrole_paid",
+        orderId: "ordgrp_paid_1",
+        queryGraph: paidOrderQueryGraph(),
+        queryAsFunction: true,
+        service: paidService(
+          {
+            ok: true,
+            value: {
+              entitlementId: "djent_paid_1",
+              entitlement: {
+                id: "djent_paid_1",
+                actor_id: "cus_001",
+                role_listing_id: "djrole_paid",
+                package_id: "pkg_paid_role",
+                package_version: "1.2.0",
+                developer_ref: "member_paid",
+                listing_owner_ref: "seller_paid",
+                billing_beneficiary_ref: "member_paid",
+                entitlement_status: "authorized",
+                source: "checkout",
+                order_id: "ordgrp_paid_1",
+                pricing: paidPricing,
+                role_token_pricing: roleTokenPricing,
+                authorized_at: new Date("2026-06-04T01:00:00.000Z"),
+              },
+            },
+          },
+          calls,
+        ),
+      }) as never,
+      res as never,
+    );
+
+    expect(res.statusCode).toBe(200);
+    expect(calls).toEqual([
+      {
+        actorId: "cus_001",
+        roleListingId: "djrole_paid",
+        orderId: "ordgrp_paid_1",
+      },
+    ]);
   });
 
   it("does not materialize paid entitlements for wrong-account order facts", async () => {

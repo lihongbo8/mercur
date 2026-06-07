@@ -1,4 +1,5 @@
 import type { MedusaRequest, MedusaResponse } from "@medusajs/framework/http";
+import { ContainerRegistrationKeys } from "@medusajs/framework/utils";
 import {
   type DijieQueryGraph,
   verifyPaidDijieRoleCheckoutFacts,
@@ -46,20 +47,23 @@ function resolveDijieRoleEntitlements(req: MedusaRequest) {
 }
 
 function resolveQueryGraph(req: MedusaRequest): DijieQueryGraph | undefined {
-  try {
-    const query = req.scope.resolve("query") as unknown;
-    if (
-      query &&
-      typeof query === "object" &&
-      typeof (query as { graph?: unknown }).graph === "function"
-    ) {
-      return (queryInput) =>
-        (query as { graph: (input: Parameters<DijieQueryGraph>[0]) => ReturnType<DijieQueryGraph> }).graph(
-          queryInput,
-        );
+  const keys = [ContainerRegistrationKeys.QUERY, "query", ContainerRegistrationKeys.REMOTE_QUERY];
+  for (const key of keys) {
+    try {
+      const query = req.scope.resolve(key) as unknown;
+      if (
+        query &&
+        (typeof query === "object" || typeof query === "function") &&
+        typeof (query as { graph?: unknown }).graph === "function"
+      ) {
+        return (queryInput) =>
+          (query as {
+            graph: (input: Parameters<DijieQueryGraph>[0]) => ReturnType<DijieQueryGraph>;
+          }).graph(queryInput);
+      }
+    } catch {
+      // Keep trying known Medusa query service registration keys.
     }
-  } catch {
-    return undefined;
   }
   return undefined;
 }
