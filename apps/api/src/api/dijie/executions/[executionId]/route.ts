@@ -610,6 +610,46 @@ function sanitizeCapabilityProfileReadModel(
   };
 }
 
+function createStructuredExecutionReadback(
+  readModel: DijieAuditExecutionReadModel,
+  schedulerReadback: SchedulerReadback,
+) {
+  return {
+    execution: {
+      roleListingId: readModel.roleListingId,
+      packageId: readModel.packageId,
+      packageVersion: readModel.packageVersion,
+      developerRef: readModel.developerRef,
+      listingOwnerRef: readModel.listingOwnerRef,
+      billingBeneficiaryRef: readModel.billingBeneficiaryRef,
+      status: readModel.status,
+      pricing: readModel.pricing,
+      roleTokenPricing: readModel.roleTokenPricing,
+      toolUsage: readModel.toolUsage,
+      modelProxyUsage: readModel.modelProxyUsage,
+      changedFiles: readModel.changedFiles,
+      receivedAt: readModel.receivedAt,
+    },
+    audit: {
+      status: readModel.status,
+      toolUsage: readModel.toolUsage,
+      modelProxyUsage: readModel.modelProxyUsage,
+      changedFiles: readModel.changedFiles,
+      errorSummary: readModel.errorSummary,
+      receivedAt: readModel.receivedAt,
+      ...(schedulerReadback.feedbackPackets
+        ? { feedbackPackets: schedulerReadback.feedbackPackets }
+        : {}),
+      ...(schedulerReadback.capabilityProfile
+        ? { capabilityProfile: schedulerReadback.capabilityProfile }
+        : {}),
+    },
+    artifacts: readModel.artifacts,
+    ledger: readModel.billingSummary,
+    failureReason: readModel.errorSummary,
+  };
+}
+
 export async function GET(req: MedusaRequest, res: MedusaResponse) {
   const actorId = actorIdFromRequest(req);
   if (!actorId) {
@@ -671,9 +711,14 @@ export async function GET(req: MedusaRequest, res: MedusaResponse) {
     schedulerReadback = {};
   }
 
+  const readModel = sanitizeReadModelForGateway(
+    createDijieAuditExecutionReadModel(result.record),
+  );
+
   return res.status(200).json({
     ok: true,
-    ...sanitizeReadModelForGateway(createDijieAuditExecutionReadModel(result.record)),
+    ...readModel,
+    ...createStructuredExecutionReadback(readModel, schedulerReadback),
     ...schedulerReadback,
   });
 }

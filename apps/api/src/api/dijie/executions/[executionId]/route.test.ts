@@ -358,9 +358,46 @@ describe("GET /dijie/executions/:executionId", () => {
           title: "Role package",
         },
       ],
+      execution: {
+        roleListingId: "role_123",
+        packageId: "pkg_role_123",
+        packageVersion: "1.0.0",
+        status: "failed",
+        toolUsage: {
+          filesChanged: 2,
+        },
+        modelProxyUsage: {
+          requestCount: 1,
+        },
+      },
+      audit: {
+        status: "failed",
+        toolUsage: {
+          filesChanged: 2,
+        },
+        modelProxyUsage: {
+          requestCount: 1,
+        },
+        errorSummary: "Validation failed.",
+      },
+      ledger: {
+        source: "role_usage",
+        platformReceivableCents: 0,
+        developerReceivableCents: 1,
+      },
+      failureReason: "Validation failed.",
       errorSummary: "Validation failed.",
       receivedAt: "2026-05-31T08:02:00.000Z",
     });
+    expect(res.body).toHaveProperty("artifacts");
+    const bodyRecord = res.body as Record<string, unknown>;
+    expect(bodyRecord.execution).not.toHaveProperty("executionId");
+    expect(bodyRecord.execution).not.toHaveProperty("actorId");
+    expect(bodyRecord.execution).not.toHaveProperty("entitlementId");
+    expect(bodyRecord.execution).not.toHaveProperty("deviceId");
+    expect(bodyRecord.execution).not.toHaveProperty("workspaceRef");
+    expect(bodyRecord.execution).not.toHaveProperty("localGatewayId");
+    expect(bodyRecord.audit).not.toHaveProperty("payload");
     const bodyText = JSON.stringify(res.body);
     expect(bodyText).not.toContain("/Users/alice");
     expect(bodyText).not.toContain("exec_123");
@@ -435,6 +472,18 @@ describe("GET /dijie/executions/:executionId", () => {
         evaluatorAdapters: {
           agentevals: "planned",
           mem0: "planned",
+        },
+      },
+      audit: {
+        feedbackPackets: [
+          {
+            packetVersion: 1,
+            packetId: "packet_123",
+          },
+        ],
+        capabilityProfile: {
+          profileVersion: 1,
+          packageId: "pkg_role_123",
         },
       },
     });
@@ -595,6 +644,13 @@ describe("GET /dijie/executions/:executionId", () => {
       packageVersion: "1.0.0",
       billingBeneficiaryRef: "dev_001",
       changedFiles: ["private.ts", "role_package/manifest.json"],
+      execution: {
+        roleListingId: "role_123",
+        packageId: "pkg_role_123",
+      },
+      ledger: {
+        source: "role_usage",
+      },
     });
     expect(res.body).not.toHaveProperty("executionId");
     expect(res.body).not.toHaveProperty("actorId");

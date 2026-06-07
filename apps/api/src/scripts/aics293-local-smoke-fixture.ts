@@ -18,8 +18,24 @@ const roleTokenPricing = {
   platformFeeBps: 0,
 };
 
+type SmokeRoleListing = {
+  roleListingId: string;
+  title: string;
+  subtitle: string;
+  description: string;
+  authorizationFeeCents: number;
+};
+
 function rawAmount(value: number) {
   return { value: String(value), precision: 20 };
+}
+
+function authorizationFeeCentsFromPricing(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return 0;
+  }
+  const fee = Number((value as { authorizationFeeCents?: unknown }).authorizationFeeCents);
+  return Number.isFinite(fee) && fee > 0 ? Math.round(fee) : 0;
 }
 
 async function createPasswordHash() {
@@ -120,6 +136,7 @@ async function createActors(container: ExecArgs["container"], stamp: number) {
         actor_id: adminUser.id,
         actor_type: "user",
         auth_identity_id: adminAuth.id,
+        metadata: { marketplaceOwnerAccess: true },
       }),
     },
     vendor: {
@@ -139,6 +156,7 @@ async function createActors(container: ExecArgs["container"], stamp: number) {
         actor_id: buyerCustomer.id,
         actor_type: "customer",
         auth_identity_id: buyerAuth.id,
+        metadata: { localSystemAccess: true },
       }),
     },
     publishableKey: {
@@ -183,6 +201,40 @@ async function createMarketplaceFacts(params: {
   const orderItemId = `orditem_aics293_smoke_${params.stamp}`;
   const paymentCollectionId = `paycol_aics293_smoke_${params.stamp}`;
 
+  const { rows: primaryRoleRows } = await client.query<{
+    id: string;
+    title: string;
+    subtitle: string | null;
+    description: string | null;
+    pricing: unknown;
+  }>(
+    `select id, title, subtitle, description, pricing
+     from dijie_role_listing
+     where listing_status = 'published'
+       and review_state = 'approved'
+       and deleted_at is null
+     order by published_at desc nulls last, created_at desc
+     limit 1`,
+  );
+  const primaryRole = primaryRoleRows[0];
+  const smokeRole: SmokeRoleListing = primaryRole
+    ? {
+        roleListingId: primaryRole.id,
+        title: primaryRole.title,
+        subtitle: primaryRole.subtitle ?? "智能门锁电商素材设计与检查。",
+        description:
+          primaryRole.description ??
+          "用于智能门锁电商商品图、详情页和设计输出的岗位 smoke 验证。",
+        authorizationFeeCents: authorizationFeeCentsFromPricing(primaryRole.pricing),
+      }
+    : {
+        roleListingId: productId,
+        title: "商品图检查岗位",
+        subtitle: "检查商品图片清晰度、主体完整性和基础合规风险。",
+        description: "用于商城商品上架前的图片质量检查，输出可复核的问题摘要和处理建议。",
+        authorizationFeeCents: 0,
+      };
+
   const roleMetadata = {
     kind: "role_product",
     protocolVersion: "2026-05",
@@ -224,10 +276,10 @@ async function createMarketplaceFacts(params: {
        values ($1, $2, $3, $4, $5, 'published', $6::jsonb)`,
       [
         productId,
-        "商品图检查岗位",
+        smokeRole.title,
         `aics293-smoke-image-review-role-${params.stamp}`,
-        "检查商品图片清晰度、主体完整性和基础合规风险。",
-        "用于商城商品上架前的图片质量检查，输出可复核的问题摘要和处理建议。",
+        smokeRole.subtitle,
+        smokeRole.description,
         JSON.stringify({ dijieRole: roleMetadata }),
       ],
     );
@@ -254,15 +306,16 @@ async function createMarketplaceFacts(params: {
     await client.query(
       `insert into order_line_item
        (id, title, product_id, product_title, product_handle, requires_shipping, unit_price, raw_unit_price, metadata)
-       values ($1, $2, $3, $4, $5, false, 0, $6::jsonb, $7::jsonb)`,
+       values ($1, $2, $3, $4, $5, false, $6, $7::jsonb, $8::jsonb)`,
       [
         lineItemId,
-        "商品图检查岗位",
+        smokeRole.title,
         productId,
-        "商品图检查岗位",
+        smokeRole.title,
         `aics293-smoke-image-review-role-${params.stamp}`,
-        JSON.stringify(rawAmount(0)),
-        JSON.stringify({ dijieRoleListingId: productId }),
+        smokeRole.authorizationFeeCents,
+        JSON.stringify(rawAmount(smokeRole.authorizationFeeCents)),
+        JSON.stringify({ dijieRoleListingId: smokeRole.roleListingId }),
       ],
     );
     await client.query(
@@ -276,8 +329,8 @@ async function createMarketplaceFacts(params: {
         orderId,
         lineItemId,
         JSON.stringify(rawAmount(1)),
-        JSON.stringify(rawAmount(0)),
-        JSON.stringify({ dijieRoleListingId: productId }),
+        JSON.stringify(rawAmount(smokeRole.authorizationFeeCents)),
+        JSON.stringify({ dijieRoleListingId: smokeRole.roleListingId }),
       ],
     );
     await client.query("update order_line_item set totals_id = $1 where id = $2", [
@@ -287,8 +340,14 @@ async function createMarketplaceFacts(params: {
     await client.query(
       `insert into payment_collection
        (id, currency_code, amount, raw_amount, captured_amount, raw_captured_amount, completed_at, status)
-       values ($1, 'cny', 0, $2::jsonb, 0, $3::jsonb, now(), 'completed')`,
-      [paymentCollectionId, JSON.stringify(rawAmount(0)), JSON.stringify(rawAmount(0))],
+       values ($1, 'cny', $2, $3::jsonb, $4, $5::jsonb, now(), 'completed')`,
+      [
+        paymentCollectionId,
+        smokeRole.authorizationFeeCents,
+        JSON.stringify(rawAmount(smokeRole.authorizationFeeCents)),
+        smokeRole.authorizationFeeCents,
+        JSON.stringify(rawAmount(smokeRole.authorizationFeeCents)),
+      ],
     );
     await client.query(
       `insert into order_payment_collection (id, order_id, payment_collection_id)
@@ -304,7 +363,8 @@ async function createMarketplaceFacts(params: {
   }
 
   return {
-    roleListingId: productId,
+    roleListingId: smokeRole.roleListingId,
+    legacyRoleProductId: productId,
     entitlementId: orderGroupId,
     orderId,
   };

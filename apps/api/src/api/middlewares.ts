@@ -62,6 +62,21 @@ export default defineMiddlewares({
             middlewares: [rejectPrivateDijieRoleMetadata],
         },
         {
+            matcher: "/admin/dijie/review-center",
+            method: ["GET"],
+            middlewares: [authenticate("user", ["session", "bearer"])],
+        },
+        {
+            matcher: "/admin/dijie/reviews/:reviewId/evaluations",
+            method: ["POST"],
+            middlewares: [authenticate("user", ["session", "bearer"])],
+        },
+        {
+            matcher: "/admin/dijie/reviews/:reviewId/finalize",
+            method: ["POST"],
+            middlewares: [authenticate("user", ["session", "bearer"])],
+        },
+        {
             matcher: "/dijie/execution-token",
             method: ["POST"],
             middlewares: [authenticate("customer", ["session", "bearer"])],

@@ -389,7 +389,10 @@ class DijieAuditModuleService
     input: Parameters<DijieAccountAccessProfileReader["retrieveDijieAccountAccessProfile"]>[0],
   ) {
     return retrieveDijieAccountAccessProfileWithRepository(
-      this as unknown as DijieAccountAccessProfileLookupRepository,
+      {
+        listDijieAccountAccessProfiles: (...args) =>
+          super.listDijieAccountAccessProfiles(...args),
+      } as DijieAccountAccessProfileLookupRepository,
       input,
     );
   }
@@ -398,7 +401,10 @@ class DijieAuditModuleService
     input?: Parameters<DijieAccountAccessProfileReader["listDijieAccountAccessProfiles"]>[0],
   ) {
     return listDijieAccountAccessProfilesWithRepository(
-      this as unknown as DijieAccountAccessProfileLookupRepository,
+      {
+        listDijieAccountAccessProfiles: (...args) =>
+          super.listDijieAccountAccessProfiles(...args),
+      } as DijieAccountAccessProfileLookupRepository,
       input,
     );
   }
@@ -407,7 +413,14 @@ class DijieAuditModuleService
     input: Parameters<DijieAccountAccessProfileStore["upsertDijieAccountAccessProfile"]>[0],
   ) {
     return upsertDijieAccountAccessProfileWithRepository(
-      this as unknown as DijieAccountAccessProfileRepository &
+      {
+        createDijieAccountAccessProfiles: (...args) =>
+          super.createDijieAccountAccessProfiles(...args),
+        listDijieAccountAccessProfiles: (...args) =>
+          super.listDijieAccountAccessProfiles(...args),
+        updateDijieAccountAccessProfiles: (...args) =>
+          super.updateDijieAccountAccessProfiles(...args),
+      } as DijieAccountAccessProfileRepository &
         DijieAccountAccessProfileLookupRepository &
         DijieAccountAccessProfileUpdateRepository,
       input,

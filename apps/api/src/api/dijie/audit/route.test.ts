@@ -168,6 +168,17 @@ describe("POST /dijie/audit", () => {
           changed_files?: string[];
         }
       | undefined;
+    let ledgerEntry:
+      | {
+          accountId?: string;
+          source?: string;
+          usageKind?: string;
+          surface?: string | null;
+          executionId?: string | null;
+          roleListingId?: string | null;
+          developerReceivableCents?: number;
+        }
+      | undefined;
     const store = {
       recordDijieAuditSummary: (record: never) =>
         recordDijieAuditSummaryWithRepository(
@@ -179,6 +190,17 @@ describe("POST /dijie/audit", () => {
           },
           record,
         ),
+      async createDijieLedgerEntry(input: never) {
+        ledgerEntry = input;
+        return {
+          ok: true,
+          value: {
+            ledgerEntry: {
+              id: "djledger_123",
+            },
+          },
+        };
+      },
     };
 
     const res = response();
@@ -210,6 +232,15 @@ describe("POST /dijie/audit", () => {
         developerReceivableCents: 300,
       },
       changed_files: ["role_package/manifest.json"],
+    });
+    expect(ledgerEntry).toMatchObject({
+      accountId: "cus_123",
+      source: "role_usage",
+      usageKind: "model_tokens",
+      surface: "openclaw_local",
+      executionId: "exec_123",
+      roleListingId: "role_123",
+      developerReceivableCents: 300,
     });
   });
 

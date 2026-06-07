@@ -9,6 +9,7 @@ import {
 } from "../../../lib/dijie/audit-store";
 import { verifyDijieExecutionToken } from "../../../lib/dijie/execution-token";
 import { createDijieRoleTokenUsageLedgerEntryFromAudit } from "../../../lib/dijie/ledgers";
+import type { DijieLedgerEntryStore } from "../../../lib/dijie/ledger-store";
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -33,6 +34,15 @@ function isAuditRecordStore(value: unknown): value is DijieAuditRecordStore {
     typeof value === "object" &&
     typeof (value as { recordDijieAuditSummary?: unknown })
       .recordDijieAuditSummary === "function"
+  );
+}
+
+function isLedgerEntryStore(value: unknown): value is DijieLedgerEntryStore {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    typeof (value as { createDijieLedgerEntry?: unknown })
+      .createDijieLedgerEntry === "function"
   );
 }
 
@@ -124,6 +134,41 @@ export async function POST(req: MedusaRequest, res: MedusaResponse) {
       ok: false,
       error: "Dijie audit record store failed to persist the audit summary.",
     });
+  }
+
+  if (isLedgerEntryStore(store)) {
+    const ledger = roleUsageLedger.value;
+    const ledgerResult = await store.createDijieLedgerEntry({
+      accountId: ledger.actorId,
+      billingAccountId: ledger.actorId,
+      source: "role_usage",
+      usageKind: ledger.usageKind,
+      surface: "openclaw_local",
+      mode: "user",
+      subject: {
+        executionId: ledger.executionId,
+        roleListingId: ledger.roleListingId,
+        packageId: ledger.packageId,
+        entitlementId: ledger.entitlementId,
+      },
+      meters: ledger.meters,
+      currency: "CNY",
+      grossAmountCents: ledger.grossAmountCents,
+      platformReceivableCents: ledger.platformReceivableCents,
+      developerReceivableCents: ledger.developerReceivableCents,
+      roleListingId: ledger.roleListingId,
+      packageId: ledger.packageId,
+      executionId: ledger.executionId,
+      entitlementId: ledger.entitlementId,
+      developerRef: ledger.developerRef,
+      occurredAt: new Date(ledger.occurredAt),
+    });
+    if (!ledgerResult.ok) {
+      return res.status(ledgerResult.status).json({
+        ok: false,
+        error: ledgerResult.error,
+      });
+    }
   }
 
   return res.status(200).json({
