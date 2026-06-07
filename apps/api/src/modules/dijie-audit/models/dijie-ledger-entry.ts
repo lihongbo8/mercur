@@ -19,6 +19,7 @@ const DijieLedgerEntry = model.define("dijie_ledger_entry", {
       "user_center",
       "developer_center",
       "admin_review",
+      "openclaw_main",
       "openclaw_local",
     ])
     .nullable(),

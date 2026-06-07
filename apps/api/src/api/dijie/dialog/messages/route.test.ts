@@ -1,7 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { DIJIE_AUDIT_MODULE } from "../../../../lib/dijie/audit-store";
 import { DIJIE_OPENCLAW_MODEL_BRIDGE } from "../../../../lib/dijie/dialog-model-bridge";
-import { DIJIE_ROLE_PACKAGE_REQUIRED_OUTPUT_PATHS } from "../../../../lib/dijie/role-package-generator";
 import { POST } from "./route";
 
 type TestResponse = {
@@ -84,20 +83,34 @@ function request(
           return {
             createDijieRolePackageDraft: async (input: Record<string, unknown>) => {
               const id = `djdraft_${drafts.length + 1}`;
+              const uploadSummary = input.uploadSummary as
+                | {
+                    packageId?: string;
+                    packageVersion?: string;
+                    manifestSummary?: unknown;
+                    files?: unknown[];
+                  }
+                | undefined;
+              const files = Array.isArray(input.files)
+                ? (input.files as Array<Record<string, unknown>>)
+                : [];
               drafts.push({
                 id,
                 owner_id: input.ownerId as string,
-                draft_status: "ready",
+                draft_status: input.status ?? "ready",
                 source_message: input.sourceMessage,
-                package_id: (input.uploadSummary as { packageId?: string } | undefined)?.packageId ?? null,
-                package_version:
-                  (input.uploadSummary as { packageVersion?: string } | undefined)?.packageVersion ?? null,
+                package_id: uploadSummary?.packageId ?? null,
+                package_version: uploadSummary?.packageVersion ?? null,
                 generated_at: new Date("2026-06-05T01:00:00.000Z"),
-                manifest_summary:
-                  (input.uploadSummary as { manifestSummary?: unknown } | undefined)?.manifestSummary ?? null,
+                manifest_summary: uploadSummary?.manifestSummary ?? null,
                 file_manifest:
-                  (input.uploadSummary as { files?: unknown[] } | undefined)?.files ?? [],
-                package_files: input.files,
+                  uploadSummary?.files ??
+                  files.map((file) => ({
+                    path: file.path,
+                    ...(file.sha256 ? { sha256: file.sha256 } : {}),
+                    ...(file.sizeBytes ? { sizeBytes: file.sizeBytes } : {}),
+                  })),
+                package_files: files,
                 capability_report: input.capabilityReport,
                 quality_report: input.qualityReport,
                 upload_validation_issues: input.uploadValidationIssues,
@@ -106,6 +119,48 @@ function request(
                 submitted_package_id: null,
               });
               return { draftId: id };
+            },
+            updateDijieRolePackageDraft: async (input: Record<string, unknown>) => {
+              const index = drafts.findIndex(
+                (draft) =>
+                  draft.id === input.draftId && draft.owner_id === input.ownerId,
+              );
+              if (index === -1) {
+                return { ok: false, status: 404, error: "未找到岗位包草稿。" };
+              }
+              const uploadSummary = input.uploadSummary as
+                | {
+                    packageId?: string;
+                    packageVersion?: string;
+                    manifestSummary?: unknown;
+                    files?: unknown[];
+                  }
+                | undefined;
+              const files = Array.isArray(input.files)
+                ? (input.files as Array<Record<string, unknown>>)
+                : [];
+              drafts[index] = {
+                ...drafts[index],
+                draft_status: input.status ?? drafts[index].draft_status,
+                package_id: uploadSummary?.packageId ?? null,
+                package_version: uploadSummary?.packageVersion ?? null,
+                generated_at: new Date("2026-06-05T01:00:00.000Z"),
+                manifest_summary: uploadSummary?.manifestSummary ?? null,
+                file_manifest:
+                  uploadSummary?.files ??
+                  files.map((file) => ({
+                    path: file.path,
+                    ...(file.sha256 ? { sha256: file.sha256 } : {}),
+                    ...(file.sizeBytes ? { sizeBytes: file.sizeBytes } : {}),
+                  })),
+                package_files: files,
+                capability_report: input.capabilityReport,
+                quality_report: input.qualityReport,
+                upload_validation_issues: input.uploadValidationIssues,
+                blocking_issues: input.blockingIssues,
+                model_usage: input.modelUsage,
+              };
+              return { ok: true };
             },
             retrieveLatestDijieRolePackageDraft: async (input: { ownerId: string }) =>
               drafts.find((draft) => draft.owner_id === input.ownerId),
@@ -386,7 +441,7 @@ describe("POST /dijie/dialog/messages", () => {
       request(
         {
           surface: "developer_center",
-          message: "我怎么上传岗位包？",
+          message: "我怎么设计岗位包的验收标准？",
         },
         { actor_id: "acct_user" },
         {
@@ -445,7 +500,46 @@ describe("POST /dijie/dialog/messages", () => {
     expect(bridgeCalls).toBe(1);
   });
 
-  it("generates and stores a role package draft for developer generation intent", async () => {
+  it("returns developer navigation actions without spending a model call for pure navigation", async () => {
+    const res = response();
+    let bridgeCalls = 0;
+
+    await POST(
+      request(
+        {
+          surface: "developer_center",
+          message: "我要去上传岗位包",
+        },
+        { actor_id: "acct_dev" },
+        {
+          completeDijieDialogMessage: async () => {
+            bridgeCalls += 1;
+            return {
+              reply: "不应该调用模型。",
+              usage: null,
+            };
+          },
+        },
+      ) as never,
+      res as never,
+    );
+
+    expect(res.statusCode).toBe(200);
+    expect(bridgeCalls).toBe(0);
+    expect(res.body).toMatchObject({
+      modelCalled: false,
+      actions: [
+        {
+          kind: "navigate",
+          action: "navigate_upload",
+          path: "/products/create",
+          requiresConfirmation: false,
+        },
+      ],
+    });
+  });
+
+  it("generates and stores one role package draft stage for developer generation intent", async () => {
     const res = response();
     let bridgeCalls = 0;
 
@@ -484,29 +578,76 @@ describe("POST /dijie/dialog/messages", () => {
       res as never,
     );
 
-    expect(bridgeCalls).toBe(DIJIE_ROLE_PACKAGE_REQUIRED_OUTPUT_PATHS.length);
+    expect(bridgeCalls).toBe(1);
     expect(res.statusCode).toBe(200);
     expect(res.body).toMatchObject({
       ok: true,
       modelCalled: true,
       rolePackageDraft: {
         draftId: "djdraft_1",
-        status: "ready",
-        packageId: "visual_smart_lock_designer",
-        packageVersion: "1.0.0",
-        fileCount: 16,
-        qualityReport: {
-          ok: true,
-          score: 100,
-        },
+        status: "partial",
+        packageId: null,
+        packageVersion: null,
+        fileCount: 1,
       },
+      actions: [
+        {
+          kind: "generate_role_package",
+          action: "generate_role_package",
+          requiresConfirmation: false,
+        },
+      ],
       persisted: {
         ledgerEntry: {
           usageKind: "model_tokens",
         },
       },
     });
-    expect(JSON.stringify(res.body)).toContain("已生成岗位包草稿");
+    const artifacts = (res.body as {
+      artifacts?: Array<{ kind?: string; status?: string; label?: string }>;
+    }).artifacts ?? [];
+    expect(artifacts.filter((artifact) => artifact.kind === "role_build_session")).toHaveLength(1);
+    expect(artifacts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "role_package_draft",
+          status: "partial",
+        }),
+      ]),
+    );
+    expect(JSON.stringify(res.body)).toContain("已保存 partial 岗位包草稿");
+    const visibleDraftActions = res.body as {
+      actions?: Array<{ action?: string }>;
+      allowedActions?: string[];
+      proposedActions?: Array<{ action?: string }>;
+      requiredConfirmations?: Array<{ action?: string }>;
+      orchestration?: {
+        profile?: { allowedActions?: string[] };
+        allowedActions?: string[];
+        proposedActions?: Array<{ action?: string }>;
+        requiredConfirmations?: Array<{ action?: string }>;
+      };
+    };
+    expect(visibleDraftActions.actions?.map((item) => item.action)).not.toContain(
+      "navigate_upload",
+    );
+    expect(visibleDraftActions.allowedActions).not.toContain("navigate_upload");
+    expect(visibleDraftActions.proposedActions?.map((item) => item.action)).not.toContain(
+      "navigate_upload",
+    );
+    expect(visibleDraftActions.requiredConfirmations?.map((item) => item.action)).not.toContain(
+      "submit_role_package_draft",
+    );
+    expect(visibleDraftActions.orchestration?.profile?.allowedActions).not.toContain(
+      "navigate_upload",
+    );
+    expect(visibleDraftActions.orchestration?.allowedActions).not.toContain("navigate_upload");
+    expect(
+      visibleDraftActions.orchestration?.proposedActions?.map((item) => item.action),
+    ).not.toContain("submit_role_package_draft");
+    expect(
+      visibleDraftActions.orchestration?.requiredConfirmations?.map((item) => item.action),
+    ).not.toContain("submit_role_package_draft");
     expect(JSON.stringify(res.body)).not.toContain("API key");
   });
 
@@ -667,14 +808,15 @@ describe("POST /dijie/dialog/messages", () => {
       capabilityPolicy: {
         workflowRouter: "main_workflow",
         requiresLocalSystemAccess: true,
-        forbiddenActions: [
-          "bypass_goal_governance",
-          "create_task_without_dispatch",
-          "execute_without_entitlement",
-        ],
       },
       modelCalled: false,
     });
+    expect((res.body as { capabilityPolicy?: { forbiddenActions?: string[] } }).capabilityPolicy?.forbiddenActions)
+      .toEqual(expect.arrayContaining([
+        "bypass_goal_governance",
+        "create_task_without_dispatch",
+        "execute_without_entitlement",
+      ]));
   });
 
   it("meters OpenClaw local dialog model usage for local management accounts", async () => {
@@ -735,6 +877,88 @@ describe("POST /dijie/dialog/messages", () => {
     });
   });
 
+  it("routes OpenClaw main dialog through the main workflow surface prompt", async () => {
+    const res = response();
+    let bridgeCalls = 0;
+
+    await POST(
+      request(
+        {
+          surface: "openclaw_main",
+          message: "用商品图检查岗位执行这批主图检查任务",
+          subject: { roleListingId: "djrole_image_review" },
+        },
+        {
+          actor_id: "local_operator",
+          actor_type: "member",
+          metadata: {
+            accountLevel: "operator",
+            localSystemAccess: true,
+            billingAccountId: "company_owner_001",
+          },
+        },
+        {
+          completeDijieDialogMessage: async (input: { message: string }) => {
+            bridgeCalls += 1;
+            expect(input.message).toContain("OpenClaw 主流程层对话框");
+            expect(input.message).toContain("surface: openclaw_main");
+            expect(input.message).toContain("模型回复必须是 JSON");
+            expect(input.message).toContain("check_entitlement");
+            return {
+              reply: JSON.stringify({
+                reply: "我会先确认岗位授权、执行 token、费用归属和人工确认点，再交给本地 executor。",
+                intent: "main_execution_plan",
+                artifacts: [],
+              }),
+              usage: {
+                provider: "openai",
+                model: "gpt-5.4",
+                promptTokens: 1100,
+                completionTokens: 180,
+                totalTokens: 1280,
+                pricing: {
+                  pricingKnown: true,
+                  pricingSource: "platform_review_config",
+                  grossAmountCents: 3,
+                  platformReceivableCents: 3,
+                  developerReceivableCents: 0,
+                },
+              },
+            };
+          },
+        },
+      ) as never,
+      res as never,
+    );
+
+    expect(bridgeCalls).toBe(1);
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toMatchObject({
+      context: {
+        surface: "openclaw_main",
+        billingAccountId: "company_owner_001",
+      },
+      message: {
+        content: "我会先确认岗位授权、执行 token、费用归属和人工确认点，再交给本地 executor。",
+      },
+      intent: {
+        name: "main_execution_plan",
+        surface: "openclaw_main",
+      },
+      requiredConfirmations: [
+        {
+          action: "prepare_role_task",
+          target: "djrole_image_review",
+        },
+      ],
+      capabilityPolicy: {
+        workflowRouter: "main_workflow",
+        requiresEntitlement: true,
+      },
+      modelCalled: true,
+    });
+  });
+
   it("rejects audit assistant dialog without review data permission", async () => {
     const res = response();
 
@@ -760,7 +984,7 @@ describe("POST /dijie/dialog/messages", () => {
       request(
         {
           surface: "admin_review",
-          message: "帮我看这个岗位审核材料",
+          message: "帮我看这个岗位的安全合规风险",
         },
         {
           actor_id: "platform_reviewer",
@@ -801,6 +1025,12 @@ describe("POST /dijie/dialog/messages", () => {
       capabilityPolicy: {
         requiresMarketplaceOwnerAccess: true,
       },
+      actions: [
+        {
+          action: "evaluate_safety_compliance",
+          requiresConfirmation: true,
+        },
+      ],
       persisted: {
         ledgerEntry: {
           source: "dialog_usage",

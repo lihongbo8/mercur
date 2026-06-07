@@ -16,6 +16,7 @@ type EvaluationDefinition = {
 
 type RoleReviewItem = {
   id: string
+  reviewId: string
   title: string
   developer: string
   submitted: string
@@ -43,6 +44,103 @@ type DialogMessageResponse = {
     content?: string
   }
   modelCalled?: boolean
+  actions?: DialogAction[]
+}
+
+type DialogAction = {
+  id: string
+  label: string
+  description?: string
+  requiresConfirmation?: boolean
+}
+
+type ReviewCenterQueueItem = {
+  id: string
+  reviewId?: string
+  title: string
+  subtitle?: string | null
+  developerName?: string | null
+  packageId?: string | null
+  packageVersion?: string | null
+  reviewState?: string
+  reviewStateLabel?: string
+  listingStatus?: string
+  submittedAt?: string | null
+  confirmationPoints?: number
+  requiredCapabilities?: string[]
+  priceLabel?: string | null
+  evaluations?: Record<EvaluationKey, EvaluationDecision>
+  records?: string[]
+  finalNote?: string | null
+}
+
+type ReviewCenterResponse = {
+  ok?: boolean
+  reviewCenter?: {
+    queue?: ReviewCenterQueueItem[]
+    emptyState?: string | null
+  }
+}
+
+const formatSubmittedAt = (value?: string | null) => {
+  if (!value) {
+    return "未提交"
+  }
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) {
+    return "未提交"
+  }
+  return new Intl.DateTimeFormat("zh-CN", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date)
+}
+
+const roleStatusFromQueueItem = (item: ReviewCenterQueueItem): RoleStatus => {
+  if (item.reviewState === "approved") {
+    return "approved"
+  }
+  if (item.reviewState === "needs_changes") {
+    return "needs_changes"
+  }
+  if (item.reviewState === "rejected") {
+    return "rejected"
+  }
+  return "pending"
+}
+
+const mapReviewQueueItem = (item: ReviewCenterQueueItem): RoleReviewItem => {
+  const status = roleStatusFromQueueItem(item)
+  const capabilities = item.requiredCapabilities ?? []
+  return {
+    id: item.id,
+    reviewId: item.reviewId || `review_${item.id}`,
+    title: item.title,
+    developer: item.developerName || "云端开发者",
+    submitted: formatSubmittedAt(item.submittedAt),
+    status,
+    statusNote: item.reviewStateLabel || statusLabels[status],
+    price: item.priceLabel || "云端配置",
+    confirmations: item.confirmationPoints ?? 0,
+    version: item.packageVersion ? `v${item.packageVersion}` : "-",
+    category: item.subtitle || item.packageId || "未分类",
+    summary:
+      capabilities.length > 0
+        ? `需要 ${capabilities.join("、")} 等能力。`
+        : "云端岗位商品，等待人工审核。",
+    evaluations: item.evaluations ?? {
+      roleStandard: "pending",
+      safetyCompliance: "pending",
+      pricingReasonability: "pending",
+    },
+    records:
+      item.records && item.records.length > 0
+        ? item.records
+        : ["云端岗位商品已进入审核队列。"],
+    finalNote: item.finalNote || "",
+  }
 }
 
 const navigationItems: Array<{ id: WorkbenchTab; label: string }> = [
@@ -87,90 +185,6 @@ const evaluationDefinitions: EvaluationDefinition[] = [
       { label: "隐藏收费风险", note: "不把额外收费藏在说明之外。" },
       { label: "价格与价值", note: "使用者能判断购买是否值得。" },
     ],
-  },
-]
-
-const initialRoles: RoleReviewItem[] = [
-  {
-    id: "image-review-role",
-    title: "商品图检查岗位",
-    developer: "示例开发者",
-    submitted: "10分钟前",
-    status: "pending",
-    statusNote: "待审核",
-    price: "0 CNY",
-    confirmations: 2,
-    version: "v1.0.0",
-    category: "商品运营 / 图片审核",
-    summary: "检查商品图片清晰度、主体完整性和基础合规风险。",
-    evaluations: {
-      roleStandard: "pending",
-      safetyCompliance: "pending",
-      pricingReasonability: "pending",
-    },
-    records: ["待审核岗位已进入审核队列。"],
-    finalNote: "",
-  },
-  {
-    id: "support-quality-role",
-    title: "客服质检岗位",
-    developer: "服务运营组",
-    submitted: "35分钟前",
-    status: "needs_changes",
-    statusNote: "要求补充",
-    price: "9 CNY",
-    confirmations: 1,
-    summary: "检查客服对话是否符合服务规范。",
-    version: "v0.9.2",
-    category: "客服运营 / 质检",
-    evaluations: {
-      roleStandard: "needs_changes",
-      safetyCompliance: "pass",
-      pricingReasonability: "pending",
-    },
-    records: ["已要求补充质检样例和边界说明。"],
-    finalNote: "请补充可评估样例。",
-  },
-  {
-    id: "contract-summary-role",
-    title: "合同摘要岗位",
-    developer: "文档效率组",
-    submitted: "1小时前",
-    status: "pending",
-    statusNote: "待审核",
-    price: "29 CNY",
-    confirmations: 3,
-    riskLabel: "风险提示",
-    summary: "提取合同条款摘要和待确认事项。",
-    version: "v1.2.0",
-    category: "办公文档 / 合同摘要",
-    evaluations: {
-      roleStandard: "pending",
-      safetyCompliance: "pending",
-      pricingReasonability: "pending",
-    },
-    records: ["安全合规需要重点检查敏感信息处理。"],
-    finalNote: "",
-  },
-  {
-    id: "inventory-alert-role",
-    title: "库存预警岗位",
-    developer: "供应链示例",
-    submitted: "昨天",
-    status: "approved",
-    statusNote: "已通过",
-    price: "19 CNY",
-    confirmations: 1,
-    summary: "根据库存和销量生成补货提醒。",
-    version: "v1.0.1",
-    category: "供应链 / 库存",
-    evaluations: {
-      roleStandard: "pass",
-      safetyCompliance: "pass",
-      pricingReasonability: "pass",
-    },
-    records: ["三项评估通过，岗位审核结果为已通过。"],
-    finalNote: "标准清楚，风险可控，定价合理。",
   },
 ]
 
@@ -245,12 +259,35 @@ const createAssistantQuestionReply = (question: string, role: RoleReviewItem) =>
   return `已收到。当前审核对象是「${role.title}」，建议按岗位标准、安全合规、定价合理性三项逐项判断；AI 回复只做辅助，不会自动改变审核结果。`
 }
 
+const formatAssistantResult = (
+  result: DialogMessageResponse | undefined,
+  fallback: string,
+) => {
+  const base = result?.message?.content?.trim() || fallback
+  const actions = result?.actions ?? []
+
+  if (actions.length === 0) {
+    return base
+  }
+
+  const actionText = actions
+    .map((action) => {
+      const suffix = action.requiresConfirmation ? "，需人工确认" : ""
+      return `- ${action.label}${suffix}${action.description ? `：${action.description}` : ""}`
+    })
+    .join("\n")
+
+  return `${base}\n\n建议动作：\n${actionText}`
+}
+
 export const ReviewCenterWorkbench = () => {
   const [activeTab, setActiveTab] = useState<WorkbenchTab>("review")
-  const [roles, setRoles] = useState<RoleReviewItem[]>(initialRoles)
-  const [selectedRoleId, setSelectedRoleId] = useState(initialRoles[0].id)
+  const [roles, setRoles] = useState<RoleReviewItem[]>([])
+  const [selectedRoleId, setSelectedRoleId] = useState("")
   const [statusFilter, setStatusFilter] = useState<RoleStatus | "all">("all")
   const [queueSearch, setQueueSearch] = useState("")
+  const [reviewCenterLoading, setReviewCenterLoading] = useState(true)
+  const [reviewCenterError, setReviewCenterError] = useState("")
   const [assistantMessages, setAssistantMessages] = useState<AssistantMessage[]>([
     {
       id: 1,
@@ -263,6 +300,37 @@ export const ReviewCenterWorkbench = () => {
   const [finalNoteDraft, setFinalNoteDraft] = useState("")
 
   const selectedRole = roles.find((role) => role.id === selectedRoleId) ?? roles[0]
+
+  const refreshReviewCenter = async () => {
+    setReviewCenterLoading(true)
+    setReviewCenterError("")
+    try {
+      const result = (await fetchQuery("/admin/dijie/review-center", {
+        method: "GET",
+      })) as ReviewCenterResponse | undefined
+      const mappedRoles =
+        result?.reviewCenter?.queue?.map(mapReviewQueueItem) ?? []
+      setRoles(mappedRoles)
+      setSelectedRoleId((current) => {
+        if (mappedRoles.some((role) => role.id === current)) {
+          return current
+        }
+        return mappedRoles[0]?.id ?? ""
+      })
+    } catch (error) {
+      setReviewCenterError(
+        error instanceof Error ? error.message : "云端审核中心暂时无法读取。",
+      )
+      setRoles([])
+      setSelectedRoleId("")
+    } finally {
+      setReviewCenterLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    void refreshReviewCenter()
+  }, [])
 
   const filteredRoles = useMemo(() => {
     const normalizedSearch = queueSearch.trim().toLowerCase()
@@ -290,34 +358,68 @@ export const ReviewCenterWorkbench = () => {
     [roles],
   )
 
-  const allEvaluationsPass = evaluationDefinitions.every(
-    (definition) => selectedRole.evaluations[definition.key] === "pass",
-  )
-  const hasNeedsChanges = evaluationDefinitions.some(
-    (definition) => selectedRole.evaluations[definition.key] === "needs_changes",
-  )
-  const hasReject = evaluationDefinitions.some(
-    (definition) => selectedRole.evaluations[definition.key] === "reject",
-  )
+  const allEvaluationsPass = selectedRole
+    ? evaluationDefinitions.every(
+        (definition) => selectedRole.evaluations[definition.key] === "pass",
+      )
+    : false
+  const hasNeedsChanges = selectedRole
+    ? evaluationDefinitions.some(
+        (definition) => selectedRole.evaluations[definition.key] === "needs_changes",
+      )
+    : false
+  const hasReject = selectedRole
+    ? evaluationDefinitions.some(
+        (definition) => selectedRole.evaluations[definition.key] === "reject",
+      )
+    : false
 
   const updateSelectedRole = (updater: (role: RoleReviewItem) => RoleReviewItem) => {
+    if (!selectedRole) {
+      return
+    }
     setRoles((current) => current.map((role) => (role.id === selectedRole.id ? updater(role) : role)))
   }
 
-  const selectEvaluation = (key: EvaluationKey, decision: EvaluationDecision) => {
+  const selectEvaluation = async (key: EvaluationKey, decision: EvaluationDecision) => {
+    if (!selectedRole) {
+      return
+    }
     const definition = evaluationDefinitions.find((item) => item.key === key)
+    const nextEvaluations = {
+      ...selectedRole.evaluations,
+      [key]: decision,
+    }
     updateSelectedRole((role) =>
       appendRecord(
         {
           ...role,
-          evaluations: {
-            ...role.evaluations,
-            [key]: decision,
-          },
+          evaluations: nextEvaluations,
         },
         `${definition?.title ?? "评估项"}人工标记为${decisionLabels[decision]}。`,
       ),
     )
+    try {
+      await fetchQuery(`/admin/dijie/reviews/${encodeURIComponent(selectedRole.reviewId)}/evaluations`, {
+        method: "POST",
+        body: {
+          roleStandardDecision: nextEvaluations.roleStandard,
+          safetyComplianceDecision: nextEvaluations.safetyCompliance,
+          pricingReasonabilityDecision: nextEvaluations.pricingReasonability,
+          summary: finalNoteDraft.trim() || undefined,
+        },
+      })
+      await refreshReviewCenter()
+    } catch (error) {
+      updateSelectedRole((role) =>
+        appendRecord(
+          role,
+          error instanceof Error
+            ? `云端保存评估失败：${error.message}`
+            : "云端保存评估失败。",
+        ),
+      )
+    }
   }
 
   const appendAssistantMessage = (message: AssistantMessage) => {
@@ -325,6 +427,9 @@ export const ReviewCenterWorkbench = () => {
   }
 
   const callReviewAssistant = async (message: string) => {
+    if (!selectedRole) {
+      return undefined
+    }
     const result = await fetchQuery("/dijie/dialog/messages", {
       method: "POST",
       body: {
@@ -344,21 +449,23 @@ export const ReviewCenterWorkbench = () => {
       },
     }) as DialogMessageResponse | undefined
 
-    return result?.message?.content?.trim()
+    return result
   }
 
   const runAssistantAction = async (action: string) => {
-    if (assistantRunning) {
+    if (assistantRunning || !selectedRole) {
       return
     }
     setAssistantRunning(true)
     const fallback = createAssistantReply(action, selectedRole)
     let body = fallback
     try {
-      body =
-        (await callReviewAssistant(
+      body = formatAssistantResult(
+        await callReviewAssistant(
           `审核动作：${action}。请基于当前岗位审核对象给出辅助意见，不要自动给最终审核结论。`,
-        )) || fallback
+        ),
+        fallback,
+      )
     } catch {
       body = `${fallback}\n\n（云端模型暂不可用，已使用本地审核规则提示。）`
     }
@@ -373,7 +480,7 @@ export const ReviewCenterWorkbench = () => {
 
   const sendAssistantMessage = async () => {
     const body = assistantDraft.trim()
-    if (!body || assistantRunning) {
+    if (!body || assistantRunning || !selectedRole) {
       return
     }
     const baseId = Date.now()
@@ -385,7 +492,7 @@ export const ReviewCenterWorkbench = () => {
     const fallback = createAssistantQuestionReply(body, selectedRole)
     let assistantBody = fallback
     try {
-      assistantBody = (await callReviewAssistant(body)) || fallback
+      assistantBody = formatAssistantResult(await callReviewAssistant(body), fallback)
     } catch {
       assistantBody = `${fallback}\n\n（云端模型暂不可用，已使用本地审核规则提示。）`
     }
@@ -397,7 +504,10 @@ export const ReviewCenterWorkbench = () => {
     setAssistantRunning(false)
   }
 
-  const finalizeReview = (status: RoleStatus) => {
+  const finalizeReview = async (status: RoleStatus) => {
+    if (!selectedRole) {
+      return
+    }
     const note = finalNoteDraft.trim()
     const finalText =
       status === "approved"
@@ -416,9 +526,37 @@ export const ReviewCenterWorkbench = () => {
         note ? `${finalText}：${note}` : `${finalText}。`,
       ),
     )
+    try {
+      await fetchQuery(`/admin/dijie/reviews/${encodeURIComponent(selectedRole.reviewId)}/finalize`, {
+        method: "POST",
+        body: {
+          finalResult: status,
+          summary: note || undefined,
+        },
+      })
+      await refreshReviewCenter()
+    } catch (error) {
+      updateSelectedRole((role) =>
+        appendRecord(
+          role,
+          error instanceof Error
+            ? `云端最终审核失败：${error.message}`
+            : "云端最终审核失败。",
+        ),
+      )
+    }
   }
 
   const renderMainPanel = () => {
+    if (reviewCenterLoading) {
+      return <ReviewCenterState message="正在读取云端审核队列..." />
+    }
+    if (reviewCenterError) {
+      return <ReviewCenterState tone="error" message={reviewCenterError} />
+    }
+    if (!selectedRole) {
+      return <ReviewCenterState message="暂无云端岗位审核提交。" />
+    }
     if (activeTab === "records") {
       return <RecordsPanel roles={roles} selectedRole={selectedRole} />
     }
@@ -544,6 +682,25 @@ export const ReviewCenterWorkbench = () => {
     </div>
   )
 }
+
+const ReviewCenterState = ({
+  message,
+  tone = "muted",
+}: {
+  message: string
+  tone?: "muted" | "error"
+}) => (
+  <section className="col-span-full rounded-lg border bg-ui-bg-base px-6 py-10 text-center shadow-borders-base">
+    <h2 className="txt-large-plus text-ui-fg-base">云端审核中心</h2>
+    <p
+      className={`mt-2 txt-compact-small ${
+        tone === "error" ? "text-red-600" : "text-ui-fg-subtle"
+      }`}
+    >
+      {message}
+    </p>
+  </section>
+)
 
 const ReviewQueue = ({
   roles,

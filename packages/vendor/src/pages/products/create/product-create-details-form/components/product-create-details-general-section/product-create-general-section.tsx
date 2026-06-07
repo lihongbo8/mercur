@@ -22,6 +22,10 @@ import {
   submitDijieRolePackageDraftQuery,
   uploadDijieRolePackageQuery,
 } from "@lib/client";
+import {
+  createDijieRoleListingQuery,
+  submitDijieRoleListingReviewQuery,
+} from "@hooks/api/dijie-role-listings";
 import { ProductCreateSchemaType } from "../../../types";
 
 const ROLE_PACKAGE_UPLOAD_ERROR_MESSAGE =
@@ -58,6 +62,8 @@ type RolePackageDraftSummary = {
   packageVersion?: string | null;
   fileCount?: number;
   manifestSummary?: {
+    name?: string;
+    title?: string;
     manifestRef?: string;
     requiredCapabilities?: string[];
   } | null;
@@ -66,6 +72,24 @@ type RolePackageDraftSummary = {
     ok?: boolean;
   };
   blockingIssues?: string[];
+};
+
+const parseInteger = (value: unknown) => {
+  const text = typeof value === "string" ? value.trim() : String(value ?? "");
+  if (!text) {
+    return 0;
+  }
+  const parsed = Number.parseInt(text, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+};
+
+const parseYuanToCents = (value: unknown) => {
+  const text = typeof value === "string" ? value.trim() : String(value ?? "");
+  if (!text) {
+    return 0;
+  }
+  const parsed = Number.parseFloat(text);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed * 100) : 0;
 };
 
 const DeveloperModeStatus = ({ ready, running }: DeveloperModeStatusProps) => {
@@ -110,6 +134,16 @@ const LatestRolePackageDraftPanel = ({
 
   const blockingCount = draft.blockingIssues?.length ?? 0;
   const ready = draft.status === "ready" && blockingCount === 0;
+  const submitted = draft.status === "submitted";
+  const blocked = draft.status === "blocked" || blockingCount > 0;
+  const statusLabel = ready
+    ? "可承接"
+    : submitted
+      ? "已承接"
+      : blocked
+        ? "需修复"
+        : "生成中";
+  const statusColor = ready ? "green" : submitted ? "grey" : blocked ? "red" : "orange";
 
   return (
     <div className="flex flex-col gap-3 rounded-lg border border-ui-border-base bg-ui-bg-base px-4 py-3 shadow-elevation-card-rest md:flex-row md:items-center md:justify-between">
@@ -118,9 +152,7 @@ const LatestRolePackageDraftPanel = ({
           <Text size="small" weight="plus">
             AI 生成岗位包草稿
           </Text>
-          <StatusBadge color={ready ? "green" : "orange"}>
-            {ready ? "可承接" : "待处理"}
-          </StatusBadge>
+          <StatusBadge color={statusColor}>{statusLabel}</StatusBadge>
         </div>
         <Text size="xsmall" className="text-ui-fg-subtle">
           {draft.packageId ?? draft.draftId} · {draft.fileCount ?? 0} 个文件 · 质量评分{" "}
@@ -320,6 +352,84 @@ export const ProductCreateGeneralSection = () => {
       ? "text-ui-fg-error"
       : "text-ui-fg-subtle";
 
+  const createAndSubmitRoleListing = async ({
+    packageId,
+    packageVersion,
+    manifestSummary,
+  }: {
+    packageId: string;
+    packageVersion: string;
+    manifestSummary?: RolePackageDraftSummary["manifestSummary"];
+  }) => {
+    const requiredCapabilities = Array.isArray(
+      manifestSummary?.requiredCapabilities,
+    )
+      ? manifestSummary.requiredCapabilities
+          .filter((capability): capability is string => typeof capability === "string")
+          .map((capability) => capability.trim())
+          .filter(Boolean)
+      : [];
+    const currentTitle = form.getValues("title")?.trim();
+    const title =
+      currentTitle ||
+      manifestSummary?.name?.trim() ||
+      manifestSummary?.title?.trim() ||
+      packageId;
+    if (!currentTitle) {
+      form.setValue("title", title, {
+        shouldDirty: true,
+        shouldValidate: true,
+      });
+    }
+
+    const authorizationFeeCents = parseYuanToCents(
+      form.getValues("role_authorization_fee_yuan"),
+    );
+    const inputTokenCentsPerMillion = parseInteger(
+      form.getValues("role_input_token_price_cents_per_million"),
+    );
+    const outputTokenCentsPerMillion = parseInteger(
+      form.getValues("role_output_token_price_cents_per_million"),
+    );
+    const confirmationPoints = requiredCapabilities.includes("human.confirm")
+      ? 1
+      : 0;
+
+    const created = await createDijieRoleListingQuery({
+      packageId,
+      packageVersion,
+      title,
+      subtitle: form.getValues("subtitle")?.trim() || undefined,
+      description: form.getValues("description")?.trim() || undefined,
+      pricing: {
+        kind: "one_time_authorization",
+        authorizationFeeCents,
+        currency: "CNY",
+        platformFeeBps: 0,
+        developerReceivableCents: authorizationFeeCents,
+      },
+      roleTokenPricing: {
+        inputTokenCentsPerMillion,
+        outputTokenCentsPerMillion,
+        currency: "CNY",
+        developerReceivableBps: 10000,
+        platformFeeBps: 0,
+      },
+      confirmationPoints,
+    });
+
+    if (!created.roleListingId) {
+      throw new Error("岗位商品创建返回不完整");
+    }
+
+    await submitDijieRoleListingReviewQuery(created.roleListingId);
+    form.setValue("role_listing_id", created.roleListingId, {
+      shouldDirty: true,
+      shouldValidate: false,
+    });
+    return created.roleListingId;
+  };
+
   const handleRolePackageUpload = async (
     event: ChangeEvent<HTMLInputElement>,
   ) => {
@@ -384,12 +494,17 @@ export const ProductCreateGeneralSection = () => {
           },
         );
       }
+      const roleListingId = await createAndSubmitRoleListing({
+        packageId: uploadedPackage.packageId,
+        packageVersion: uploadedPackage.packageVersion,
+        manifestSummary: uploadedPackage.manifestSummary,
+      });
       setRolePackageUpload({
         running: false,
         message:
           normalizedRequiredCapabilities.length > 0
-            ? `资料包已就绪，已同步 ${normalizedRequiredCapabilities.length} 项本地能力需求。`
-            : "资料包已就绪。",
+            ? `资料包已就绪，已同步 ${normalizedRequiredCapabilities.length} 项本地能力需求，并提交审核：${roleListingId}。`
+            : `资料包已就绪，并提交审核：${roleListingId}。`,
       });
     } catch {
       setRolePackageUpload({
@@ -436,12 +551,17 @@ export const ProductCreateGeneralSection = () => {
         shouldDirty: true,
         shouldValidate: true,
       });
+      const roleListingId = await createAndSubmitRoleListing({
+        packageId: result.packageId,
+        packageVersion: result.packageVersion,
+        manifestSummary: latestDraft.manifestSummary,
+      });
       setRolePackageUpload({
         running: false,
         message:
           requiredCapabilities.length > 0
-            ? `AI 草稿已承接，已同步 ${requiredCapabilities.length} 项本地能力需求。`
-            : "AI 草稿已承接。",
+            ? `AI 草稿已承接，已同步 ${requiredCapabilities.length} 项本地能力需求，并提交审核：${roleListingId}。`
+            : `AI 草稿已承接，并提交审核：${roleListingId}。`,
       });
       setLatestDraft({ ...latestDraft, status: "submitted" });
     } catch {
@@ -537,6 +657,13 @@ export const ProductCreateGeneralSection = () => {
         <Form.Field
           control={form.control}
           name="role_package_version"
+          render={({ field }) => (
+            <input {...field} type="hidden" value={field.value ?? ""} />
+          )}
+        />
+        <Form.Field
+          control={form.control}
+          name="role_listing_id"
           render={({ field }) => (
             <input {...field} type="hidden" value={field.value ?? ""} />
           )}

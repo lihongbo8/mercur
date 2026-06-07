@@ -32,7 +32,9 @@ function response(): TestResponse {
 
 function generatedVisualRolePackageReply(overrides?: {
   omitPath?: string;
+  manifestContent?: string;
   readmeContent?: string;
+  toolRequirementsContent?: string;
 }) {
   const manifestFiles = [
     "role_package/manifest.json",
@@ -55,29 +57,31 @@ function generatedVisualRolePackageReply(overrides?: {
   const files = [
     {
       path: "role_package/manifest.json",
-      content: JSON.stringify({
-        manifestVersion: 1,
-        rolePackageId: "visual_smart_lock_designer",
-        version: "1.0.0",
-        name: "智能门锁电商美工岗位",
-        entrypoint: "role_package/README.md",
-        permissions: ["role.execute", "audit.write"],
-        requiredCapabilities: [
-          "browser",
-          "image.inspect",
-          "image.generate",
-          "human.confirm",
-          "audit.record",
-          "aics_product_db.query_products",
-          "aics_product_assets.get_main_images",
-          "aics_product_assets.get_detail_images",
-          "aics_product_fidelity.self_check",
-          "aics_visual_issue.create_issue",
-          "aics_design_standard.get_rules",
-          "aics_design_standard.add_rule",
-        ],
-        files: manifestFiles,
-      }),
+      content:
+        overrides?.manifestContent ??
+        JSON.stringify({
+          manifestVersion: 1,
+          rolePackageId: "visual_smart_lock_designer",
+          version: "1.0.0",
+          name: "智能门锁电商美工岗位",
+          entrypoint: "role_package/README.md",
+          permissions: ["role.execute", "audit.write"],
+          requiredCapabilities: [
+            "browser",
+            "image.inspect",
+            "image.generate",
+            "human.confirm",
+            "audit.record",
+            "aics_product_db.query_products",
+            "aics_product_assets.get_main_images",
+            "aics_product_assets.get_detail_images",
+            "aics_product_fidelity.self_check",
+            "aics_visual_issue.create_issue",
+            "aics_design_standard.get_rules",
+            "aics_design_standard.add_rule",
+          ],
+          files: manifestFiles,
+        }),
     },
     {
       path: "role_package/README.md",
@@ -92,6 +96,7 @@ function generatedVisualRolePackageReply(overrides?: {
     {
       path: "role_package/tool_requirements.md",
       content:
+        overrides?.toolRequirementsContent ??
         "只声明能力需求，不包含工具源码。需要 browser、image.inspect、image.generate、human.confirm、audit.record 和 AICS 商品图片 adapter。",
     },
     {
@@ -163,6 +168,9 @@ function draftFromInput(input: Record<string, unknown>, id = "djdraft_1"): Draft
         files?: unknown[];
       }
     | undefined;
+  const files = Array.isArray(input.files)
+    ? (input.files as Array<Record<string, unknown>>)
+    : [];
 
   return {
     id,
@@ -173,8 +181,14 @@ function draftFromInput(input: Record<string, unknown>, id = "djdraft_1"): Draft
     package_version: uploadSummary?.packageVersion ?? null,
     generated_at: new Date("2026-06-05T01:00:00.000Z"),
     manifest_summary: uploadSummary?.manifestSummary ?? null,
-    file_manifest: uploadSummary?.files ?? [],
-    package_files: input.files,
+    file_manifest:
+      uploadSummary?.files ??
+      files.map((file) => ({
+        path: file.path,
+        ...(file.sha256 ? { sha256: file.sha256 } : {}),
+        ...(file.sizeBytes ? { sizeBytes: file.sizeBytes } : {}),
+      })),
+    package_files: files,
     capability_report: input.capabilityReport,
     quality_report: input.qualityReport,
     upload_validation_issues: input.uploadValidationIssues,
@@ -246,6 +260,178 @@ function request(input: {
 }
 
 describe("POST /vendor/dijie/role-packages/generate", () => {
+  it("generates one stage at a time and stores a partial draft", async () => {
+    const res = response();
+    const drafts: DraftRecord[] = [];
+    let bridgeCalls = 0;
+
+    await POST(
+      request({
+        body: {
+          message: "我要做一个智能门锁电商美工岗位，请生成完整 role_package。",
+        },
+        drafts,
+        bridge: {
+          completeDijieDialogMessage: async (input: { message: string }) => {
+            bridgeCalls += 1;
+            expect(input.message).toContain("本阶段只生成“manifest.json”");
+            return {
+              reply: generatedVisualRolePackageReply(),
+              usage: { provider: "openai", model: "gpt-5.4" },
+            };
+          },
+        },
+      }) as never,
+      res as never,
+    );
+
+    expect(bridgeCalls).toBe(1);
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toMatchObject({
+      ok: true,
+      complete: false,
+      draft: {
+        draftId: "djdraft_1",
+        status: "partial",
+        fileCount: 1,
+      },
+    });
+    expect(drafts).toHaveLength(1);
+    expect(drafts[0]).toMatchObject({
+      draft_status: "partial",
+      owner_id: "acct_dev",
+    });
+  });
+
+  it("continues an existing partial draft from the next missing file", async () => {
+    const res = response();
+    const allFiles = (JSON.parse(generatedVisualRolePackageReply()) as {
+      files: Array<{ path: string; content: string }>;
+    }).files;
+    const manifestFile = allFiles.find((file) => file.path === "role_package/manifest.json");
+    if (!manifestFile) {
+      throw new Error("manifest fixture missing");
+    }
+    const drafts: DraftRecord[] = [
+      {
+        id: "djdraft_existing",
+        owner_id: "acct_dev",
+        draft_status: "partial",
+        source_message: "old role package request",
+        package_id: null,
+        package_version: null,
+        generated_at: new Date("2026-06-05T01:00:00.000Z"),
+        manifest_summary: null,
+        file_manifest: [{ path: manifestFile.path }],
+        package_files: [manifestFile],
+        capability_report: {},
+        quality_report: {},
+        upload_validation_issues: [],
+        blocking_issues: [],
+        model_usage: null,
+        submitted_package_id: null,
+      },
+    ];
+    let bridgeCalls = 0;
+
+    await POST(
+      request({
+        body: {
+          message: "继续生成智能门锁电商美工岗位 role_package。",
+          draftId: "djdraft_existing",
+          maxStages: 1,
+        },
+        drafts,
+        bridge: {
+          completeDijieDialogMessage: async (input: { message: string }) => {
+            bridgeCalls += 1;
+            expect(input.message).toContain("本阶段只生成“岗位 README”");
+            return {
+              reply: generatedVisualRolePackageReply(),
+              usage: { provider: "openai", model: "gpt-5.4" },
+            };
+          },
+        },
+      }) as never,
+      res as never,
+    );
+
+    expect(bridgeCalls).toBe(1);
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toMatchObject({
+      ok: true,
+      complete: false,
+      draft: {
+        draftId: "djdraft_existing",
+        status: "partial",
+        fileCount: 2,
+      },
+    });
+  });
+
+  it("starts a new draft when adding requirements to a ready draft", async () => {
+    const res = response();
+    const allFiles = (JSON.parse(generatedVisualRolePackageReply()) as {
+      files: Array<{ path: string; content: string }>;
+    }).files;
+    const drafts: DraftRecord[] = [
+      {
+        id: "djdraft_ready",
+        owner_id: "acct_dev",
+        draft_status: "ready",
+        source_message: "old role package request",
+        package_id: "visual_smart_lock_designer",
+        package_version: "1.0.0",
+        generated_at: new Date("2026-06-05T01:00:00.000Z"),
+        manifest_summary: { name: "智能门锁电商美工岗位" },
+        file_manifest: allFiles.map((file) => ({ path: file.path })),
+        package_files: allFiles,
+        capability_report: {},
+        quality_report: { ok: true, score: 100 },
+        upload_validation_issues: [],
+        blocking_issues: [],
+        model_usage: null,
+        submitted_package_id: null,
+      },
+    ];
+    let bridgeCalls = 0;
+
+    await POST(
+      request({
+        body: {
+          message: "增加需求：需要检查活动海报。",
+          startNew: true,
+          maxStages: 1,
+        },
+        drafts,
+        bridge: {
+          completeDijieDialogMessage: async (input: { message: string }) => {
+            bridgeCalls += 1;
+            expect(input.message).toContain("本阶段只生成“manifest.json”");
+            return {
+              reply: generatedVisualRolePackageReply(),
+              usage: { provider: "openai", model: "gpt-5.4" },
+            };
+          },
+        },
+      }) as never,
+      res as never,
+    );
+
+    expect(bridgeCalls).toBe(1);
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toMatchObject({
+      ok: true,
+      complete: false,
+      draft: {
+        draftId: "djdraft_2",
+        status: "partial",
+        fileCount: 1,
+      },
+    });
+    expect(drafts).toHaveLength(2);
+  });
+
   it("generates and stores a validated role_package draft through the model bridge", async () => {
     const res = response();
     const drafts: DraftRecord[] = [];
@@ -253,6 +439,10 @@ describe("POST /vendor/dijie/role-packages/generate", () => {
 
     await POST(
       request({
+        body: {
+          message: "我要做一个智能门锁电商美工岗位，请生成完整 role_package。",
+          maxStages: 16,
+        },
         drafts,
         bridge: {
           completeDijieDialogMessage: async (input: { message: string }) => {
@@ -312,6 +502,72 @@ describe("POST /vendor/dijie/role-packages/generate", () => {
     expect(JSON.stringify(res.body)).not.toContain("API key");
   });
 
+  it("repairs upload-preflight manifest and safety field issues before marking ready", async () => {
+    const res = response();
+    const drafts: DraftRecord[] = [];
+    const badReply = generatedVisualRolePackageReply({
+      manifestContent: JSON.stringify({
+        manifestVersion: 1,
+        rolePackageId: "visual_smart_lock_designer",
+        version: "1.0.0",
+        name: "智能门锁电商美工岗位",
+        entrypoint: "role_package/README.md",
+        permissions: ["role.execute", "audit.write"],
+        requiredCapabilities: ["图片理解", "浏览器预览"],
+        files: { readme: "role_package/README.md" },
+      }),
+      toolRequirementsContent:
+        "只声明能力需求，不包含工具源码。不要写 provider_auth、access_token、backend ids、entitlementId、ent_01TESTBACKENDID 或 ord_01TESTBACKENDID。",
+    });
+
+    await POST(
+      request({
+        body: {
+          message: "我要做一个智能门锁电商美工岗位，请生成完整 role_package。",
+          maxStages: 16,
+        },
+        drafts,
+        bridge: {
+          completeDijieDialogMessage: async () => ({
+            reply: badReply,
+            usage: { provider: "openai", model: "gpt-5.4" },
+          }),
+        },
+      }) as never,
+      res as never,
+    );
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toMatchObject({
+      ok: true,
+      complete: true,
+      draft: {
+        status: "ready",
+        fileCount: 16,
+      },
+      manifestSummary: {
+        requiredCapabilities: expect.arrayContaining(["image.inspect", "human.confirm"]),
+      },
+    });
+    expect(drafts[0]).toMatchObject({
+      draft_status: "ready",
+      upload_validation_issues: [],
+      blocking_issues: [],
+    });
+    expect(JSON.stringify(drafts[0].package_files)).not.toContain("provider_auth");
+    expect(JSON.stringify(drafts[0].package_files)).not.toContain("access_token");
+    expect(JSON.stringify(drafts[0].package_files)).not.toContain("entitlementId");
+    expect(JSON.stringify(drafts[0].package_files)).not.toContain("ent_01TESTBACKENDID");
+    expect(JSON.stringify(drafts[0].package_files)).not.toContain("ord_01TESTBACKENDID");
+    const manifest = JSON.parse(
+      (drafts[0].package_files as Array<{ path: string; content: string }>).find(
+        (file) => file.path === "role_package/manifest.json",
+      )?.content ?? "{}",
+    );
+    expect(Array.isArray(manifest.files)).toBe(true);
+    expect(manifest.requiredCapabilities).toContain("image.inspect");
+  });
+
   it("fails closed when the model bridge is not configured", async () => {
     const res = response();
 
@@ -330,6 +586,10 @@ describe("POST /vendor/dijie/role-packages/generate", () => {
 
     await POST(
       request({
+        body: {
+          message: "我要做一个智能门锁电商美工岗位，请生成完整 role_package。",
+          maxStages: 16,
+        },
         drafts,
         bridge: {
           completeDijieDialogMessage: async () => ({
@@ -363,6 +623,10 @@ describe("POST /vendor/dijie/role-packages/generate", () => {
 
     await POST(
       request({
+        body: {
+          message: "我要做一个智能门锁电商美工岗位，请生成完整 role_package。",
+          maxStages: 16,
+        },
         drafts,
         bridge: {
           completeDijieDialogMessage: async () => ({

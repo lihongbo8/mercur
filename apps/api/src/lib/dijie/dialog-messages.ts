@@ -1,8 +1,20 @@
 import {
+  createDijieDialogActions,
+  type DijieDialogAction,
+} from "./dialog-actions";
+import { getDijieDialogCapabilityPolicy } from "./dialog-capability-policy";
+import {
   getDijieDialogBillingPolicy,
   type DijieDialogBillingPolicy,
   type DijieDialogContext,
 } from "./dialog-context";
+import {
+  createDijieDialogOrchestration,
+  type DijieDialogArtifact,
+  type DijieDialogIntent,
+  type DijieDialogOrchestration,
+  type DijieDialogRequiredConfirmation,
+} from "./dialog-orchestrator";
 import {
   normalizeDijieDialogModelUsage,
   type DijieOpenClawDialogModelResult,
@@ -19,6 +31,13 @@ export type DijieDialogMessageResponse = {
   billingPolicy: DijieDialogBillingPolicy;
   modelUsage: DijieDialogModelUsage | null;
   modelCalled: boolean;
+  actions: DijieDialogAction[];
+  intent: DijieDialogIntent;
+  allowedActions: string[];
+  proposedActions: DijieDialogAction[];
+  requiredConfirmations: DijieDialogRequiredConfirmation[];
+  artifacts: DijieDialogArtifact[];
+  orchestration: DijieDialogOrchestration;
 };
 
 function normalizedText(value: string): string {
@@ -113,6 +132,20 @@ function createAdminReviewReply(message: string) {
   return "审核助手可以辅助总结岗位、查缺失、评估安全合规、评估定价并起草意见；最终通过、要求补充或驳回必须由审核人员手动确认。";
 }
 
+function modelReplyText(modelResult: DijieOpenClawDialogModelResult | null | undefined): string {
+  const raw = modelResult?.reply.trim();
+  if (!raw) {
+    return "";
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as { reply?: unknown };
+    return typeof parsed.reply === "string" && parsed.reply.trim() ? parsed.reply.trim() : raw;
+  } catch {
+    return raw;
+  }
+}
+
 export function createDijieDialogMessageResponse(input: {
   context: DijieDialogContext;
   message: string;
@@ -120,26 +153,63 @@ export function createDijieDialogMessageResponse(input: {
   modelResult?: DijieOpenClawDialogModelResult | null;
 }): DijieDialogMessageResponse {
   const billingPolicy = getDijieDialogBillingPolicy(input.context);
+  const capabilityPolicy = getDijieDialogCapabilityPolicy(input.context);
   const roles = input.roles ?? [];
+  let actions = createDijieDialogActions({
+    context: input.context,
+    message: input.message,
+    roles,
+  });
   const modelUsage =
     billingPolicy.modelAllowed && input.modelResult
       ? normalizeDijieDialogModelUsage(input.modelResult.usage)
       : null;
 
   function withModelResult(
-    response: Omit<DijieDialogMessageResponse, "billingPolicy" | "modelCalled" | "modelUsage">,
+    response: Omit<
+      DijieDialogMessageResponse,
+      | "billingPolicy"
+      | "modelCalled"
+      | "modelUsage"
+      | "actions"
+      | "intent"
+      | "allowedActions"
+      | "proposedActions"
+      | "requiredConfirmations"
+      | "artifacts"
+      | "orchestration"
+    >,
   ): DijieDialogMessageResponse {
+    const orchestration = createDijieDialogOrchestration({
+      context: input.context,
+      capabilityPolicy,
+      message: input.message,
+      actions,
+    });
+    const parsedModelReply = modelReplyText(input.modelResult);
     return {
       ...response,
-      reply: modelUsage ? input.modelResult?.reply.trim() || response.reply : response.reply,
+      reply: modelUsage ? parsedModelReply || response.reply : response.reply,
       billingPolicy,
       modelUsage,
       modelCalled: Boolean(modelUsage),
+      actions,
+      intent: orchestration.intent,
+      allowedActions: orchestration.allowedActions,
+      proposedActions: orchestration.proposedActions,
+      requiredConfirmations: orchestration.requiredConfirmations,
+      artifacts: orchestration.artifacts,
+      orchestration,
     };
   }
 
   if (input.context.surface === "buyer_storefront") {
     const reply = createBuyerStorefrontReply(input.message, roles);
+    actions = createDijieDialogActions({
+      context: input.context,
+      message: input.message,
+      roles: reply.roles,
+    });
     return withModelResult({
       reply: reply.reply,
       grounding: {
@@ -172,7 +242,7 @@ export function createDijieDialogMessageResponse(input: {
   if (input.context.surface === "user_center") {
     return withModelResult({
       reply:
-        "使用者中心助手可以帮你查我的岗位、授权记录、费用记录和执行记录；模型费用归当前普通账号，正式岗位执行会另走授权和调度记录。",
+        "使用者中心助手可以帮你查我的岗位、授权记录、费用记录和执行记录；独立个人后续可在使用者中心发起云端岗位执行，公司客户按账号策略转本地 OpenClaw 执行，所有执行都要过授权、确认点、费用和审计。",
       grounding: { roles: [], source: "dialog_context" },
     });
   }

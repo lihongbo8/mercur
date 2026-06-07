@@ -4,6 +4,7 @@ export type DijieDialogSurface =
   | "user_center"
   | "developer_center"
   | "admin_review"
+  | "openclaw_main"
   | "openclaw_local";
 export type DijieDialogMode = "user" | "developer" | "review";
 
@@ -58,6 +59,7 @@ const SURFACES = new Set<DijieDialogSurface>([
   "user_center",
   "developer_center",
   "admin_review",
+  "openclaw_main",
   "openclaw_local",
 ]);
 const MODES = new Set<DijieDialogMode>(["user", "developer", "review"]);
@@ -165,10 +167,19 @@ export function createDijieOpenClawUserDialogContext(params: {
   entitlementId?: string;
   executionId?: string;
 }): DijieDialogContext {
+  return createDijieOpenClawMainDialogContext(params);
+}
+
+export function createDijieOpenClawMainDialogContext(params: {
+  buyerAccountId: string;
+  roleListingId?: string;
+  entitlementId?: string;
+  executionId?: string;
+}): DijieDialogContext {
   return createDijieDialogContext({
     accountId: params.buyerAccountId,
     accountType: "buyer",
-    surface: "openclaw_local",
+    surface: "openclaw_main",
     mode: "user",
     subject: {
       ...(params.roleListingId ? { roleListingId: params.roleListingId } : {}),
@@ -268,6 +279,14 @@ export const DIJIE_DIALOG_BILLING_SURFACE_MATRIX: DijieDialogBillingSurfacePolic
     requiresEntitlement: false,
   },
   {
+    surface: "openclaw_main",
+    mode: "user",
+    accountType: "buyer",
+    billableModelUsage: true,
+    ledgerSource: "role_usage",
+    requiresEntitlement: true,
+  },
+  {
     surface: "openclaw_local",
     mode: "user",
     accountType: "buyer",
@@ -331,14 +350,20 @@ export function getDijieDialogBillingPolicy(
     };
   }
 
-  if (context.surface === "openclaw_local" && context.mode === "user") {
+  if (
+    context.surface === "openclaw_main" ||
+    (context.surface === "openclaw_local" && context.mode === "user")
+  ) {
     return {
       ...base,
       modelAllowed: true,
       billableModelUsage: true,
       ledgerSource: "role_usage",
       requiresEntitlement: true,
-      note: "本地端使用者模式进入正式岗位执行链路，必须校验授权并写入岗位用量。",
+      note:
+        context.surface === "openclaw_main"
+          ? "OpenClaw 主流程层进入正式岗位执行链路，必须校验授权、确认点、费用归属并写入岗位用量。"
+          : "本地端使用者模式进入正式岗位执行链路，必须校验授权并写入岗位用量。",
     };
   }
 

@@ -335,10 +335,12 @@ DIJIE_OPENCLAW_MODEL_BRIDGE=cli
 DIJIE_OPENCLAW_CLI_PATH=openclaw
 DIJIE_OPENCLAW_MODEL_BRIDGE_EXECUTION=local
 DIJIE_OPENCLAW_MODEL=<provider/model>
-DIJIE_OPENCLAW_MODEL_TIMEOUT_MS=120000
+DIJIE_OPENCLAW_MODEL_TIMEOUT_MS=1800000
 ```
 
 也可以通过依赖注入注册 `DIJIE_OPENCLAW_MODEL_BRIDGE`，只要对象暴露 `completeDijieDialogMessage()` 方法。环境变量方式和依赖注入方式必须返回同一类安全响应：只回传 assistant reply 和脱敏后的 usage；不能把 provider key、raw model request/response、cloud bearer、execution token、本地绝对路径或 OpenClaw raw stdout/stderr 写入对话、草稿、审核记录或审计记录。
+
+岗位包生成不是一次性等待完整 JSON。`generateDijieRolePackageDraftWithModel()` 默认每次只推进一个 role_package 文件阶段，并在阶段完成后保存 `partial` 草稿；调用方只有显式传入 `maxStages` 时才会在同一请求内推进多个阶段。`partial` 草稿只能继续生成，不能进入上传承接；全部文件生成并通过上传校验、质量校验后才变为 `ready`。
 
 模型桥未配置时：
 

@@ -9,7 +9,7 @@ import {
   useMutation,
   useQuery,
 } from "@tanstack/react-query";
-import { sdk } from "../../lib/client";
+import { sdk, storeSellerId } from "../../lib/client";
 import { queryClient } from "../../lib/query-client";
 import { queryKeysFactory } from "../../lib/query-key-factory";
 import { membersQueryKeys } from "./members";
@@ -46,6 +46,7 @@ export const useSelectSeller = (
   return useMutation({
     mutationFn: (payload) => sdk.vendor.sellers.select.mutate(payload),
     onSuccess: (data, variables, context) => {
+      storeSellerId(variables.seller_id);
       queryClient.invalidateQueries({
         queryKey: membersQueryKeys.me(),
       });

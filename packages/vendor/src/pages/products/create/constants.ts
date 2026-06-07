@@ -66,6 +66,7 @@ export const ProductCreateBaseSchema = z.object({
   description: z.string().optional(),
   role_package_id: z.string().min(1, "请先上传岗位资料包"),
   role_package_version: z.string().min(1, "请先上传岗位资料包"),
+  role_listing_id: z.string().optional(),
   role_authorization_fee_yuan: z
     .string()
     .min(1, "请输入一次授权费")
@@ -198,6 +199,7 @@ export const PRODUCT_CREATE_FORM_DEFAULTS: Partial<
   role_output_token_price_cents_per_million: "0",
   role_package_id: "",
   role_package_version: "",
+  role_listing_id: "",
   subtitle: "",
   title: "",
   type_id: "",

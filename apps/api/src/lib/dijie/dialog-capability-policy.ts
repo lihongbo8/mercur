@@ -54,6 +54,44 @@ type PolicyTemplate = Omit<
   modelAllowed: boolean;
 };
 
+function mainWorkflowTemplate(): PolicyTemplate {
+  return {
+    workflowRouter: "main_workflow",
+    allowedDataScopes: [
+      "main_workflow_refs",
+      "authorized_roles",
+      "task_packages",
+      "execution_records",
+      "ledger_summary",
+      "human_confirm_requests",
+    ],
+    allowedActions: [
+      "understand_goal",
+      "plan_role_execution",
+      "check_entitlement",
+      "check_execution_token",
+      "navigate_goal",
+      "navigate_planning",
+      "navigate_dispatch",
+      "prepare_role_task",
+      "explain_execution",
+      "read_audit_summary",
+    ],
+    forbiddenActions: [
+      "bypass_goal_governance",
+      "create_task_without_dispatch",
+      "execute_without_entitlement",
+      "execute_without_confirmation",
+      "mutate_cloud_private_data",
+    ],
+    requiresLocalSystemAccess: true,
+    requiresMarketplaceOwnerAccess: false,
+    canMutateBusinessState: false,
+    usageLayer: "main_workflow_assist",
+    modelAllowed: true,
+  };
+}
+
 const POLICY_BY_SURFACE: Record<DijieDialogSurface, PolicyTemplate> = {
   buyer_storefront: {
     workflowRouter: "marketplace_discovery",
@@ -73,7 +111,15 @@ const POLICY_BY_SURFACE: Record<DijieDialogSurface, PolicyTemplate> = {
   user_center: {
     workflowRouter: "user_records",
     allowedDataScopes: ["own_entitlements", "own_executions", "own_ledger_entries"],
-    allowedActions: ["explain_records", "navigate_role", "navigate_execution"],
+    allowedActions: [
+      "explain_records",
+      "navigate_role",
+      "navigate_execution",
+      "navigate_ledger",
+      "prepare_role_execution",
+      "prepare_execution_intent",
+      "route_company_execution_to_local_openclaw",
+    ],
     forbiddenActions: ["read_other_accounts", "developer_backoffice", "main_workflow_dispatch"],
     requiresLocalSystemAccess: false,
     requiresMarketplaceOwnerAccess: false,
@@ -95,6 +141,10 @@ const POLICY_BY_SURFACE: Record<DijieDialogSurface, PolicyTemplate> = {
       "repair_role_package_draft",
       "navigate_upload",
       "navigate_listing",
+      "navigate_sales",
+      "navigate_payouts",
+      "navigate_capabilities",
+      "navigate_profile",
       "explain_pricing",
     ],
     forbiddenActions: ["review_own_listing", "read_buyer_private_data", "main_workflow_dispatch"],
@@ -107,7 +157,12 @@ const POLICY_BY_SURFACE: Record<DijieDialogSurface, PolicyTemplate> = {
   admin_review: {
     workflowRouter: "review_assist",
     allowedDataScopes: ["role_review_queue", "role_package_summary", "pricing_risk_summary"],
-    allowedActions: ["summarize_listing", "draft_review_note", "evaluate_pricing_risk"],
+    allowedActions: [
+      "summarize_listing",
+      "draft_review_note",
+      "evaluate_pricing_risk",
+      "evaluate_safety_compliance",
+    ],
     forbiddenActions: ["auto_approve", "auto_reject", "local_customer_admin_access"],
     requiresLocalSystemAccess: false,
     requiresMarketplaceOwnerAccess: true,
@@ -115,35 +170,8 @@ const POLICY_BY_SURFACE: Record<DijieDialogSurface, PolicyTemplate> = {
     usageLayer: "review_assist",
     modelAllowed: true,
   },
-  openclaw_local: {
-    workflowRouter: "main_workflow",
-    allowedDataScopes: [
-      "main_workflow_refs",
-      "authorized_roles",
-      "task_packages",
-      "execution_records",
-      "ledger_summary",
-      "human_confirm_requests",
-    ],
-    allowedActions: [
-      "explain_main_workflow",
-      "navigate_goal",
-      "navigate_planning",
-      "navigate_dispatch",
-      "prepare_role_task",
-      "explain_execution",
-    ],
-    forbiddenActions: [
-      "bypass_goal_governance",
-      "create_task_without_dispatch",
-      "execute_without_entitlement",
-    ],
-    requiresLocalSystemAccess: true,
-    requiresMarketplaceOwnerAccess: false,
-    canMutateBusinessState: false,
-    usageLayer: "main_workflow_assist",
-    modelAllowed: true,
-  },
+  openclaw_main: mainWorkflowTemplate(),
+  openclaw_local: mainWorkflowTemplate(),
 };
 
 function developerWorkspaceTemplate(): PolicyTemplate {

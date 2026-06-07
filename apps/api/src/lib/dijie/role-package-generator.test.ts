@@ -44,4 +44,18 @@ describe("Dijie role package model JSON extraction", () => {
       ],
     });
   });
+
+  it("extracts a model reply that escaped the whole JSON object", () => {
+    const reply =
+      '{\\"files\\":[{\\"path\\":\\"role_package/README.md\\",\\"content\\":\\"# README\\\\n```json\\\\n{\\\\\\"name\\\\\\":\\\\\\"智能门锁电商美工\\\\\\"}\\\\n```\\"}]}';
+
+    expect(JSON.parse(extractDijieRolePackageJsonText(reply))).toEqual({
+      files: [
+        {
+          path: "role_package/README.md",
+          content: '# README\n```json\n{"name":"智能门锁电商美工"}\n```',
+        },
+      ],
+    });
+  });
 });

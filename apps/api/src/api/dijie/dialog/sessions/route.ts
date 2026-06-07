@@ -36,6 +36,7 @@ function surfaceFromQuery(req: MedusaRequest): DijieDialogSurface | undefined {
     surface === "user_center" ||
     surface === "developer_center" ||
     surface === "admin_review" ||
+    surface === "openclaw_main" ||
     surface === "openclaw_local"
     ? surface
     : undefined;

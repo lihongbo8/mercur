@@ -1,90 +1,100 @@
-import { Checkbox, toast, usePrompt } from "@medusajs/ui";
+import { StatusBadge } from "@medusajs/ui";
 import { keepPreviousData } from "@tanstack/react-query";
-import {
-  createColumnHelper,
-  OnChangeFn,
-  RowSelectionState,
-} from "@tanstack/react-table";
-import { useMemo, useState } from "react";
-import { useTranslation } from "react-i18next";
-import { Trash } from "@medusajs/icons";
+import { createColumnHelper } from "@tanstack/react-table";
+import { useMemo } from "react";
 
-import { ExtendedAdminProduct } from "@custom-types/products";
-import { ActionMenu } from "@components/common/action-menu";
 import { _DataTable } from "@components/table/data-table";
-import { useProducts } from "@hooks/api/products";
-import { useProductTableColumns } from "@hooks/table/columns/use-product-table-columns";
-import { useProductTableFilters } from "@hooks/table/filters/use-product-table-filters";
-import { useProductTableQuery } from "@hooks/table/query/use-product-table-query";
+import {
+  type DijieRoleListing,
+  useDijieRoleListings,
+} from "@hooks/api/dijie-role-listings";
 import { useDataTable } from "@hooks/use-data-table";
 
 export const PAGE_SIZE = 10;
 
+const columnHelper = createColumnHelper<DijieRoleListing>();
+
+const listingStatusLabels: Record<DijieRoleListing["listingStatus"], string> = {
+  draft: "草稿",
+  proposed: "待审核",
+  published: "已上架",
+  delisted: "已下架",
+  archived: "已归档",
+};
+
+const reviewStateLabels: Record<DijieRoleListing["reviewState"], string> = {
+  draft: "未提交",
+  submitted: "审核中",
+  needs_changes: "要求补充",
+  approved: "已通过",
+  rejected: "已驳回",
+};
+
+const listingStatusColors: Record<
+  DijieRoleListing["listingStatus"],
+  "grey" | "orange" | "green" | "red"
+> = {
+  draft: "grey",
+  proposed: "orange",
+  published: "green",
+  delisted: "red",
+  archived: "grey",
+};
+
+const reviewStateColors: Record<
+  DijieRoleListing["reviewState"],
+  "grey" | "orange" | "green" | "red"
+> = {
+  draft: "grey",
+  submitted: "orange",
+  needs_changes: "orange",
+  approved: "green",
+  rejected: "red",
+};
+
+const formatCny = (cents?: number) => {
+  if (typeof cents !== "number" || !Number.isFinite(cents)) {
+    return "-";
+  }
+
+  return new Intl.NumberFormat("zh-CN", {
+    style: "currency",
+    currency: "CNY",
+    maximumFractionDigits: 2,
+  }).format(cents / 100);
+};
+
+const formatDate = (value?: string | null) => {
+  if (!value) {
+    return "-";
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "-";
+  }
+  return new Intl.DateTimeFormat("zh-CN", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
+};
+
 export const ProductListDataTable = () => {
-  const { t } = useTranslation();
-
-  const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
-
-  const updater: OnChangeFn<RowSelectionState> = (newSelection) => {
-    const update =
-      typeof newSelection === "function"
-        ? newSelection(rowSelection)
-        : newSelection;
-    setRowSelection(update);
-  };
-
-  const { searchParams, raw } = useProductTableQuery({
-    pageSize: PAGE_SIZE,
+  const { listings, count, isLoading, isError, error } = useDijieRoleListings({
+    placeholderData: keepPreviousData,
   });
 
-  const { products, count, isLoading, isError, error } = useProducts(
-    searchParams,
-    {
-      placeholderData: keepPreviousData,
-    },
-  );
-
-  const filters = useProductTableFilters();
   const columns = useColumns();
 
   const { table } = useDataTable({
-    data: products,
+    data: listings,
     columns,
     count,
     enablePagination: true,
-    enableRowSelection: true,
     pageSize: PAGE_SIZE,
-    getRowId: (row) => row?.id || "",
-    rowSelection: {
-      state: rowSelection,
-      updater,
-    },
+    getRowId: (row) => row.roleListingId || row.id,
   });
-
-  const prompt = usePrompt();
-
-  const handleDelete = async () => {
-    const keys = Object.keys(rowSelection);
-
-    if (keys.length === 0) {
-      return;
-    }
-
-    const res = await prompt({
-      title: t("products.bulkDelete.title"),
-      description: t("products.bulkDelete.description", {
-        count: keys.length,
-      }),
-      confirmText: t("actions.delete"),
-      cancelText: t("actions.cancel"),
-    });
-
-    if (!res) {
-      return;
-    }
-
-    toast.warning("已停在确认态，暂未删除。");
-  };
 
   if (isError) {
     throw error;
@@ -96,116 +106,110 @@ export const ProductListDataTable = () => {
       columns={columns}
       count={count}
       pageSize={PAGE_SIZE}
-      filters={filters}
       pagination
       isLoading={isLoading}
-      queryObject={raw}
-      navigateTo={(row) => `${row.original.id}`}
-      orderBy={[
-        { key: "title", label: t("fields.title") },
-        {
-          key: "created_at",
-          label: t("fields.createdAt"),
-        },
-        {
-          key: "updated_at",
-          label: t("fields.updatedAt"),
-        },
-      ]}
-      commands={[
-        {
-          action: handleDelete,
-          label: t("actions.delete"),
-          shortcut: "d",
-        },
-      ]}
+      noRecords={{
+        message: "还没有云端岗位商品。请先在开发对话生成岗位包，再到上传岗位承接并提交审核。",
+      }}
     />
   );
 };
-
-const ProductActions = ({ product }: { product: ExtendedAdminProduct }) => {
-  const { t } = useTranslation();
-  const prompt = usePrompt();
-
-  const handleDelete = async () => {
-    const res = await prompt({
-      title: t("general.areYouSure"),
-      description: t("products.deleteWarning", {
-        title: product.title,
-      }),
-      confirmText: t("actions.delete"),
-      cancelText: t("actions.cancel"),
-    });
-
-    if (!res) {
-      return;
-    }
-
-    toast.warning("已停在确认态，暂未删除。");
-  };
-
-  return (
-    <ActionMenu
-      groups={[
-        {
-          actions: [
-            {
-              icon: <Trash />,
-              label: t("actions.delete"),
-              onClick: handleDelete,
-            },
-          ],
-        },
-      ]}
-    />
-  );
-};
-
-const columnHelper = createColumnHelper<ExtendedAdminProduct>();
 
 const useColumns = () => {
-  const base = useProductTableColumns();
-
-  const columns = useMemo(
+  return useMemo(
     () => [
       columnHelper.display({
-        id: "select",
-        header: ({ table }) => {
-          return (
-            <Checkbox
-              checked={
-                table.getIsSomePageRowsSelected()
-                  ? "indeterminate"
-                  : table.getIsAllPageRowsSelected()
-              }
-              onCheckedChange={(value) =>
-                table.toggleAllPageRowsSelected(!!value)
-              }
-            />
-          );
-        },
+        id: "role",
+        header: () => (
+          <div className="flex h-full w-full items-center">
+            <span className="truncate">岗位商品</span>
+          </div>
+        ),
         cell: ({ row }) => {
+          const role = row.original;
           return (
-            <Checkbox
-              checked={row.getIsSelected()}
-              onCheckedChange={(value) => row.toggleSelected(!!value)}
-              onClick={(e) => {
-                e.stopPropagation();
-              }}
-            />
+            <div className="flex min-w-0 flex-col">
+              <span className="txt-compact-small-plus truncate text-ui-fg-base">
+                {role.title}
+              </span>
+              <span className="txt-compact-small truncate text-ui-fg-subtle">
+                {role.packageId}@{role.packageVersion}
+              </span>
+            </div>
           );
         },
       }),
-      ...base,
       columnHelper.display({
-        id: "actions",
+        id: "listing_status",
+        header: () => (
+          <div className="flex h-full w-full items-center">
+            <span className="truncate">上架状态</span>
+          </div>
+        ),
+        cell: ({ row }) => (
+          <StatusBadge color={listingStatusColors[row.original.listingStatus]}>
+            {listingStatusLabels[row.original.listingStatus]}
+          </StatusBadge>
+        ),
+      }),
+      columnHelper.display({
+        id: "review_state",
+        header: () => (
+          <div className="flex h-full w-full items-center">
+            <span className="truncate">审核</span>
+          </div>
+        ),
+        cell: ({ row }) => (
+          <StatusBadge color={reviewStateColors[row.original.reviewState]}>
+            {reviewStateLabels[row.original.reviewState]}
+          </StatusBadge>
+        ),
+      }),
+      columnHelper.display({
+        id: "authorization_fee",
+        header: () => (
+          <div className="flex h-full w-full items-center">
+            <span className="truncate">授权费</span>
+          </div>
+        ),
+        cell: ({ row }) => (
+          <span className="txt-compact-small truncate text-ui-fg-subtle">
+            {formatCny(row.original.pricing?.authorizationFeeCents)}
+          </span>
+        ),
+      }),
+      columnHelper.display({
+        id: "usage_price",
+        header: () => (
+          <div className="flex h-full w-full items-center">
+            <span className="truncate">调用单价</span>
+          </div>
+        ),
         cell: ({ row }) => {
-          return <ProductActions product={row.original} />;
+          const price =
+            row.original.roleTokenPricing?.outputTokenCentsPerMillion ??
+            row.original.roleTokenPricing?.inputTokenCentsPerMillion;
+          return (
+            <span className="txt-compact-small truncate text-ui-fg-subtle">
+              {price === undefined ? "-" : `${formatCny(price)} / 百万`}
+            </span>
+          );
         },
+      }),
+      columnHelper.display({
+        id: "submitted_at",
+        header: () => (
+          <div className="flex h-full w-full items-center">
+            <span className="truncate">提交时间</span>
+          </div>
+        ),
+        cell: ({ row }) => (
+          <span className="txt-compact-small truncate text-ui-fg-subtle">
+            {formatDate(row.original.submittedAt)}
+          </span>
+        ),
       }),
     ],
-    [base],
+    [],
   );
-
-  return columns;
 };

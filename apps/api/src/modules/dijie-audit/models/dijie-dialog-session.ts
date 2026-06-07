@@ -9,6 +9,7 @@ const DijieDialogSession = model.define("dijie_dialog_session", {
     "user_center",
     "developer_center",
     "admin_review",
+    "openclaw_main",
     "openclaw_local",
   ]),
   mode: model.enum(["user", "developer", "review"]),

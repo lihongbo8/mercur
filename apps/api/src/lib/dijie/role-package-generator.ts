@@ -36,7 +36,7 @@ type DijieRolePackageGenerationDiagnostics = {
 };
 
 export type DijieRolePackageGenerationResult =
-  | { ok: true; value: DijieGeneratedRolePackageDraft }
+  | { ok: true; complete: boolean; value: DijieGeneratedRolePackageDraft }
   | {
       ok: false;
       status: number;
@@ -219,14 +219,35 @@ function createReplyPreview(text: string): string {
     .slice(0, 800);
 }
 
-export function extractDijieRolePackageJsonText(text: string): string {
+function decodeEscapedJsonObjectText(text: string): string | undefined {
   const trimmed = text.trim();
-  const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/u);
-  if (fenced?.[1]) {
-    return fenced[1].trim();
+  if (!trimmed.startsWith('{\\"')) {
+    return undefined;
   }
 
+  try {
+    const decoded = JSON.parse(`"${trimmed.replace(/\r/gu, "\\r").replace(/\n/gu, "\\n")}"`);
+    return typeof decoded === "string" && decoded.trim().startsWith("{")
+      ? decoded.trim()
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export function extractDijieRolePackageJsonText(text: string): string {
+  const trimmed = text.trim();
+  const decodedEscapedJson = decodeEscapedJsonObjectText(trimmed);
+  if (decodedEscapedJson) {
+    return extractDijieRolePackageJsonText(decodedEscapedJson);
+  }
+
+  const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/u);
   const start = trimmed.indexOf("{");
+  if (fenced?.[1] && (start === -1 || fenced.index < start)) {
+    return extractDijieRolePackageJsonText(fenced[1].trim());
+  }
+
   if (start === -1) {
     return trimmed;
   }
@@ -359,6 +380,131 @@ function mergeGeneratedFiles(files: DijieRolePackageUploadFile[]): DijieRolePack
   });
 }
 
+const DEFAULT_REQUIRED_CAPABILITIES = [
+  "image.inspect",
+  "copy.review",
+  "browser.review",
+  "audit.record",
+  "human.confirm",
+  "template.render",
+  "design.standard.write",
+];
+
+const STABLE_CAPABILITY_PATTERN = /^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$/u;
+
+function createRolePackageUploadFile(path: string, content: string): DijieRolePackageUploadFile {
+  return {
+    path,
+    content,
+    sha256: sha256(content),
+    sizeBytes: Buffer.byteLength(content),
+  };
+}
+
+function sanitizeGeneratedRolePackageText(content: string): string {
+  return content
+    .replace(/api[_-]?key/giu, "接口密钥字段")
+    .replace(/provider[_-]?(?:auth|key)/giu, "供应商鉴权字段")
+    .replace(/access[_-]?token/giu, "访问凭证字段")
+    .replace(/refresh[_-]?token/giu, "刷新凭证字段")
+    .replace(/raw[_-]?(?:execution[_-]?)?token/giu, "原始执行凭证字段")
+    .replace(/execution[_-]?token/giu, "执行凭证字段")
+    .replace(/\bbearer\b/giu, "鉴权凭证格式")
+    .replace(/\bsecret(s)?\b/giu, "密钥字段")
+    .replace(/\bbackend ids?\b/giu, "平台内部编号")
+    .replace(
+      /\b(?:exec|cus|ent|ord|ordgrp|wallet|device|workspace|gateway|audit|settlement)_[A-Za-z0-9][A-Za-z0-9_-]*\b/giu,
+      "平台内部编号",
+    )
+    .replace(/\bactorId\b/gu, "参与方内部编号")
+    .replace(/\bdeviceId\b/gu, "设备内部编号")
+    .replace(/\bentitlementId\b/gu, "授权内部编号")
+    .replace(/\bexecutionId\b/gu, "执行内部编号")
+    .replace(/\borderId\b/gu, "订单内部编号")
+    .replace(/\broleListingId\b/gu, "岗位商品内部编号")
+    .replace(/\bwalletId\b/gu, "钱包内部编号")
+    .replace(/\bworkspaceRef\b/gu, "工作区内部引用");
+}
+
+function stableCapabilities(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .filter((item): item is string => typeof item === "string")
+    .map((item) => item.trim())
+    .filter((item) => STABLE_CAPABILITY_PATTERN.test(item))
+    .filter(
+      (item) =>
+        !/(api[_-]?key|secret|provider[_-]?auth|access[_-]?token|refresh[_-]?token|bearer|raw[_-]?token|execution[_-]?token)/iu.test(
+          item,
+        ),
+    );
+}
+
+function repairGeneratedManifest(
+  manifestFile: DijieRolePackageUploadFile | undefined,
+  files: DijieRolePackageUploadFile[],
+): DijieRolePackageUploadFile | undefined {
+  if (!manifestFile?.content) {
+    return manifestFile;
+  }
+
+  let manifest: UnknownRecord;
+  try {
+    manifest = asRecord(JSON.parse(manifestFile.content));
+  } catch {
+    return manifestFile;
+  }
+
+  const packagePaths = files.map((file) => file.path);
+  const capabilities = [
+    ...stableCapabilities(manifest.requiredCapabilities ?? manifest.required_capabilities),
+    ...DEFAULT_REQUIRED_CAPABILITIES,
+  ];
+  const entrypoint = stringField(manifest, "entrypoint");
+  const repaired = {
+    ...manifest,
+    manifestVersion: 1,
+    rolePackageId:
+      stringField(manifest, "rolePackageId") ??
+      stringField(manifest, "packageId") ??
+      "smart_lock_ecommerce_visual_designer",
+    version: stringField(manifest, "version") ?? "1.0.0",
+    name: stringField(manifest, "name") ?? "智能门锁电商美工岗位",
+    entrypoint: entrypoint?.startsWith("role_package/") ? entrypoint : "role_package/README.md",
+    permissions: Array.isArray(manifest.permissions)
+      ? manifest.permissions.filter((item): item is string => typeof item === "string" && item.trim())
+      : ["role.execute", "audit.record", "human.confirm"],
+    requiredCapabilities: [...new Set(capabilities)],
+    files: packagePaths,
+  };
+
+  return createRolePackageUploadFile(manifestFile.path, `${JSON.stringify(repaired, null, 2)}\n`);
+}
+
+function repairGeneratedFilesForUpload(
+  files: DijieRolePackageUploadFile[],
+): DijieRolePackageUploadFile[] {
+  const sanitizedFiles = files.map((file) => {
+    if (!file.content || file.path.endsWith(".json")) {
+      return file;
+    }
+    const content = sanitizeGeneratedRolePackageText(file.content);
+    return content === file.content ? file : createRolePackageUploadFile(file.path, content);
+  });
+  const manifestFile = repairGeneratedManifest(
+    sanitizedFiles.find((file) => file.path === "role_package/manifest.json"),
+    sanitizedFiles,
+  );
+  if (!manifestFile) {
+    return sanitizedFiles;
+  }
+  return sanitizedFiles.map((file) =>
+    file.path === "role_package/manifest.json" ? manifestFile : file,
+  );
+}
+
 function createDijieRolePackageJsonRepairInstruction(input: {
   stage: RolePackageGenerationStage;
   reply: string;
@@ -371,6 +517,40 @@ function createDijieRolePackageJsonRepairInstruction(input: {
     "content 必须是字符串；不要出现 api_key、secret、provider_auth、access_token、refresh_token、bearer、raw_token、execution_token、actorId、deviceId、entitlementId、executionId、orderId、roleListingId、walletId、workspaceRef。",
     `上一轮输出：\n${input.reply.trim().slice(0, 24_000)}`,
   ].join("\n");
+}
+
+function createPlainTextStageFiles(
+  stage: RolePackageGenerationStage,
+  reply: string,
+): DijieRolePackageUploadFile[] {
+  if (stage.outputPaths.length !== 1) {
+    return [];
+  }
+
+  const path = stage.outputPaths[0];
+  if (path.endsWith(".json")) {
+    return [];
+  }
+
+  const trimmed = reply.trim();
+  if (!trimmed || trimmed.length < 20 || trimmed.startsWith("{") || trimmed.startsWith("[")) {
+    return [];
+  }
+
+  const fenced = trimmed.match(/```(?:markdown|md)?\s*([\s\S]*?)```/u);
+  const content = (fenced?.[1] ?? trimmed).trim();
+  if (!content || content.length < 20) {
+    return [];
+  }
+
+  return [
+    {
+      path,
+      content,
+      sha256: sha256(content),
+      sizeBytes: Buffer.byteLength(content),
+    },
+  ];
 }
 
 function combineDijieDialogModelUsages(
@@ -420,6 +600,8 @@ export async function generateDijieRolePackageDraftWithModel(input: {
   context: DijieDialogContext;
   billingPolicy: DijieDialogBillingPolicy;
   message: string;
+  initialFiles?: DijieRolePackageUploadFile[];
+  maxStages?: number;
   previousDraftSummary?: string;
   onStageFiles?: (input: {
     stage: RolePackageGenerationStage;
@@ -428,10 +610,25 @@ export async function generateDijieRolePackageDraftWithModel(input: {
     modelUsage: DijieDialogModelUsage | null;
   }) => Promise<void>;
 }): Promise<DijieRolePackageGenerationResult> {
-  const generatedFiles: DijieRolePackageUploadFile[] = [];
+  const generatedFiles: DijieRolePackageUploadFile[] = mergeGeneratedFiles(input.initialFiles ?? []);
   const modelUsages: Array<DijieDialogModelUsage | null> = [];
+  const maxStages =
+    Number.isInteger(input.maxStages) && input.maxStages && input.maxStages > 0
+      ? input.maxStages
+      : 1;
+  let processedStages = 0;
+  let stoppedAfterMaxStages = false;
 
   for (const stage of GENERATION_STAGES) {
+    const existingPaths = new Set(generatedFiles.map((file) => file.path));
+    if (stage.outputPaths.every((path) => existingPaths.has(path))) {
+      continue;
+    }
+    if (maxStages !== undefined && processedStages >= maxStages) {
+      stoppedAfterMaxStages = true;
+      break;
+    }
+
     const instruction = createDijieRolePackageGenerationInstruction({
       message: input.message,
       previousDraftSummary: input.previousDraftSummary,
@@ -495,24 +692,33 @@ export async function generateDijieRolePackageDraftWithModel(input: {
       try {
         parsed = JSON.parse(extractDijieRolePackageJsonText(repairResult.reply));
       } catch {
-        return {
-          ok: false,
-          status: 502,
-          error: "AI开发助手没有返回可解析的岗位包 JSON。",
-          issues: [`${stage.id}: model_reply_not_json`],
-          modelUsage: combineDijieDialogModelUsages(modelUsages),
-          diagnostics: {
-            stageId: stage.id,
-            stageLabel: stage.label,
-            replyPreview: createReplyPreview(modelResult.reply),
-            repairReplyPreview: createReplyPreview(repairResult.reply),
-          },
-        };
+        const plainFiles = [
+          ...createPlainTextStageFiles(stage, modelResult.reply),
+          ...createPlainTextStageFiles(stage, repairResult.reply),
+        ];
+        if (plainFiles.length > 0) {
+          parsed = { files: plainFiles };
+        } else {
+          return {
+            ok: false,
+            status: 502,
+            error: "AI开发助手没有返回可解析的岗位包 JSON。",
+            issues: [`${stage.id}: model_reply_not_json`],
+            modelUsage: combineDijieDialogModelUsages(modelUsages),
+            diagnostics: {
+              stageId: stage.id,
+              stageLabel: stage.label,
+              replyPreview: createReplyPreview(modelResult.reply),
+              repairReplyPreview: createReplyPreview(repairResult.reply),
+            },
+          };
+        }
       }
     }
 
     const stageFiles = filterFilesForStage(normalizeGeneratedFiles(parsed), stage);
     generatedFiles.push(...stageFiles);
+    processedStages += 1;
     if (input.onStageFiles) {
       try {
         await input.onStageFiles({
@@ -537,8 +743,9 @@ export async function generateDijieRolePackageDraftWithModel(input: {
   }
 
   const modelUsage = combineDijieDialogModelUsages(modelUsages);
-  const files = mergeGeneratedFiles(generatedFiles);
-  if (files.length === 0) {
+  const mergedFiles = mergeGeneratedFiles(generatedFiles);
+  const missingPaths = missingGeneratedPaths(mergedFiles);
+  if (mergedFiles.length === 0) {
     return {
       ok: false,
       status: 502,
@@ -548,8 +755,26 @@ export async function generateDijieRolePackageDraftWithModel(input: {
     };
   }
 
-  const missingPaths = missingGeneratedPaths(files);
+  const files =
+    missingPaths.length === 0 ? repairGeneratedFilesForUpload(mergedFiles) : mergedFiles;
   const uploadBody = { files };
+  if (missingPaths.length > 0 && stoppedAfterMaxStages) {
+    return {
+      ok: true,
+      complete: false,
+      value: {
+        files,
+        uploadValidationIssues: [],
+        qualityReport: evaluateDijieRolePackageQuality(files),
+        capabilityReport: createDijieCapabilityMatchReport({
+          files: readDijieRolePackageUploadFilesForStorage(uploadBody),
+          message: input.message,
+        }),
+        modelUsage,
+      },
+    };
+  }
+
   const uploadValidation = validateDijieRolePackageUpload(uploadBody);
   const uploadValidationIssues = uploadValidation.ok ? [] : uploadValidation.issues;
   const qualityReport = evaluateDijieRolePackageQuality(files);
@@ -571,6 +796,7 @@ export async function generateDijieRolePackageDraftWithModel(input: {
 
   return {
     ok: true,
+    complete: true,
     value: {
       files,
       uploadSummary: uploadValidation.value,

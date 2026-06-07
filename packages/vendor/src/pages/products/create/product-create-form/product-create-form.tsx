@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react"
 
 import { HttpTypes } from "@medusajs/types"
-import { Button, ProgressStatus, ProgressTabs, toast, usePrompt } from "@medusajs/ui"
+import { Button, ProgressStatus, ProgressTabs, toast } from "@medusajs/ui"
 import { useForm } from "react-hook-form"
 import { useTranslation } from "react-i18next"
 import { z } from "zod"
@@ -12,6 +12,10 @@ import { TabbedFormContext } from "@components/tabbed-form"
 import { KeyboundForm } from "@components/utilities/keybound-form"
 import { useAttributes } from "../../../../hooks/api/attributes"
 import { useCreateProduct } from "@hooks/api/products"
+import {
+  createDijieRoleListingQuery,
+  submitDijieRoleListingReviewQuery,
+} from "@hooks/api/dijie-role-listings"
 import { uploadFilesQuery } from "@lib/client"
 import {
   PRODUCT_CREATE_FORM_DEFAULTS,
@@ -96,7 +100,6 @@ export const ProductCreateForm = ({
 
   const { t } = useTranslation()
   const { handleSuccess } = useRouteModal()
-  const prompt = usePrompt()
 
   const { attributes: allAttributes } = useAttributes({
     fields:
@@ -214,18 +217,65 @@ export const ProductCreateForm = ({
         submitter.dataset.name === SAVE_DRAFT_BUTTON
     }
 
-    if (!isDraftSubmission) {
-      const confirmed = await prompt({
-        title: "提交审核？",
-        description: "当前只进入确认态，不会直接提交给平台审核。",
-        confirmText: "停在确认态",
-        cancelText: "取消",
-      })
-
-      if (confirmed) {
-        toast.warning("已停在确认态，暂未提交审核。")
+    const aicsValues = values as any
+    if (aicsValues.role_package_id && aicsValues.role_package_version) {
+      if (aicsValues.role_listing_id) {
+        toast.success(
+          isDraftSubmission
+            ? "岗位商品草稿已保存。"
+            : "岗位商品已提交平台审核。"
+        )
+        handleSuccess("../")
+        return
       }
 
+      const authorizationFeeCents = parseAuthorizationFeeCents(
+        aicsValues.role_authorization_fee_yuan
+      )
+      const inputTokenCentsPerMillion = parseNonNegativeInteger(
+        aicsValues.role_input_token_price_cents_per_million
+      )
+      const outputTokenCentsPerMillion = parseNonNegativeInteger(
+        aicsValues.role_output_token_price_cents_per_million
+      )
+      const requiredCapabilities = parseRoleCapabilities(
+        aicsValues.role_required_capabilities
+      )
+      const created = await createDijieRoleListingQuery({
+        packageId: aicsValues.role_package_id,
+        packageVersion: aicsValues.role_package_version,
+        title: aicsValues.title,
+        subtitle: aicsValues.subtitle || undefined,
+        description: aicsValues.description || undefined,
+        pricing: {
+          kind: "one_time_authorization",
+          authorizationFeeCents,
+          currency: "CNY",
+          platformFeeBps: 0,
+          developerReceivableCents: authorizationFeeCents,
+        },
+        roleTokenPricing: {
+          inputTokenCentsPerMillion,
+          outputTokenCentsPerMillion,
+          currency: "CNY",
+          developerReceivableBps: 10000,
+          platformFeeBps: 0,
+        },
+        confirmationPoints: requiredCapabilities.includes("human.confirm")
+          ? 1
+          : 0,
+      })
+
+      if (!isDraftSubmission) {
+        await submitDijieRoleListingReviewQuery(created.roleListingId)
+      }
+
+      toast.success(
+        isDraftSubmission
+          ? "岗位商品草稿已保存。"
+          : "岗位商品已提交平台审核。"
+      )
+      handleSuccess("../")
       return
     }
 

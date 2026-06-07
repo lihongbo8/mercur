@@ -9,11 +9,20 @@ import {
   type DijieAccessContext,
 } from "../../../../lib/dijie/data-permissions";
 import { getDijieDialogCapabilityPolicy } from "../../../../lib/dijie/dialog-capability-policy";
+import {
+  createDijieDialogActions,
+  shouldSkipDijieModelForActions,
+} from "../../../../lib/dijie/dialog-actions";
 import { resolveDijieOpenClawDialogModelBridge } from "../../../../lib/dijie/openclaw-model-bridge-resolver";
 import {
   createDijieDialogTurnReadModel,
   type DijieDialogSessionStore,
 } from "../../../../lib/dijie/dialog-session-store";
+import {
+  buildSurfacePrompt,
+  createDijieDialogOrchestration,
+  type DijieDialogArtifact,
+} from "../../../../lib/dijie/dialog-orchestrator";
 import {
   createDijieDialogContext,
   normalizeDijieDialogContext,
@@ -32,6 +41,10 @@ import {
   type DijieRolePackageDraftReader,
   type DijieRolePackageDraftStore,
 } from "../../../../lib/dijie/role-package-draft-store";
+import {
+  persistDijieRolePackageBuildStage,
+  type RoleBuildArtifact,
+} from "../../../../lib/dijie/role-package-build-session";
 import { listDijieRoleListings } from "../../../../lib/dijie/role-listings";
 
 type UnknownRecord = Record<string, unknown>;
@@ -146,9 +159,28 @@ function surfaceFromBody(body: UnknownRecord): DijieDialogSurface | undefined {
     surface === "user_center" ||
     surface === "developer_center" ||
     surface === "admin_review" ||
+    surface === "openclaw_main" ||
     surface === "openclaw_local"
     ? surface
     : undefined;
+}
+
+function roleBuildArtifactsForDialog(
+  artifacts: RoleBuildArtifact[],
+): DijieDialogArtifact[] {
+  return artifacts.map((artifact) => ({
+    kind: "role_build_session",
+    id: artifact.draftId,
+    label: artifact.stageLabel,
+    status: artifact.status,
+    target: artifact.outputPaths.join(", "),
+    metadata: {
+      stageId: artifact.stageId,
+      fileCount: artifact.fileCount,
+      missingPaths: artifact.missingPaths,
+      blockingIssues: artifact.blockingIssues,
+    },
+  }));
 }
 
 function contextFromRequest(
@@ -263,53 +295,177 @@ export async function POST(req: MedusaRequest, res: MedusaResponse) {
       const latestDraft = await draftStore.retrieveLatestDijieRolePackageDraft({
         ownerId: context.accountId,
       });
+      const existingDraft = latestDraft?.draft_status === "submitted" ? undefined : latestDraft;
+      let generatedDraftId: string | undefined = existingDraft?.id;
+      const buildArtifacts: RoleBuildArtifact[] = [];
       const generation = await generateDijieRolePackageDraftWithModel({
         bridge: modelBridge,
         context,
         billingPolicy: fallbackReply.billingPolicy,
         message,
-        previousDraftSummary: latestDraft
-          ? `draftId=${latestDraft.id}; package=${latestDraft.package_id ?? "unknown"}; status=${latestDraft.draft_status}`
+        initialFiles: existingDraft?.package_files ?? [],
+        previousDraftSummary: existingDraft
+          ? `draftId=${existingDraft.id}; package=${existingDraft.package_id ?? "unknown"}; status=${existingDraft.draft_status}; files=${existingDraft.file_manifest.map((file) => file.path).join(",")}`
           : undefined,
+        onStageFiles: async ({ stage, allFiles, modelUsage }) => {
+          const artifact = await persistDijieRolePackageBuildStage({
+            draftStore,
+            draftId: generatedDraftId,
+            ownerId: context.accountId,
+            sourceMessage: message,
+            files: allFiles,
+            stage,
+            modelUsage,
+          });
+          generatedDraftId = artifact.draftId;
+          buildArtifacts.push(artifact);
+        },
       });
       if (!generation.ok) {
+        const partialDraftRecord = generatedDraftId
+          ? await draftStore.retrieveDijieRolePackageDraft({
+              draftId: generatedDraftId,
+              ownerId: context.accountId,
+            })
+          : undefined;
         return res.status(generation.status).json({
           ok: false,
           error: generation.error,
           issues: generation.issues,
+          diagnostics: generation.diagnostics,
+          artifacts: roleBuildArtifactsForDialog(buildArtifacts),
+          rolePackageDraft: partialDraftRecord
+            ? createDijieRolePackageDraftReadModel(partialDraftRecord)
+            : undefined,
           modelUsage: generation.modelUsage ?? null,
           modelCalled: true,
         });
       }
 
-      const storedDraft = await draftStore.createDijieRolePackageDraft({
-        ownerId: context.accountId,
-        sourceMessage: message,
-        files: generation.value.files,
-        uploadSummary: generation.value.uploadSummary,
-        capabilityReport: generation.value.capabilityReport,
-        qualityReport: generation.value.qualityReport,
-        uploadValidationIssues: generation.value.uploadValidationIssues,
-        blockingIssues: [],
-        modelUsage: generation.value.modelUsage,
-      });
-      const draftRecord = storedDraft.draftId
+      if (!generatedDraftId) {
+        const storedDraft = await draftStore.createDijieRolePackageDraft({
+          ownerId: context.accountId,
+          sourceMessage: message,
+          files: generation.value.files,
+          uploadSummary: generation.value.uploadSummary,
+          capabilityReport: generation.value.capabilityReport,
+          qualityReport: generation.value.qualityReport,
+          uploadValidationIssues: generation.value.uploadValidationIssues,
+          blockingIssues: [],
+          modelUsage: generation.value.modelUsage,
+        });
+        generatedDraftId = storedDraft.draftId;
+      }
+      const draftRecord = generatedDraftId
         ? await draftStore.retrieveDijieRolePackageDraft({
-            draftId: storedDraft.draftId,
+            draftId: generatedDraftId,
             ownerId: context.accountId,
           })
         : undefined;
       const draftReadModel = draftRecord
         ? createDijieRolePackageDraftReadModel(draftRecord)
         : undefined;
+      const draftReady = draftReadModel?.status === "ready";
+      const actions = [
+        ...createDijieDialogActions({ context, message, roles: [] }),
+        ...(draftReady
+          ? [
+              {
+                id: "developer.navigate.upload.generated",
+                kind: "navigate" as const,
+                label: "去上传岗位",
+                description: "打开上传岗位页，确认刚生成的岗位包草稿。",
+                action: "navigate_upload",
+                target: "developer_center.role_package_upload",
+                path: "/products/create",
+                requiresConfirmation: false,
+                risk: "low" as const,
+              },
+            ]
+          : []),
+        ...(draftReady && draftReadModel?.draftId
+          ? [
+              {
+                id: "developer.submit.draft",
+                kind: "submit_role_package_draft" as const,
+                label: "提交岗位包草稿",
+                description: "把 ready 草稿提交为正式岗位包。提交前必须在上传岗位页人工确认。",
+                action: "submit_role_package_draft",
+                target: draftReadModel.draftId,
+                method: "POST" as const,
+                requiresConfirmation: true,
+                risk: "confirmation_required" as const,
+              },
+            ]
+          : []),
+      ];
+      const artifacts = [
+        ...roleBuildArtifactsForDialog(buildArtifacts),
+        ...(draftReadModel?.draftId
+          ? [
+              {
+                kind: "role_package_draft" as const,
+                id: draftReadModel.draftId,
+                label: "岗位包 ready 草稿",
+                status: draftReadModel.status as "ready" | "partial" | "blocked" | "submitted",
+                target: draftReadModel.packageId ?? draftReadModel.draftId,
+                metadata: {
+                  fileCount: draftReadModel.fileCount,
+                  packageId: draftReadModel.packageId,
+                  blockingIssues: draftReadModel.blockingIssues,
+                },
+              },
+            ]
+          : []),
+      ];
+      const orchestration = createDijieDialogOrchestration({
+        context,
+        capabilityPolicy,
+        message,
+        actions,
+        artifacts,
+      });
+      const visibleOrchestration = draftReady
+        ? orchestration
+        : {
+            ...orchestration,
+            profile: {
+              ...orchestration.profile,
+              allowedActions: orchestration.profile.allowedActions.filter(
+                (item) => item !== "navigate_upload",
+              ),
+            },
+            allowedActions: orchestration.allowedActions.filter(
+              (item) => item !== "navigate_upload",
+            ),
+            proposedActions: orchestration.proposedActions.filter(
+              (item) =>
+                item.action !== "navigate_upload" &&
+                item.action !== "submit_role_package_draft",
+            ),
+            requiredConfirmations: orchestration.requiredConfirmations.filter(
+              (item) =>
+                item.action !== "navigate_upload" &&
+                item.action !== "submit_role_package_draft",
+            ),
+          };
       const assistantReply = {
         reply: draftReadModel
-          ? `已生成岗位包草稿 ${draftReadModel.packageId ?? draftReadModel.draftId}，包含 ${draftReadModel.fileCount} 个文件，质量评分 ${draftReadModel.qualityReport.score}。请到上传岗位页确认并提交。`
+          ? draftReady
+            ? `已生成 ready 岗位包草稿 ${draftReadModel.packageId ?? draftReadModel.draftId}，包含 ${draftReadModel.fileCount} 个文件，质量评分 ${draftReadModel.qualityReport.score}。请到上传岗位页确认并提交。`
+            : `已保存 partial 岗位包草稿 ${draftReadModel.draftId}，包含 ${draftReadModel.fileCount} 个文件。请继续生成未完成阶段，ready 前不能上传承接。`
           : "已生成岗位包草稿，请到上传岗位页确认并提交。",
         grounding: { roles: [], source: "dialog_context" as const },
         billingPolicy: fallbackReply.billingPolicy,
         modelUsage: generation.value.modelUsage,
         modelCalled: true,
+        actions,
+        intent: visibleOrchestration.intent,
+        allowedActions: visibleOrchestration.allowedActions,
+        proposedActions: visibleOrchestration.proposedActions,
+        requiredConfirmations: visibleOrchestration.requiredConfirmations,
+        artifacts: visibleOrchestration.artifacts,
+        orchestration: visibleOrchestration,
       };
       const recorded = await dialogStore.recordDijieDialogTurn({
         sessionId: stringField(body, "sessionId") ?? stringField(body, "session_id"),
@@ -337,6 +493,13 @@ export async function POST(req: MedusaRequest, res: MedusaResponse) {
         },
         grounding: assistantReply.grounding,
         billingPolicy: assistantReply.billingPolicy,
+        actions: assistantReply.actions,
+        intent: assistantReply.intent,
+        allowedActions: assistantReply.allowedActions,
+        proposedActions: assistantReply.proposedActions,
+        requiredConfirmations: assistantReply.requiredConfirmations,
+        artifacts: assistantReply.artifacts,
+        orchestration: assistantReply.orchestration,
         capabilityPolicy,
         persisted: turn,
         modelUsage: assistantReply.modelUsage,
@@ -345,11 +508,22 @@ export async function POST(req: MedusaRequest, res: MedusaResponse) {
       });
     }
     const modelResult =
-      fallbackReply.billingPolicy.modelAllowed && modelBridge
+      fallbackReply.billingPolicy.modelAllowed &&
+      modelBridge &&
+      !shouldSkipDijieModelForActions({
+        context,
+        actions: fallbackReply.actions,
+      })
         ? await modelBridge.completeDijieDialogMessage({
             context,
             billingPolicy: fallbackReply.billingPolicy,
-            message,
+            message: buildSurfacePrompt({
+              context,
+              capabilityPolicy,
+              message,
+              fallbackReply: fallbackReply.reply,
+              actions: fallbackReply.actions,
+            }),
             fallbackReply: fallbackReply.reply,
             roles: fallbackReply.grounding.roles,
           })
@@ -388,6 +562,13 @@ export async function POST(req: MedusaRequest, res: MedusaResponse) {
       },
       grounding: reply.grounding,
       billingPolicy: reply.billingPolicy,
+      actions: reply.actions,
+      intent: reply.intent,
+      allowedActions: reply.allowedActions,
+      proposedActions: reply.proposedActions,
+      requiredConfirmations: reply.requiredConfirmations,
+      artifacts: reply.artifacts,
+      orchestration: reply.orchestration,
       capabilityPolicy,
       persisted: turn,
       modelUsage: reply.modelUsage,

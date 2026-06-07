@@ -14,6 +14,7 @@ type OpenClawCliBridgeOptions = {
   mode?: "local" | "gateway";
   model?: string;
   timeoutMs?: number;
+  maxBufferBytes?: number;
 };
 
 function asRecord(value: unknown): UnknownRecord {
@@ -141,6 +142,12 @@ function sanitizeCliError(error: unknown): string {
   const signal = stringField(record, "signal");
   const code = record.code;
   const killed = record.killed === true;
+  if (killed || signal === "SIGTERM" || code === "ETIMEDOUT") {
+    return "OpenClaw CLI 调用超过长任务等待上限。";
+  }
+  if (code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER") {
+    return "OpenClaw CLI 输出超过系统可接收大小，请拆小当前阶段或提高输出上限。";
+  }
   const raw = stderr ?? message ?? "OpenClaw CLI 调用失败";
   const withoutAnsi = raw.replace(/\u001b\[[0-9;:]*m/gu, "");
   const withoutNodeWarnings = withoutAnsi
@@ -168,7 +175,8 @@ export function createDijieOpenClawCliModelBridge(
 ): DijieOpenClawDialogModelBridge {
   const cliPath = options.cliPath ?? "openclaw";
   const mode = options.mode ?? "local";
-  const timeoutMs = options.timeoutMs ?? 120_000;
+  const timeoutMs = options.timeoutMs ?? 30 * 60_000;
+  const maxBufferBytes = options.maxBufferBytes ?? 25 * 1024 * 1024;
 
   return {
     async completeDijieDialogMessage(input): Promise<DijieOpenClawDialogModelResult> {
@@ -188,7 +196,7 @@ export function createDijieOpenClawCliModelBridge(
       try {
         const { stdout } = await execFileAsync(cliPath, args, {
           timeout: timeoutMs,
-          maxBuffer: 5 * 1024 * 1024,
+          maxBuffer: maxBufferBytes,
         });
         return {
           reply: replyFromOpenClawOutput(stdout),

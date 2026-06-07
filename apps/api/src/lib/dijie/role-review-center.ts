@@ -27,6 +27,7 @@ export type DijieReviewChecklistItem = {
 
 export type DijieReviewQueueItem = {
   id: string;
+  reviewId: string;
   title: string;
   subtitle: string | null;
   developerName: string | null;
@@ -35,12 +36,21 @@ export type DijieReviewQueueItem = {
   reviewState: DijieRoleReviewState | DijieStoredRoleReviewState | "unknown";
   reviewStateLabel: string;
   listingStatus: DijieRoleListingStatus | "unknown";
+  submittedAt: string | null;
   materialCompleteness: "待复核" | "已完整";
   safetySummary: "未命中敏感项" | "需处理";
   pricingAndBilling: "待确认" | "已配置";
   auditReadback: "脱敏";
   confirmationPoints: number;
   requiredCapabilities: string[];
+  priceLabel: string | null;
+  evaluations: {
+    roleStandard: "pending" | "pass" | "needs_changes" | "reject";
+    safetyCompliance: "pending" | "pass" | "needs_changes" | "reject";
+    pricingReasonability: "pending" | "pass" | "needs_changes" | "reject";
+  };
+  records: string[];
+  finalNote: string | null;
 };
 
 export type DijieReviewCenterReadModel = {
@@ -180,6 +190,65 @@ function asStringArray(value: unknown): string[] {
   ];
 }
 
+function reviewRecords(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .map((entry) => {
+      const record = asRecord(entry);
+      const action = nonEmptyString(record.action);
+      const summary = nonEmptyString(record.summary);
+      if (!action && !summary) {
+        return undefined;
+      }
+      return summary ? `${action ?? "审核记录"}：${summary}` : action;
+    })
+    .filter((entry): entry is string => Boolean(entry));
+}
+
+function reviewDetails(roleId: string, reviewInput?: unknown) {
+  const review = asRecord(reviewInput);
+  return {
+    reviewId: nonEmptyString(review.id) ?? `review_${roleId}`,
+    evaluations: {
+      roleStandard:
+        review.role_standard_decision === "pass" ||
+        review.role_standard_decision === "needs_changes" ||
+        review.role_standard_decision === "reject"
+          ? review.role_standard_decision
+          : "pending",
+      safetyCompliance:
+        review.safety_compliance_decision === "pass" ||
+        review.safety_compliance_decision === "needs_changes" ||
+        review.safety_compliance_decision === "reject"
+          ? review.safety_compliance_decision
+          : "pending",
+      pricingReasonability:
+        review.pricing_reasonability_decision === "pass" ||
+        review.pricing_reasonability_decision === "needs_changes" ||
+        review.pricing_reasonability_decision === "reject"
+          ? review.pricing_reasonability_decision
+          : "pending",
+    },
+    records: reviewRecords(review.records),
+    finalNote: nonEmptyString(review.summary) ?? null,
+  };
+}
+
+function priceLabelFromPricing(value: unknown): string | null {
+  const pricing = asRecord(value);
+  const cents = pricing.authorizationFeeCents;
+  if (typeof cents !== "number" || !Number.isFinite(cents)) {
+    return null;
+  }
+  return new Intl.NumberFormat("zh-CN", {
+    style: "currency",
+    currency: "CNY",
+    maximumFractionDigits: 2,
+  }).format(cents / 100);
+}
+
 function isStoredRoleListing(value: UnknownRecord): value is DijieRoleListingStorageRecord & {
   id: string;
 } {
@@ -193,6 +262,7 @@ function isStoredRoleListing(value: UnknownRecord): value is DijieRoleListingSto
 
 function createStoredReviewQueueItem(
   roleInput: unknown,
+  reviewsByRoleId: Map<string, unknown> = new Map(),
 ): DijieReviewQueueItem | undefined {
   const role = asRecord(roleInput);
   if (!isStoredRoleListing(role)) {
@@ -202,10 +272,13 @@ function createStoredReviewQueueItem(
   const reviewState = storedRoleReviewState(role);
   const listingStatus = roleListingStatus(role);
   const requiredCapabilities = asStringArray(asRecord(role.manifest_summary).requiredCapabilities);
-  const hasPricing = Object.keys(asRecord(role.pricing)).length > 0;
+  const pricing = asRecord(role.pricing);
+  const hasPricing = Object.keys(pricing).length > 0;
+  const review = reviewDetails(role.id, reviewsByRoleId.get(role.id));
 
   return {
     id: role.id,
+    reviewId: review.reviewId,
     title: role.title,
     subtitle: nonEmptyString(role.subtitle) ?? null,
     developerName: nonEmptyString(role.developer_ref) ?? null,
@@ -214,6 +287,10 @@ function createStoredReviewQueueItem(
     reviewState,
     reviewStateLabel: reviewStateLabel(reviewState),
     listingStatus,
+    submittedAt:
+      role.submitted_at instanceof Date
+        ? role.submitted_at.toISOString()
+        : nonEmptyString(role.submitted_at) ?? null,
     materialCompleteness: "已完整",
     safetySummary: "未命中敏感项",
     pricingAndBilling: hasPricing ? "已配置" : "待确认",
@@ -222,11 +299,18 @@ function createStoredReviewQueueItem(
       ? Math.max(0, Number(role.confirmation_points))
       : 0,
     requiredCapabilities,
+    priceLabel: priceLabelFromPricing(role.pricing),
+    evaluations: review.evaluations,
+    records: review.records,
+    finalNote: review.finalNote,
   };
 }
 
-function createReviewQueueItem(productInput: unknown): DijieReviewQueueItem | undefined {
-  const storedItem = createStoredReviewQueueItem(productInput);
+function createReviewQueueItem(
+  productInput: unknown,
+  reviewsByRoleId: Map<string, unknown> = new Map(),
+): DijieReviewQueueItem | undefined {
+  const storedItem = createStoredReviewQueueItem(productInput, reviewsByRoleId);
   if (storedItem) {
     return storedItem;
   }
@@ -252,6 +336,7 @@ function createReviewQueueItem(productInput: unknown): DijieReviewQueueItem | un
 
   return {
     id,
+    reviewId: `review_${id}`,
     title:
       (normalized.ok ? normalized.value.title : nonEmptyString(role.title)) ??
       nonEmptyString(product.title) ??
@@ -268,21 +353,39 @@ function createReviewQueueItem(productInput: unknown): DijieReviewQueueItem | un
     reviewState,
     reviewStateLabel: reviewStateLabel(reviewState),
     listingStatus,
+    submittedAt: null,
     materialCompleteness: hasMaterialIssues ? "待复核" : "已完整",
     safetySummary: hasSafetyIssues ? "需处理" : "未命中敏感项",
     pricingAndBilling: hasMaterialIssues ? "待确认" : "已配置",
     auditReadback: "脱敏",
     confirmationPoints: hasMaterialIssues || reviewState === "submitted" ? 2 : 0,
     requiredCapabilities,
+    priceLabel: null,
+    evaluations: {
+      roleStandard: "pending",
+      safetyCompliance: "pending",
+      pricingReasonability: "pending",
+    },
+    records: ["旧商品元数据兼容队列项，建议迁移到云端岗位商品。"],
+    finalNote: null,
   };
 }
 
 export function createDijieReviewCenterReadModel(
   products: unknown[],
-  options: { adminAccountId?: string } = {},
+  options: { adminAccountId?: string; reviews?: unknown[] } = {},
 ): DijieReviewCenterReadModel {
+  const reviewsByRoleId = new Map(
+    (options.reviews ?? [])
+      .map((review) => {
+        const record = asRecord(review);
+        const roleListingId = nonEmptyString(record.role_listing_id);
+        return roleListingId ? ([roleListingId, review] as const) : undefined;
+      })
+      .filter((entry): entry is readonly [string, unknown] => Boolean(entry)),
+  );
   const queue = products
-    .map(createReviewQueueItem)
+    .map((product) => createReviewQueueItem(product, reviewsByRoleId))
     .filter((item): item is DijieReviewQueueItem => Boolean(item));
 
   const pendingQueue = queue.filter((item) =>
@@ -343,7 +446,25 @@ export async function getDijieReviewCenterReadModel(
     ],
     pagination: { take: 100 },
   });
-  const storedQueue = createDijieReviewCenterReadModel(storedListings.data ?? [], options);
+  const storedReviews = await queryGraph({
+    entity: "dijie_role_review",
+    fields: [
+      "id",
+      "role_listing_id",
+      "role_standard_decision",
+      "safety_compliance_decision",
+      "pricing_reasonability_decision",
+      "final_result",
+      "summary",
+      "records",
+      "finalized_at",
+    ],
+    pagination: { take: 100 },
+  });
+  const storedQueue = createDijieReviewCenterReadModel(storedListings.data ?? [], {
+    ...options,
+    reviews: storedReviews.data ?? [],
+  });
   if (storedQueue.queue.length > 0) {
     return storedQueue;
   }

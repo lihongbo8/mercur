@@ -229,7 +229,9 @@ class DijieAuditModuleService
     input: Parameters<DijieRolePackageReader["retrieveDijieRolePackage"]>[0],
   ) {
     return retrieveDijieRolePackageWithRepository(
-      this as unknown as DijieRolePackageLookupRepository,
+      {
+        listDijieRolePackages: (...args) => super.listDijieRolePackages(...args),
+      } as DijieRolePackageLookupRepository,
       input,
     );
   }
@@ -238,7 +240,9 @@ class DijieAuditModuleService
     input?: Parameters<DijieRolePackageReader["listDijieRolePackages"]>[0],
   ) {
     return listDijieRolePackagesWithRepository(
-      this as unknown as DijieRolePackageLookupRepository,
+      {
+        listDijieRolePackages: (...args) => super.listDijieRolePackages(...args),
+      } as DijieRolePackageLookupRepository,
       input,
     );
   }

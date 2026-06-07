@@ -58,7 +58,7 @@ const readStoredSellerId = () => {
   }
 }
 
-const storeSellerId = (sellerId: string) => {
+export const storeSellerId = (sellerId: string) => {
   try {
     window.localStorage?.setItem(SELLER_ID_STORAGE_KEY, sellerId)
   } catch {
@@ -203,12 +203,25 @@ export const uploadDijieRolePackageQuery = async (files: any[]) => {
   })
 }
 
-export const generateDijieRolePackageDraftQuery = async (message: string, signal?: AbortSignal) => {
+export const generateDijieRolePackageDraftQuery = async (
+  message: string,
+  options?: {
+    draftId?: string
+    maxStages?: number
+    startNew?: boolean
+    signal?: AbortSignal
+  }
+) => {
   return fetchQuery('/vendor/dijie/role-packages/generate', {
     method: 'POST',
-    body: { message },
+    body: {
+      message,
+      ...(options?.draftId ? { draftId: options.draftId } : {}),
+      ...(options?.maxStages ? { maxStages: options.maxStages } : {}),
+      ...(options?.startNew ? { startNew: true } : {}),
+    },
     sellerScoped: true,
-    signal,
+    signal: options?.signal,
   })
 }
 

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { ChatBubbleLeftRight, XMark } from "@medusajs/icons";
 import { Button, Container, Heading, IconButton, StatusBadge, Text, Textarea } from "@medusajs/ui";
@@ -45,6 +45,7 @@ const capabilityPreview = [
 type RolePackageDraftSummary = {
   draftId?: string;
   status?: string;
+  sourceMessage?: string;
   packageId?: string | null;
   packageVersion?: string | null;
   fileCount?: number;
@@ -66,11 +67,24 @@ type DialogResponse = {
   message?: {
     content?: string;
   };
+  actions?: DialogAction[];
+};
+
+type DialogAction = {
+  id: string;
+  kind: string;
+  label: string;
+  description?: string;
+  action: string;
+  path?: string;
+  requiresConfirmation?: boolean;
+  risk?: string;
 };
 
 type DijieRolePackageGenerationErrorData = {
   error?: string;
   issues?: string[];
+  draft?: RolePackageDraftSummary;
   diagnostics?: {
     stageId?: string;
     stageLabel?: string;
@@ -78,6 +92,76 @@ type DijieRolePackageGenerationErrorData = {
     repairReplyPreview?: string;
   };
 };
+
+const ROLE_PACKAGE_REQUIRED_FILE_COUNT = 16;
+const ROLE_PACKAGE_STAGES_PER_SUBMIT = ROLE_PACKAGE_REQUIRED_FILE_COUNT;
+const ROLE_PACKAGE_EXPECTED_SECONDS_PER_FILE_MIN = 60;
+const ROLE_PACKAGE_EXPECTED_SECONDS_PER_FILE_MAX = 95;
+const DIALOG_REQUEST_TIMEOUT_MS = 60_000;
+
+const rolePackageOutputPaths = [
+  "role_package/manifest.json",
+  "role_package/README.md",
+  "role_package/listing.md",
+  "role_package/tool_requirements.md",
+  "role_package/integrations/openclaw-wrapper.md",
+  "role_package/skills/main-image-inspection.md",
+  "role_package/skills/detail-page-inspection.md",
+  "role_package/skills/product-fidelity-self-check.md",
+  "role_package/skills/visual-issue-record.md",
+  "role_package/skills/design-standard-maintenance.md",
+  "role_package/knowledge/sop.md",
+  "role_package/knowledge/design-rules.md",
+  "role_package/templates/main-image-inspection-record.md",
+  "role_package/templates/detail-page-optimization-checklist.md",
+  "role_package/validation/smoke-test.md",
+  "role_package/validation/acceptance-samples.md",
+];
+
+const requirementFields = [
+  {
+    key: "role_goal",
+    label: "岗位目标和服务对象",
+    question: "这个岗位主要服务谁，最终要交付什么结果？",
+    pattern: /岗位|角色|role|服务对象|面向|商家|客户|用户|目标|定位|交付|智能门锁|美工|设计师/u,
+  },
+  {
+    key: "business_scenario",
+    label: "业务场景",
+    question: "它会在哪个业务场景里工作，比如商品上新、图片巡检、详情页优化还是日常维护？",
+    pattern: /业务场景|场景|电商|商品|sku|上新|主图|详情页|海报|销售|运营|日常|维护|business|scenario|ecommerce|product|listing|storefront/u,
+  },
+  {
+    key: "sop",
+    label: "SOP / 工作流程",
+    question: "它从拿到资料到输出结果，中间要按什么步骤走？",
+    pattern: /sop|流程|步骤|先|然后|每日|每周|每月|巡检|复盘|维护|处理/u,
+  },
+  {
+    key: "skills_tools",
+    label: "skill / 工具能力",
+    question: "它需要哪些 skill、工具或外部能力，比如图片理解、浏览器检查、文案审核、人工确认？",
+    pattern: /skill|能力|工具|浏览器|browser|图片|图像|文案|审核|生成|检查|adapter|provider|human|confirm/u,
+  },
+  {
+    key: "inputs_outputs",
+    label: "输入和输出",
+    question: "输入资料是什么，输出文件、清单、报告或模板是什么？",
+    pattern: /输入|输出|资料|文件|清单|报告|模板|record|template|brief|copy|input|output|deliverable|文案|结果/u,
+  },
+  {
+    key: "confirmations",
+    label: "人工确认点",
+    question: "哪些动作发布前必须停下来等人工确认？",
+    pattern: /确认|人工|发布前|上架前|审核|复核|确认点|human\.confirm/u,
+  },
+  {
+    key: "validation_failure",
+    label: "验收标准和失败标准",
+    question: "什么算通过、存疑、不通过，失败时要怎么降级？",
+    pattern: /验收|失败|标准|通过|存疑|不通过|风险|质量|安全|降级|模糊|虚假|隐私/u,
+  },
+] as const;
 
 type NavigationTarget = {
   path: string;
@@ -102,16 +186,36 @@ const formatElapsed = (seconds: number) => {
   return minutes > 0 ? `${minutes}分${rest}秒` : `${rest}秒`;
 };
 
+const formatDuration = (seconds: number) => {
+  const minutes = Math.ceil(seconds / 60);
+  return minutes >= 60 ? `${Math.floor(minutes / 60)}小时${minutes % 60}分` : `${minutes}分钟`;
+};
+
+const formatDurationRange = (minSeconds: number, maxSeconds: number) => {
+  if (minSeconds <= 0 && maxSeconds <= 0) {
+    return "不到 1 分钟";
+  }
+  const minText = formatDuration(minSeconds);
+  const maxText = formatDuration(maxSeconds);
+  return minText === maxText ? minText : `${minText}-${maxText}`;
+};
+
+const estimateRemainingGenerationTime = (remainingFiles: number) =>
+  formatDurationRange(
+    remainingFiles * ROLE_PACKAGE_EXPECTED_SECONDS_PER_FILE_MIN,
+    remainingFiles * ROLE_PACKAGE_EXPECTED_SECONDS_PER_FILE_MAX,
+  );
+
 const isNavigationIntent = (text: string) =>
-  /(打开|进入|查看|去|跳到|回到|返回|带我到|带我去|我要到|我要去|上传|上架).*(开发对话|对话|销售|订单|结算|分账|能力|工具|上传|上架|审核|岗位商品|商品|开发者资料|账户资料|资料)/u.test(text);
+  /(打开|进入|查看|去|跳到|回到|返回|带我到|带我去|我要到|我要去|上传|上架).*(开发对话|对话|销售|订单|结算|分账|能力|工具|上传|上架|审核|岗位商品|商品|开发者资料|账户资料|资料)|\b(dialog|chat|home|products?|listings?|upload|create|orders?|sales?|payouts?|settlements?|capabilities|resources|tools?|profile|settings)\b/u.test(text.toLowerCase());
 
 const isNegatedGenerationIntent = (text: string) =>
   /(?:不要|不需要|无需|先别|别|勿|禁止).{0,12}(?:生成|创建|开发|输出|写出).{0,12}(?:岗位包|role_package|文件|manifest|skill|sop|template|validation)/u.test(text);
 
 const isGenerationIntent = (text: string) =>
   !isNegatedGenerationIntent(text) &&
-  /岗位|role_package|manifest|skill|sop|template|validation|验收|智能体/u.test(text) &&
-  /生成|创建|开发|做一个|补|继续|输出|写出|manifest|skill|sop|template|validation/u.test(text);
+  /岗位|role[_ -]?package|manifest|skill|sop|template|validation|验收|智能体|\brole\b/u.test(text) &&
+  /生成|创建|开发|做一个|补|继续|输出|写出|manifest|skill|sop|template|validation|\b(create|build|develop|generate|continue|add|update)\b/u.test(text.toLowerCase());
 
 const isRolePackageDevelopmentSpec = (text: string) =>
   isGenerationIntent(text) &&
@@ -120,15 +224,89 @@ const isRolePackageDevelopmentSpec = (text: string) =>
       text
     ));
 
+const isRequirementContinuation = (text: string, hasIntake: boolean) =>
+  hasIntake &&
+  /(业务|场景|sop|流程|步骤|skill|能力|工具|输入|输出|资料|模板|验收|失败|标准|确认|跳过|默认|不用|不需要|没有|补充|增加|新增|修改|继续|开始生成|直接生成)/u.test(
+    text
+  );
+
+const isRequirementChangeIntent = (text: string) =>
+  /(增加|新增|补充|追加|修改|改成|再加|另外|还要|也要|调整).*(需求|能力|流程|标准|skill|工具|确认|输出|模板|岗位|role_package)|^(增加|新增|补充|追加|修改|改成|再加|另外|还要|也要|调整)/u.test(
+    text
+  );
+
+const shouldProceedWithIncompleteRequirements = (text: string) =>
+  /(开始生成|直接生成|继续生成|生成吧|按默认|默认处理|你来补|平台补|跳过|不用补|不补了|没有了|暂时没有|不需要|不用|先这样)/u.test(
+    text
+  );
+
+const isResumeRolePackageGenerationIntent = (text: string) =>
+  /^(继续|继续生成|接着生成|继续跑|接着跑|续跑|重试|再试一次|继续生成岗位包|继续生成 role_package|continue|retry)$/iu.test(
+    text.trim()
+  );
+
+const extractSkippedRequirementFields = (text: string, missingKeys: string[]) => {
+  if (!/(跳过|不用|不需要|没有|默认|你来补|平台补|先这样|不补了)/u.test(text)) {
+    return [];
+  }
+
+  const skipped: string[] = [];
+  for (const field of requirementFields) {
+    if (
+      missingKeys.includes(field.key) &&
+      new RegExp(`${field.label}|${field.key}|${field.question.slice(0, 4)}`, "u").test(text)
+    ) {
+      skipped.push(field.key);
+    }
+  }
+
+  return skipped.length > 0 ? skipped : missingKeys;
+};
+
+const analyzeRoleRequirement = (text: string, skippedFields: string[]) => {
+  const skipped = new Set(skippedFields);
+  const missing = requirementFields.filter((field) => !skipped.has(field.key) && !field.pattern.test(text));
+  return {
+    missing,
+    ready: missing.length === 0,
+  };
+};
+
+const buildRequirementPrompt = (missing: Array<(typeof requirementFields)[number]>) => {
+  const visibleMissing = missing.slice(0, 4);
+  return [
+    "我先不生成岗位包，还需要把需求补清楚一点。",
+    `缺口：${visibleMissing.map((field) => field.label).join("、")}。`,
+    `你可以继续一句一句补充，例如：${visibleMissing[0]?.question ?? "补充业务场景和验收标准。"}`,
+    "如果某项确实不需要，直接说“跳过这些，开始生成”也可以。",
+  ].join("\n");
+};
+
+const buildGenerationMessage = (notes: string[], skippedFields: string[]) => {
+  const skippedLabels = requirementFields
+    .filter((field) => skippedFields.includes(field.key))
+    .map((field) => field.label);
+
+  return [
+    "以下是开发者逐步补充后的岗位开发规格，请按这些要求生成 role_package。",
+    ...notes.map((note, index) => `补充 ${index + 1}: ${note}`),
+    skippedLabels.length > 0
+      ? `开发者明确跳过或接受默认处理的部分：${skippedLabels.join("、")}。不要因为这些字段未细化而阻断生成，但要在岗位包里写清默认假设和人工确认边界。`
+      : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+};
+
 const getNavigationTarget = (text: string): NavigationTarget | null => {
-  if (/(回到|返回|打开|进入|查看|去|跳到|我要到|我要去|带我到|带我去).*(开发对话|对话)/u.test(text)) {
+  if (/(回到|返回|打开|进入|查看|去|跳到|我要到|我要去|带我到|带我去).*(开发对话|对话)|\b(dialog|chat|home)\b/u.test(text)) {
     return {
       path: "/",
       message: "已回到开发对话。",
     };
   }
 
-  if (/(上传|上架|发布).*(岗位|岗位包|role_package|草稿|商品)|岗位包.*(上传|上架|发布)/u.test(text)) {
+  if (/(上传|上架|发布).*(岗位|岗位包|role_package|草稿|商品)|岗位包.*(上传|上架|发布)|\b(upload|create|submit|publish)\b.*\b(role|package|product|draft|listing)\b|\brole[_ -]?package\b.*\b(upload|submit|publish)\b/u.test(text)) {
     return {
       path: "/products/create",
       message:
@@ -136,28 +314,28 @@ const getNavigationTarget = (text: string): NavigationTarget | null => {
     };
   }
 
-  if (/(岗位商品|商品).*(审核|状态|上架|管理|列表|查看)|审核.*(岗位|商品|状态)|上架状态/u.test(text)) {
+  if (/(岗位商品|商品).*(审核|状态|上架|管理|列表|查看)|审核.*(岗位|商品|状态)|上架状态|\b(products?|listings?)\b.*\b(status|review|manage|list|open|view)?\b|\b(status|review)\b.*\b(products?|listings?)\b/u.test(text)) {
     return {
       path: "/products",
       message: "已进入岗位商品，查看草稿、审核和上架状态。",
     };
   }
 
-  if (/(销售|订单|购买).*(记录|查看|列表|状态)?|订单/u.test(text)) {
+  if (/(销售|订单|购买).*(记录|查看|列表|状态)?|订单|\b(orders?|sales?)\b/u.test(text)) {
     return {
       path: "/orders",
       message: "已进入销售记录。",
     };
   }
 
-  if (/(结算|分账|应收|收款).*(记录|查看|列表|状态)?/u.test(text)) {
+  if (/(结算|分账|应收|收款).*(记录|查看|列表|状态)?|\b(payouts?|settlements?|receivables?)\b/u.test(text)) {
     return {
       path: "/payouts",
       message: "已进入结算记录。",
     };
   }
 
-  if (/(能力|工具|资源).*(查看|列表|打开|进入|管理)?/u.test(text)) {
+  if (/(能力|工具|资源).*(查看|列表|打开|进入|管理)?|\b(capabilities|resources|tools?)\b/u.test(text)) {
     return {
       path: "/tool-resources",
       message: "已进入能力资源。",
@@ -165,7 +343,7 @@ const getNavigationTarget = (text: string): NavigationTarget | null => {
     };
   }
 
-  if (/(开发者资料|账户资料|个人资料|资料|地址|主体信息|公司信息).*(查看|编辑|补全|打开|进入|管理)?/u.test(text)) {
+  if (/(开发者资料|账户资料|个人资料|资料|地址|主体信息|公司信息).*(查看|编辑|补全|打开|进入|管理)?|\b(profile|settings|developer profile|account)\b/u.test(text)) {
     return {
       path: "/settings/profile",
       message: "已进入开发者资料。",
@@ -238,6 +416,10 @@ const RolePackageDraftPanel = ({ draft }: { draft: RolePackageDraftSummary }) =>
 );
 
 const formatGenerationErrorMessage = (error: unknown) => {
+  if (isAbortError(error)) {
+    return "AI开发助手已停止当前生成请求，已保存的 partial 草稿会保留。";
+  }
+
   const message =
     error instanceof Error && error.message ? error.message : "请确认本地 OpenClaw 模型桥和草稿存储已配置。";
   const data = (error as Error & { data?: DijieRolePackageGenerationErrorData })?.data;
@@ -262,6 +444,10 @@ const formatGenerationErrorMessage = (error: unknown) => {
   return `AI开发助手暂时无法生成岗位包：${message}${details.length ? `\n${details.join("\n")}` : ""}`;
 };
 
+const isAbortError = (error: unknown) =>
+  error instanceof Error &&
+  (error.name === "AbortError" || /aborted|abort/i.test(error.message));
+
 export const DeveloperAiPanel = ({ compact = false }: { compact?: boolean }) => {
   const navigate = useNavigate();
   const [draft, setDraft] = useState("");
@@ -272,6 +458,10 @@ export const DeveloperAiPanel = ({ compact = false }: { compact?: boolean }) => 
   const [startedAt, setStartedAt] = useState<number | null>(null);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [rolePackageDraft, setRolePackageDraft] = useState<RolePackageDraftSummary | null>(null);
+  const [requirementNotes, setRequirementNotes] = useState<string[]>([]);
+  const [skippedRequirementFields, setSkippedRequirementFields] = useState<string[]>([]);
+  const [activeController, setActiveController] = useState<AbortController | null>(null);
+  const abortReasonRef = useRef<"manual" | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -312,6 +502,30 @@ export const DeveloperAiPanel = ({ compact = false }: { compact?: boolean }) => 
     return () => window.clearInterval(timer);
   }, [running, startedAt]);
 
+  useEffect(() => {
+    if (!running || runningMode !== "generation") {
+      return;
+    }
+
+    const timer = window.setInterval(() => {
+      fetchLatestDijieRolePackageDraftQuery()
+        .then((result) => {
+          const latestDraft = (result as { draft?: RolePackageDraftSummary | null })?.draft ?? null;
+          if (!latestDraft) {
+            return;
+          }
+          setRolePackageDraft((current) =>
+            (latestDraft.fileCount ?? 0) >= (current?.fileCount ?? 0) ? latestDraft : current,
+          );
+        })
+        .catch(() => {
+          // Generation can keep running even if a progress poll misses once.
+        });
+    }, 15000);
+
+    return () => window.clearInterval(timer);
+  }, [running, runningMode]);
+
   const stageText = useMemo(() => {
     if (!running) {
       return "待命";
@@ -319,22 +533,47 @@ export const DeveloperAiPanel = ({ compact = false }: { compact?: boolean }) => 
     if (runningMode === "dialog") {
       return "正在调用 OpenClaw 模型回答开发问题。";
     }
-    if (elapsedSeconds >= 120) {
-      return "模型仍在生成完整岗位包，建议后续拆成规划、skills、templates、validation 分阶段生成。";
+    const savedFiles = Math.min(rolePackageDraft?.fileCount ?? 0, ROLE_PACKAGE_REQUIRED_FILE_COUNT);
+    const remainingFiles = Math.max(ROLE_PACKAGE_REQUIRED_FILE_COUNT - savedFiles, 0);
+    const currentPath = rolePackageOutputPaths[savedFiles] ?? "剩余岗位包文件";
+    if (remainingFiles === 0 || rolePackageDraft?.status === "ready") {
+      return "岗位包文件已生成完成，正在收尾校验 ready 草稿。";
     }
-    if (elapsedSeconds >= 30) {
-      return "已进入长任务生成，正在等待 OpenClaw 模型返回岗位包 JSON。";
+    if (elapsedSeconds >= 600) {
+      return `正在等待模型生成第 ${savedFiles + 1}/${ROLE_PACKAGE_REQUIRED_FILE_COUNT} 个文件：${currentPath}。预计剩余 ${estimateRemainingGenerationTime(remainingFiles)}，已完成 ${savedFiles} 个文件会保留。`;
     }
-    return "正在调用 OpenClaw 模型生成岗位包。";
-  }, [elapsedSeconds, running, runningMode]);
+    if (elapsedSeconds >= 60) {
+      return `当前文件较复杂，仍在生成第 ${savedFiles + 1}/${ROLE_PACKAGE_REQUIRED_FILE_COUNT} 个文件：${currentPath}。预计剩余 ${estimateRemainingGenerationTime(remainingFiles)}。`;
+    }
+    return `正在生成第 ${savedFiles + 1}/${ROLE_PACKAGE_REQUIRED_FILE_COUNT} 个文件：${currentPath}。预计剩余 ${estimateRemainingGenerationTime(remainingFiles)}。`;
+  }, [elapsedSeconds, rolePackageDraft, running, runningMode]);
 
   const appendMessage = (message: Omit<DeveloperMessage, "id">) => {
     setMessages((current) => [...current, { id: createMessageId(), ...message }]);
   };
 
+  const handleCancel = () => {
+    abortReasonRef.current = "manual";
+    activeController?.abort();
+  };
+
   const runLowRiskAction = (path: string, message: string) => {
     appendMessage({ role: "assistant", text: message });
     navigate(path);
+  };
+
+  const runDialogAction = (action: DialogAction) => {
+    if (action.kind !== "navigate" || !action.path || action.requiresConfirmation) {
+      return false;
+    }
+
+    setShowCapabilities(action.action === "navigate_capabilities");
+    appendMessage({
+      role: "assistant",
+      text: action.description ? `已执行：${action.label}。${action.description}` : `已执行：${action.label}。`,
+    });
+    navigate(action.path);
+    return true;
   };
 
   const handleSubmit = async () => {
@@ -345,41 +584,162 @@ export const DeveloperAiPanel = ({ compact = false }: { compact?: boolean }) => 
 
     appendMessage({ role: "user", text });
 
-    const shouldGenerateRolePackage = isRolePackageDevelopmentSpec(text);
-    const navigationTarget = shouldGenerateRolePackage ? null : getNavigationTarget(text);
+    const generationIntent = isGenerationIntent(text);
+    const shouldResumeRolePackage =
+      !!rolePackageDraft &&
+      rolePackageDraft.status !== "ready" &&
+      rolePackageDraft.status !== "submitted" &&
+      isResumeRolePackageGenerationIntent(text);
+    const shouldGenerateRolePackage =
+      shouldResumeRolePackage || isRolePackageDevelopmentSpec(text);
+    const navigationTarget = generationIntent ? null : getNavigationTarget(text);
+    const requirementContinuation = isRequirementContinuation(text, requirementNotes.length > 0);
 
     if (
       shouldGenerateRolePackage ||
-      (isGenerationIntent(text) && !navigationTarget && !isNavigationIntent(text))
+      requirementContinuation ||
+      (generationIntent && !navigationTarget)
     ) {
+      const nextNotes = shouldResumeRolePackage
+        ? requirementNotes
+        : [...requirementNotes, text];
+      const currentRequirementText = nextNotes.join("\n");
+      const initialAnalysis = analyzeRoleRequirement(
+        currentRequirementText,
+        skippedRequirementFields
+      );
+      const proceedDespiteMissing =
+        shouldResumeRolePackage || shouldProceedWithIncompleteRequirements(text);
+      const nextSkippedFields = [
+        ...new Set([
+          ...skippedRequirementFields,
+          ...(proceedDespiteMissing
+            ? extractSkippedRequirementFields(
+                text,
+                initialAnalysis.missing.map((field) => field.key)
+              )
+            : []),
+        ]),
+      ];
+      const analysis = analyzeRoleRequirement(currentRequirementText, nextSkippedFields);
+
+      setRequirementNotes(nextNotes);
+      setSkippedRequirementFields(nextSkippedFields);
+
+      if (!shouldResumeRolePackage && !analysis.ready && !proceedDespiteMissing) {
+        appendMessage({
+          role: "assistant",
+          text: buildRequirementPrompt(analysis.missing),
+        });
+        setDraft("");
+        return;
+      }
+
+      const generationMessage = shouldResumeRolePackage
+        ? rolePackageDraft.sourceMessage?.trim() ||
+          buildGenerationMessage(
+            nextNotes.length > 0
+              ? nextNotes
+              : [
+                  "继续生成已有 partial role_package 草稿。请依据已有草稿摘要和已生成文件，补全下一个缺失文件。",
+                ],
+            nextSkippedFields
+          )
+        : buildGenerationMessage(nextNotes, nextSkippedFields);
+      const shouldStartNewDraft = rolePackageDraft?.status === "ready" && isRequirementChangeIntent(text);
       const controller = new AbortController();
+      setActiveController(controller);
       setRunning(true);
       setRunningMode("generation");
       setStartedAt(Date.now());
       setShowCapabilities(false);
+      const startingFileCount = shouldStartNewDraft ? 0 : (rolePackageDraft?.fileCount ?? 0);
+      const estimatedRemainingFiles = Math.max(ROLE_PACKAGE_REQUIRED_FILE_COUNT - startingFileCount, 1);
       appendMessage({
         role: "assistant",
-        text: "已收到岗位开发规格，开始生成 role_package 草稿。这个动作会调用模型并做结构、能力和质量校验。",
+        text: shouldStartNewDraft
+          ? `已收到新增需求，将基于新的完整规格重新生成一个 role_package 草稿。本轮会逐个生成 ${ROLE_PACKAGE_REQUIRED_FILE_COUNT} 个文件，预计 ${estimateRemainingGenerationTime(ROLE_PACKAGE_REQUIRED_FILE_COUNT)}；耗时长是正常的，完成一个文件就保存一次。`
+          : shouldResumeRolePackage
+            ? `继续生成已有 partial 岗位包草稿，本轮会逐个生成剩余 ${estimatedRemainingFiles} 个文件，预计 ${estimateRemainingGenerationTime(estimatedRemainingFiles)}；耗时长是正常的，完成一个文件就保存一次。`
+            : `已收到岗位开发规格，本轮会逐个生成剩余 ${estimatedRemainingFiles} 个文件，预计 ${estimateRemainingGenerationTime(estimatedRemainingFiles)}；耗时长是正常的，完成一个文件就保存一次，全部校验通过后才变成可上传 ready。`,
       });
       try {
-        const result = await generateDijieRolePackageDraftQuery(text, controller.signal) as {
+        let currentDraft: RolePackageDraftSummary | null =
+          rolePackageDraft?.status === "submitted" || shouldStartNewDraft ? null : rolePackageDraft;
+        let completedDraft: RolePackageDraftSummary | null = null;
+        let startNewConsumed = false;
+
+        for (let step = 0; step < ROLE_PACKAGE_STAGES_PER_SUBMIT; step += 1) {
+          if (controller.signal.aborted) {
+            break;
+          }
+          const previousFileCount = currentDraft?.fileCount ?? 0;
+          const result = await generateDijieRolePackageDraftQuery(generationMessage, {
+            draftId: currentDraft?.draftId,
+            maxStages: 1,
+            signal: controller.signal,
+            startNew: shouldStartNewDraft && !currentDraft?.draftId && !startNewConsumed,
+          }) as {
           draft?: RolePackageDraftSummary;
-        };
-        const generatedDraft = result.draft;
+            complete?: boolean;
+          };
+          startNewConsumed = true;
+          const generatedDraft = result.draft ?? currentDraft;
+          if (generatedDraft) {
+            currentDraft = generatedDraft;
+            setRolePackageDraft(generatedDraft);
+            appendMessage({
+              role: "system",
+              text: `已保存阶段草稿：${generatedDraft.fileCount ?? 0}/${ROLE_PACKAGE_REQUIRED_FILE_COUNT} 个文件，状态 ${generatedDraft.status ?? "partial"}；预计剩余 ${estimateRemainingGenerationTime(Math.max(ROLE_PACKAGE_REQUIRED_FILE_COUNT - (generatedDraft.fileCount ?? 0), 0))}。`,
+            });
+          }
+
+          if (result.complete || generatedDraft?.status === "ready") {
+            completedDraft = generatedDraft ?? null;
+            break;
+          }
+
+          if ((generatedDraft?.fileCount ?? previousFileCount) <= previousFileCount) {
+            appendMessage({
+              role: "assistant",
+              text: "当前阶段没有新增可保存文件，已暂停自动继续。你可以查看失败提示后发送“继续生成”重试当前文件。",
+            });
+            break;
+          }
+        }
+
+        const generatedDraft = completedDraft ?? currentDraft;
         setRolePackageDraft(generatedDraft ?? null);
         appendMessage({
           role: "assistant",
-          text: generatedDraft
-            ? `已生成岗位包草稿，包含 ${generatedDraft.fileCount ?? 0} 个文件，质量评分 ${generatedDraft.qualityReport?.score ?? 0}。`
-            : "已生成岗位包草稿，请到上传岗位页确认。",
+          text:
+            generatedDraft?.status === "ready"
+              ? `已生成 ready 岗位包草稿，包含 ${generatedDraft.fileCount ?? 0} 个文件，质量评分 ${generatedDraft.qualityReport?.score ?? 0}。可以去上传岗位页承接。`
+              : generatedDraft
+                ? `已保存 partial 岗位包草稿，包含 ${generatedDraft.fileCount ?? 0} 个文件；发送“继续生成”可以从未完成文件接着生成。`
+                : "本次没有形成可保存的岗位包草稿，请补充岗位规格后重试。",
         });
       } catch (error) {
-        setRolePackageDraft(null);
+        const partialDraft = (error as Error & { data?: DijieRolePackageGenerationErrorData })?.data?.draft;
+        if (partialDraft) {
+          setRolePackageDraft(partialDraft);
+        }
+        const abortReason = abortReasonRef.current;
         appendMessage({
           role: "assistant",
-          text: formatGenerationErrorMessage(error),
+          text: isAbortError(error)
+            ? abortReason === "manual"
+              ? "已停止当前生成请求；已保存的 partial 草稿会保留，可以发送“继续生成”接着跑。"
+              : "当前生成请求被浏览器或网络中断；已保存的 partial 草稿会保留，可以发送“继续生成”接着跑。"
+            : `${formatGenerationErrorMessage(error)}${
+                partialDraft
+                  ? `\n已保留 partial 草稿：${partialDraft.fileCount ?? 0}/${ROLE_PACKAGE_REQUIRED_FILE_COUNT} 个文件。你可以继续生成未完成阶段。`
+                  : ""
+              }`,
         });
       } finally {
+        abortReasonRef.current = null;
+        setActiveController(null);
         setRunning(false);
         setRunningMode(null);
         setStartedAt(null);
@@ -388,34 +748,56 @@ export const DeveloperAiPanel = ({ compact = false }: { compact?: boolean }) => 
       return;
     }
 
-    if (navigationTarget) {
-      setShowCapabilities(!!navigationTarget.showCapabilities);
-      runLowRiskAction(navigationTarget.path, navigationTarget.message);
-    } else {
-      setShowCapabilities(false);
-      setRunning(true);
-      setRunningMode("dialog");
-      setStartedAt(Date.now());
-      try {
-        const result = (await sendDijieDeveloperDialogMessageQuery(text)) as DialogResponse;
-        appendMessage({
-          role: "assistant",
-          text:
-            result.message?.content ??
-            "已记录。低风险导航可以直接执行；发布、改价、结算确认会等待你确认。",
-        });
-      } catch (error) {
-        appendMessage({
-          role: "assistant",
-          text: `开发助手暂时无法调用模型：${
-            error instanceof Error && error.message ? error.message : "请稍后重试。"
-          }`,
-        });
-      } finally {
-        setRunning(false);
-        setRunningMode(null);
-        setStartedAt(null);
+    setShowCapabilities(false);
+    const controller = new AbortController();
+    setActiveController(controller);
+    const timeoutId = window.setTimeout(() => {
+      abortReasonRef.current = "timeout";
+      controller.abort();
+    }, DIALOG_REQUEST_TIMEOUT_MS);
+    setRunning(true);
+    setRunningMode("dialog");
+    setStartedAt(Date.now());
+    try {
+      const result = (await sendDijieDeveloperDialogMessageQuery(text, controller.signal)) as DialogResponse;
+      appendMessage({
+        role: "assistant",
+        text:
+          result.message?.content ??
+          "已记录。低风险导航可以直接执行；发布、改价、结算确认会等待你确认。",
+      });
+      const lowRiskAction = result.actions?.find(
+        (item) => item.kind === "navigate" && item.path && !item.requiresConfirmation,
+      );
+      if (lowRiskAction) {
+        runDialogAction(lowRiskAction);
+      } else if (navigationTarget) {
+        setShowCapabilities(!!navigationTarget.showCapabilities);
+        runLowRiskAction(navigationTarget.path, navigationTarget.message);
       }
+    } catch (error) {
+      if (navigationTarget) {
+        setShowCapabilities(!!navigationTarget.showCapabilities);
+        runLowRiskAction(navigationTarget.path, navigationTarget.message);
+      } else {
+        appendMessage({
+          role: "assistant",
+          text: isAbortError(error)
+            ? abortReasonRef.current === "timeout"
+              ? `开发助手等待模型超过 ${Math.floor(DIALOG_REQUEST_TIMEOUT_MS / 1000)} 秒，已停止本次回答。`
+              : "已停止当前开发助手回答。"
+            : `开发助手暂时无法调用模型：${
+                error instanceof Error && error.message ? error.message : "请稍后重试。"
+              }`,
+        });
+      }
+    } finally {
+      window.clearTimeout(timeoutId);
+      abortReasonRef.current = null;
+      setActiveController(null);
+      setRunning(false);
+      setRunningMode(null);
+      setStartedAt(null);
     }
 
     setDraft("");
@@ -424,8 +806,8 @@ export const DeveloperAiPanel = ({ compact = false }: { compact?: boolean }) => 
   return (
     <Container
       className={[
-        "grid grid-rows-[auto_minmax(0,1fr)_auto] p-0",
-        compact ? "h-[620px]" : "min-h-[560px]",
+        "grid grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden p-0",
+        compact ? "h-[620px]" : "h-full min-h-0",
       ].join(" ")}
     >
       <div className="border-b px-6 py-4">
@@ -433,12 +815,6 @@ export const DeveloperAiPanel = ({ compact = false }: { compact?: boolean }) => 
         <Text className="mt-2 text-ui-fg-subtle">讲业务逻辑，发布前停在确认点</Text>
       </div>
       <div className="grid min-h-0 content-start gap-y-4 overflow-y-auto p-6" aria-live="polite">
-        <div className="flex items-center justify-between rounded-md border bg-ui-bg-subtle px-4 py-3">
-          <Text className="txt-compact-small-plus text-ui-fg-base">{stageText}</Text>
-          <StatusBadge color={running ? "orange" : "grey"}>
-            {running ? formatElapsed(elapsedSeconds) : "待命"}
-          </StatusBadge>
-        </div>
         {messages.map((message) => (
           <div
             key={message.id}
@@ -458,6 +834,12 @@ export const DeveloperAiPanel = ({ compact = false }: { compact?: boolean }) => 
         {showCapabilities ? <CapabilityAcquisitionPanel /> : null}
       </div>
       <div className="grid gap-y-3 border-t p-4">
+        <div className="flex items-center justify-between rounded-md border bg-ui-bg-subtle px-4 py-3">
+          <Text className="txt-compact-small-plus text-ui-fg-base">{stageText}</Text>
+          <StatusBadge color={running ? "orange" : "grey"}>
+            {running ? formatElapsed(elapsedSeconds) : "待命"}
+          </StatusBadge>
+        </div>
         <Textarea
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
@@ -467,10 +849,18 @@ export const DeveloperAiPanel = ({ compact = false }: { compact?: boolean }) => 
         />
         <div className="flex items-center justify-between gap-x-3">
           <Text className="txt-compact-small text-ui-fg-subtle">
-            {running ? "生成期间可继续观察进度，完成或失败后会保留记录。" : "长规格会作为岗位包生成输入，不会只做关键词导航。"}
+            {running
+              ? "岗位包生成是长任务，可能需要十几到二十多分钟；完成一个文件就保存一次，可停止后继续。"
+              : "长规格会作为岗位包生成输入，不会只做关键词导航。"}
           </Text>
-          <Button size="small" type="button" onClick={handleSubmit} disabled={!draft.trim() || running}>
-            {running ? "生成中" : "发送"}
+          <Button
+            size="small"
+            type="button"
+            variant={running ? "secondary" : "primary"}
+            onClick={running ? handleCancel : handleSubmit}
+            disabled={running ? !activeController : !draft.trim()}
+          >
+            {running ? "停止" : "发送"}
           </Button>
         </div>
       </div>

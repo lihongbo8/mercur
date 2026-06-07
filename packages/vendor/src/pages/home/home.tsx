@@ -47,7 +47,7 @@ const marketplaceHref = "http://127.0.0.1:3026/us";
 export const Home = () => {
   return (
     <div
-      className="grid min-h-[calc(100vh-24px)] gap-4"
+      className="grid h-[calc(100vh-24px)] min-h-[640px] gap-4 overflow-hidden"
       style={{
         gridTemplateColumns: "minmax(0, 1fr) 330px",
         gridTemplateRows: "auto minmax(0, 1fr)",
@@ -73,7 +73,7 @@ export const Home = () => {
 
       <DeveloperAiPanel />
 
-      <Container className="p-0">
+      <Container className="min-h-0 overflow-hidden p-0">
         <div className="border-b px-6 py-5">
           <Heading level="h2">开发状态</Heading>
         </div>

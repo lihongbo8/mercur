@@ -3135,6 +3135,131 @@
     "draft": "草稿",
     "values": "值"
   },
+  "register": {
+    "title": "加入 {{name}}",
+    "hint": "填写基本信息并设置密码，创建开发者中心账号。",
+    "companyName": "公司名称",
+    "confirmPassword": "确认密码",
+    "signUp": "注册",
+    "alreadySeller": "已有账号？<0>登录</0>",
+    "passwordMismatch": "两次输入的密码不一致",
+    "emailTaken": "该邮箱已被使用",
+    "validation": {
+      "nameRequired": "名称至少需要 2 个字符",
+      "firstNameRequired": "请输入名字",
+      "lastNameRequired": "请输入姓氏",
+      "emailInvalid": "请输入有效邮箱地址",
+      "passwordMinLength": "密码至少需要 8 个字符",
+      "passwordComplexity": "密码必须包含小写字母、大写字母以及数字或符号",
+      "confirmPasswordRequired": "请确认密码"
+    },
+    "firstName": "名字",
+    "lastName": "姓氏",
+    "passwordHint": "密码至少 8 个字符，并包含小写字母、大写字母以及数字或符号",
+    "successTitle": "注册成功",
+    "successHint": "账号可能需要平台审核后才能登录。审核结果会发送到你的邮箱。",
+    "backToLogin": "返回登录"
+  },
+  "onboarding": {
+    "step": "第 {{current}} / {{total}} 步",
+    "organizationSetup": {
+      "title": "设置组织",
+      "subtitle": "填写组织名称",
+      "organizationName": "组织名称",
+      "organizationNamePlaceholder": "我的组织"
+    },
+    "storeSetup": {
+      "title": "设置开发者资料",
+      "subtitle": "填写开发者中心展示和联系信息",
+      "storeName": "开发者名称",
+      "storeNamePlaceholder": "我的开发者账号",
+      "storeEmail": "联系邮箱",
+      "storeEmailHint": "公开展示的联系邮箱",
+      "selectCurrency": "选择币种",
+      "currencyHint": "创建后不可修改",
+      "descriptionPlaceholder": "开发者资料简介"
+    },
+    "detailsSetup": {
+      "title": "完善开发者资料",
+      "subtitle": "补充联系地址和主体信息",
+      "addressTitle": "联系地址",
+      "addressSubtitle": "开发者联系地址",
+      "professionalTitle": "主体信息",
+      "professionalSubtitle": "公司或个人主体资料",
+      "isProfessional": "企业开发者",
+      "isProfessionalDescription": "以公司或组织主体注册",
+      "corporateName": "公司名称",
+      "registrationNumber": "注册号",
+      "taxId": "税号",
+      "completeSetup": "完成设置"
+    },
+    "submitted": {
+      "title": "申请已提交",
+      "description": "你的开发者资料已创建，正在等待审核。审核完成后我们会通知 {{email}}。",
+      "hint": "在此期间，你可以进入开发者中心继续完善资料。",
+      "action": "进入开发者中心"
+    },
+    "wizard": {
+      "stepOf": "第 {{current}} / {{total}} 步",
+      "steps": {
+        "store": "开发者资料",
+        "address": "联系地址",
+        "company": "主体信息",
+        "payment": "结算信息"
+      },
+      "store": {
+        "title": "填写开发者资料",
+        "name": "开发者名称",
+        "email": "联系邮箱",
+        "handle": "开发者标识",
+        "handleTooltip": "开发者标识会成为公开链接的一部分。留空时系统会根据名称自动生成。",
+        "handlePlaceholder": "my-developer-profile",
+        "currency": "结算币种",
+        "selectCurrency": "请选择",
+        "currencyHint": "创建后不可修改"
+      },
+      "skip": "跳过",
+      "address": {
+        "title": "填写联系地址",
+        "name": "联系人或地址名称",
+        "namePlaceholder": "总部",
+        "address": "地址",
+        "address2": "公寓、套房等",
+        "postalCode": "邮政编码",
+        "city": "城市",
+        "country": "国家/地区",
+        "state": "省/州"
+      },
+      "company": {
+        "title": "填写主体信息",
+        "subtitle": "公司或个人主体资料",
+        "corporateName": "公司或主体名称",
+        "registrationNumber": "注册号",
+        "taxId": "税号"
+      },
+      "payment": {
+        "title": "填写结算信息",
+        "subtitle": "用于接收岗位授权和岗位执行收益",
+        "accountName": "账户名称",
+        "accountNumber": "账号",
+        "achRoutingNumber": "ACH 路由号码",
+        "iban": "IBAN",
+        "swiftBic": "SWIFT / BIC"
+      },
+      "validation": {
+        "nameRequired": "请输入名称",
+        "emailInvalid": "请输入有效邮箱",
+        "currencyRequired": "请选择币种",
+        "countryRequired": "请选择国家/地区",
+        "accountNameRequired": "请输入账户名称"
+      },
+      "preview": {
+        "title": "欢迎使用迭界AI岗位商城",
+        "description": "在开发者中心管理岗位包、岗位商品、授权订单和结算。",
+        "placeholder": "应用预览"
+      }
+    }
+  },
   "dateTime": {
     "years_one": "年",
     "years_other": "年",

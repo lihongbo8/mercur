@@ -62,7 +62,7 @@ describe("Dijie dialog context", () => {
       }),
     ).toMatchObject({
       accountType: "buyer",
-      surface: "openclaw_local",
+      surface: "openclaw_main",
       mode: "user",
       subject: {
         roleListingId: "prod_role_001",
@@ -104,6 +104,22 @@ describe("Dijie dialog context", () => {
         mode: "review",
       }),
     ).toBeNull();
+  });
+
+  it("keeps OpenClaw local as a legacy-compatible surface", () => {
+    expect(
+      normalizeDijieDialogContext({
+        accountId: "cus_001",
+        accountType: "buyer",
+        surface: "openclaw_local",
+        mode: "user",
+      }),
+    ).toMatchObject({
+      accountId: "cus_001",
+      accountType: "buyer",
+      surface: "openclaw_local",
+      mode: "user",
+    });
   });
 
   it("keeps billing policy explicit for every dialog surface", () => {
@@ -241,6 +257,14 @@ describe("Dijie dialog context", () => {
         billableModelUsage: true,
         ledgerSource: "admin_review_assist",
         requiresEntitlement: false,
+      },
+      {
+        surface: "openclaw_main",
+        mode: "user",
+        accountType: "buyer",
+        billableModelUsage: true,
+        ledgerSource: "role_usage",
+        requiresEntitlement: true,
       },
       {
         surface: "openclaw_local",

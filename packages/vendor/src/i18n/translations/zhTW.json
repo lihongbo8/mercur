@@ -3211,6 +3211,131 @@
     "draft": "草稿",
     "values": "值"
   },
+  "register": {
+    "title": "加入 {{name}}",
+    "hint": "填寫基本資料並設定密碼，建立開發者中心帳號。",
+    "companyName": "公司名稱",
+    "confirmPassword": "確認密碼",
+    "signUp": "註冊",
+    "alreadySeller": "已有帳號？<0>登入</0>",
+    "passwordMismatch": "兩次輸入的密碼不一致",
+    "emailTaken": "此信箱已被使用",
+    "validation": {
+      "nameRequired": "名稱至少需要 2 個字元",
+      "firstNameRequired": "請輸入名字",
+      "lastNameRequired": "請輸入姓氏",
+      "emailInvalid": "請輸入有效信箱地址",
+      "passwordMinLength": "密碼至少需要 8 個字元",
+      "passwordComplexity": "密碼必須包含小寫字母、大寫字母以及數字或符號",
+      "confirmPasswordRequired": "請確認密碼"
+    },
+    "firstName": "名字",
+    "lastName": "姓氏",
+    "passwordHint": "密碼至少 8 個字元，並包含小寫字母、大寫字母以及數字或符號",
+    "successTitle": "註冊成功",
+    "successHint": "帳號可能需要平台審核後才能登入。審核結果會寄送到你的信箱。",
+    "backToLogin": "返回登入"
+  },
+  "onboarding": {
+    "step": "第 {{current}} / {{total}} 步",
+    "organizationSetup": {
+      "title": "設定組織",
+      "subtitle": "填寫組織名稱",
+      "organizationName": "組織名稱",
+      "organizationNamePlaceholder": "我的組織"
+    },
+    "storeSetup": {
+      "title": "設定開發者資料",
+      "subtitle": "填寫開發者中心展示和聯絡資訊",
+      "storeName": "開發者名稱",
+      "storeNamePlaceholder": "我的開發者帳號",
+      "storeEmail": "聯絡信箱",
+      "storeEmailHint": "公開展示的聯絡信箱",
+      "selectCurrency": "選擇幣別",
+      "currencyHint": "建立後不可修改",
+      "descriptionPlaceholder": "開發者資料簡介"
+    },
+    "detailsSetup": {
+      "title": "完善開發者資料",
+      "subtitle": "補充聯絡地址和主體資訊",
+      "addressTitle": "聯絡地址",
+      "addressSubtitle": "開發者聯絡地址",
+      "professionalTitle": "主體資訊",
+      "professionalSubtitle": "公司或個人主體資料",
+      "isProfessional": "企業開發者",
+      "isProfessionalDescription": "以公司或組織主體註冊",
+      "corporateName": "公司名稱",
+      "registrationNumber": "註冊號",
+      "taxId": "稅號",
+      "completeSetup": "完成設定"
+    },
+    "submitted": {
+      "title": "申請已提交",
+      "description": "你的開發者資料已建立，正在等待審核。審核完成後我們會通知 {{email}}。",
+      "hint": "在此期間，你可以進入開發者中心繼續完善資料。",
+      "action": "進入開發者中心"
+    },
+    "wizard": {
+      "stepOf": "第 {{current}} / {{total}} 步",
+      "steps": {
+        "store": "開發者資料",
+        "address": "聯絡地址",
+        "company": "主體資訊",
+        "payment": "結算資訊"
+      },
+      "store": {
+        "title": "填寫開發者資料",
+        "name": "開發者名稱",
+        "email": "聯絡信箱",
+        "handle": "開發者識別碼",
+        "handleTooltip": "開發者識別碼會成為公開連結的一部分。留空時系統會根據名稱自動產生。",
+        "handlePlaceholder": "my-developer-profile",
+        "currency": "結算幣別",
+        "selectCurrency": "請選擇",
+        "currencyHint": "建立後不可修改"
+      },
+      "skip": "跳過",
+      "address": {
+        "title": "填寫聯絡地址",
+        "name": "聯絡人或地址名稱",
+        "namePlaceholder": "總部",
+        "address": "地址",
+        "address2": "公寓、套房等",
+        "postalCode": "郵遞區號",
+        "city": "城市",
+        "country": "國家/地區",
+        "state": "省/州"
+      },
+      "company": {
+        "title": "填寫主體資訊",
+        "subtitle": "公司或個人主體資料",
+        "corporateName": "公司或主體名稱",
+        "registrationNumber": "註冊號",
+        "taxId": "稅號"
+      },
+      "payment": {
+        "title": "填寫結算資訊",
+        "subtitle": "用於接收崗位授權和崗位執行收益",
+        "accountName": "帳戶名稱",
+        "accountNumber": "帳號",
+        "achRoutingNumber": "ACH 路由號碼",
+        "iban": "IBAN",
+        "swiftBic": "SWIFT / BIC"
+      },
+      "validation": {
+        "nameRequired": "請輸入名稱",
+        "emailInvalid": "請輸入有效信箱",
+        "currencyRequired": "請選擇幣別",
+        "countryRequired": "請選擇國家/地區",
+        "accountNameRequired": "請輸入帳戶名稱"
+      },
+      "preview": {
+        "title": "歡迎使用迭界AI崗位商城",
+        "description": "在開發者中心管理崗位包、崗位商品、授權訂單和結算。",
+        "placeholder": "應用預覽"
+      }
+    }
+  },
   "dateTime": {
     "years_one": "年",
     "years_other": "年",
