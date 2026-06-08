@@ -294,18 +294,6 @@ export function getRouteMap({
                 ],
               },
 
-              // TOOL RESOURCES
-              {
-                path: "/tool-resources",
-                errorElement: <ErrorBoundary />,
-                handle: { breadcrumb: () => "能力资源" },
-                lazy: async () => {
-                  const { ToolResourcesPage } =
-                    await import("./pages/tool-resources");
-                  return { Component: ToolResourcesPage };
-                },
-              },
-
               // CATEGORIES - disabled
               {
                 path: "/categories",

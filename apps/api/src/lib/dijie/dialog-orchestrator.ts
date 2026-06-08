@@ -88,7 +88,7 @@ const PROFILE_COPY: Record<
   developer_center: {
     identity: "开发者中心 AI 开发助手",
     businessStage: "岗位开发、蓝图生成、能力匹配、岗位包生成、上传前预检",
-    dataBoundary: "只能读取当前开发者自己的岗位包、岗位商品、审核状态、能力资源和结算摘要。",
+    dataBoundary: "只能读取当前开发者自己的岗位包、岗位商品、审核状态和结算摘要。",
     outputContract:
       "必须输出结构化意图和建议动作；不能自动上架、不能读取买家私有数据、不能绕过上传预检。",
   },
@@ -140,7 +140,7 @@ function includesAny(text: string, terms: string[]): boolean {
 
 export function buildDialogContext(input: {
   context: DijieDialogContext;
-  pageContext?: Record<string, unknown>;
+  pageContext?: Record<string, unknown> | undefined;
 }) {
   return {
     actor: {
@@ -407,8 +407,12 @@ export function buildSurfacePrompt(input: {
   message: string;
   fallbackReply: string;
   actions: DijieDialogAction[];
+  pageContext?: Record<string, unknown>;
 }): string {
-  const dialogContext = buildDialogContext({ context: input.context });
+  const dialogContext = buildDialogContext({
+    context: input.context,
+    pageContext: input.pageContext,
+  });
   const orchestration = createDijieDialogOrchestration({
     context: input.context,
     capabilityPolicy: input.capabilityPolicy,
@@ -428,6 +432,7 @@ export function buildSurfacePrompt(input: {
     `allowedActions: ${orchestration.allowedActions.join(", ") || "none"}`,
     `forbiddenActions: ${orchestration.profile.forbiddenActions.join(", ") || "none"}`,
     `subject: ${subject}`,
+    `pageContext: ${JSON.stringify(dialogContext.pageContext)}`,
     `outputContract: ${orchestration.profile.outputContract}`,
     "真实业务动作只能由后端 action router 执行；模型不能声称已经上传、已购买、已审核通过、已执行岗位或已写入费用。",
     "模型回复必须是 JSON：{\"reply\": string, \"intent\": string, \"artifacts\": []}。reply 用中文，简洁说明下一步和必要边界。",

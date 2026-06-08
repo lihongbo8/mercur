@@ -15,6 +15,7 @@ function role(overrides: Partial<DijieRoleListing> = {}): DijieRoleListing {
     title: "商品图检查岗位",
     subtitle: "检查商品图是否清晰、合规、适合上架。",
     description: "适合商品图、美工初审和图片质量检查。",
+    usageInstructions: "使用者需要提供商品图、目标平台和人工确认标准。",
     handle: "djrole_image_review",
     listingStatus: "published",
     reviewState: "approved",
@@ -32,8 +33,8 @@ function role(overrides: Partial<DijieRoleListing> = {}): DijieRoleListing {
       developerReceivableCents: 0,
     },
     roleTokenPricing: {
-      inputTokenCentsPerMillion: 0,
-      outputTokenCentsPerMillion: 0,
+      inputTokenCentsPerMillion: 120,
+      outputTokenCentsPerMillion: 360,
       currency: "CNY",
       developerReceivableBps: 10000,
       platformFeeBps: 0,
@@ -46,7 +47,9 @@ function role(overrides: Partial<DijieRoleListing> = {}): DijieRoleListing {
 describe("Dijie dialog messages", () => {
   it("answers buyer storefront questions from the real role listing collection", () => {
     const response = createDijieDialogMessageResponse({
-      context: createDijieBuyerStorefrontDialogContext({ buyerAccountId: "acct_user" }),
+      context: createDijieBuyerStorefrontDialogContext({
+        buyerAccountId: "acct_user",
+      }),
       message: "有没有美工岗位？",
       roles: [role()],
     });
@@ -76,7 +79,9 @@ describe("Dijie dialog messages", () => {
 
   it("does not invent roles when no listing matches the buyer question", () => {
     const response = createDijieDialogMessageResponse({
-      context: createDijieBuyerStorefrontDialogContext({ buyerAccountId: "acct_user" }),
+      context: createDijieBuyerStorefrontDialogContext({
+        buyerAccountId: "acct_user",
+      }),
       message: "有没有合同岗位？",
       roles: [role()],
     });
@@ -86,9 +91,30 @@ describe("Dijie dialog messages", () => {
     expect(response.reply).toContain("暂时没有找到");
   });
 
+  it("refuses role execution from buyer storefront dialogs", () => {
+    const response = createDijieDialogMessageResponse({
+      context: createDijieBuyerStorefrontDialogContext({
+        buyerAccountId: "acct_user",
+      }),
+      message: "帮我执行商品图检查岗位",
+      roles: [role()],
+    });
+
+    expect(response.reply).toContain("商城页不能执行岗位");
+    expect(response.actions).toEqual([
+      expect.objectContaining({
+        kind: "navigate_authorization",
+        action: "navigate_authorization",
+        path: "/us/roles/djrole_image_review",
+      }),
+    ]);
+  });
+
   it("returns developer-center navigation actions instead of relying on local UI guessing", () => {
     const response = createDijieDialogMessageResponse({
-      context: createDijieDeveloperDialogContext({ developerAccountId: "acct_dev" }),
+      context: createDijieDeveloperDialogContext({
+        developerAccountId: "acct_dev",
+      }),
       message: "我要去上传岗位包",
     });
 
@@ -104,7 +130,9 @@ describe("Dijie dialog messages", () => {
 
   it("marks developer role package generation as a model-backed generation action", () => {
     const response = createDijieDialogMessageResponse({
-      context: createDijieDeveloperDialogContext({ developerAccountId: "acct_dev" }),
+      context: createDijieDeveloperDialogContext({
+        developerAccountId: "acct_dev",
+      }),
       message: "生成一个智能门锁电商美工岗位 role_package",
     });
 
@@ -139,9 +167,93 @@ describe("Dijie dialog messages", () => {
     ]);
   });
 
+  it("grounds admin review replies to the selected review read model", () => {
+    const response = createDijieDialogMessageResponse({
+      context: createDijieAdminReviewDialogContext({
+        adminAccountId: "acct_admin",
+        roleListingId: "djrole_visual_lock",
+        reviewId: "review_djrole_visual_lock",
+      }),
+      message: "帮我评估定价",
+      adminReview: {
+        id: "djrole_visual_lock",
+        reviewId: "review_djrole_visual_lock",
+        title: "智能门锁电商美工岗位",
+        subtitle: "主图巡检与方案输出",
+        developerName: "迭界开发者",
+        packageId: "pkg_visual_lock",
+        packageVersion: "1.0.0",
+        reviewState: "submitted",
+        reviewStateLabel: "待审核",
+        listingStatus: "proposed",
+        submittedAt: "2026-06-07T10:00:00.000Z",
+        materialCompleteness: "已完整",
+        safetySummary: "未命中敏感项",
+        pricingAndBilling: "已配置",
+        auditReadback: "脱敏",
+        confirmationPoints: 2,
+        requiredCapabilities: [
+          "image.inspect",
+          "image.generate",
+          "audit.record",
+        ],
+        packageSummary: {
+          manifest: [],
+          requiredCapabilities: [
+            "image.inspect",
+            "image.generate",
+            "audit.record",
+          ],
+          skills: ["role_package/skills/main-image-inspection.md"],
+          templates: ["role_package/templates/main-image-plan.md"],
+          validation: [],
+          readme: "已读取",
+          listing: "已读取",
+          files: [],
+          validationIssues: [],
+          packageDownload: { available: false, url: null },
+        },
+        capabilityChecks: [],
+        safetyChecks: [],
+        pricingSummary: {
+          authorizationFee: "¥299.00",
+          modelUsageFee: "平台默认",
+          platformExecutionFee: "平台统一账本核算",
+          developerRevenue: "¥299.00",
+          hiddenFeeRisk: "未发现隐藏收费",
+          checks: [],
+        },
+        specialtyChecks: [],
+        allowedActions: ["save_evaluations", "finalize_needs_changes"],
+        statusReason: "待人工审核",
+        priceLabel: "¥299.00",
+        evaluations: {
+          roleStandard: "pending",
+          safetyCompliance: "pending",
+          pricingReasonability: "pending",
+        },
+        records: ["进入审核队列。"],
+        finalNote: null,
+      },
+    });
+
+    expect(response.grounding.review).toEqual({
+      roleListingId: "djrole_visual_lock",
+      reviewId: "review_djrole_visual_lock",
+      title: "智能门锁电商美工岗位",
+      reviewState: "submitted",
+      listingStatus: "proposed",
+    });
+    expect(response.reply).toContain("智能门锁电商美工岗位");
+    expect(response.reply).toContain("平台执行费用口径");
+    expect(response.reply).not.toContain("模型调用费");
+  });
+
   it("routes user center records without main workflow dispatch", () => {
     const response = createDijieDialogMessageResponse({
-      context: createDijieUserCenterDialogContext({ buyerAccountId: "acct_user" }),
+      context: createDijieUserCenterDialogContext({
+        buyerAccountId: "acct_user",
+      }),
       message: "查一下我的岗位授权和费用",
     });
 

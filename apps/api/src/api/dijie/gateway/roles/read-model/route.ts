@@ -8,6 +8,10 @@ import type {
   DijieRoleEntitlementLookupRepository,
   DijieRoleEntitlementStorageRecord,
 } from "../../../../../lib/dijie/role-entitlement-store";
+import type {
+  DijieRolePackageReader,
+  DijieRolePackageStorageRecord,
+} from "../../../../../lib/dijie/role-package-store";
 import { listDijieRoleListings } from "../../../../../lib/dijie/role-listings";
 
 type UnknownRecord = Record<string, unknown>;
@@ -76,6 +80,15 @@ function isRoleEntitlementLookupRepository(
   );
 }
 
+function isRolePackageReader(value: unknown): value is DijieRolePackageReader {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    typeof (value as { retrieveDijieRolePackage?: unknown }).retrieveDijieRolePackage ===
+      "function"
+  );
+}
+
 function resolveDijieAuditService(req: MedusaRequest): unknown {
   try {
     return req.scope.resolve(DIJIE_AUDIT_MODULE) as unknown;
@@ -100,6 +113,34 @@ async function listActorEntitlements(input: {
       take: 500,
       order: { authorized_at: "DESC" },
     },
+  );
+}
+
+async function retrieveRolePackages(input: {
+  reader?: DijieRolePackageReader;
+  roles: Awaited<ReturnType<typeof listDijieRoleListings>>;
+}): Promise<Array<DijieRolePackageStorageRecord & { id?: string }>> {
+  if (!input.reader) {
+    return [];
+  }
+
+  const packageKeys = new Map<string, { packageId: string; packageVersion?: string }>();
+  for (const role of input.roles) {
+    if (!role.packageId) {
+      continue;
+    }
+    const key = `${role.packageId}:${role.packageVersion ?? ""}`;
+    packageKeys.set(key, {
+      packageId: role.packageId,
+      ...(role.packageVersion ? { packageVersion: role.packageVersion } : {}),
+    });
+  }
+
+  const packages = await Promise.all(
+    [...packageKeys.values()].map((lookup) => input.reader!.retrieveDijieRolePackage(lookup)),
+  );
+  return packages.filter(
+    (record): record is DijieRolePackageStorageRecord & { id?: string } => Boolean(record),
   );
 }
 
@@ -131,6 +172,10 @@ export async function GET(req: MedusaRequest, res: MedusaResponse) {
       listDijieRoleListings((queryInput) => query.graph(queryInput)),
       listActorEntitlements({ service: auditService, actorId }),
     ]);
+    const packages = await retrieveRolePackages({
+      reader: isRolePackageReader(auditService) ? auditService : undefined,
+      roles,
+    });
 
     return res.status(200).json({
       ok: true,
@@ -140,6 +185,7 @@ export async function GET(req: MedusaRequest, res: MedusaResponse) {
         workspaceRef: workspaceRefFromQuery(req),
         roles,
         entitlements,
+        packages,
       }),
     });
   } catch {

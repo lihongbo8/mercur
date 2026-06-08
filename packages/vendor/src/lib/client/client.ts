@@ -18,12 +18,25 @@ const resolveBackendUrl = () => {
   try {
     const configuredUrl = new URL(configured)
     const originUrl = new URL(browserOrigin)
+    const loopbackHosts = new Set(['localhost', '127.0.0.1', '::1', '[::1]'])
+    const bothLoopback =
+      loopbackHosts.has(configuredUrl.hostname) &&
+      loopbackHosts.has(originUrl.hostname)
     const sameLoopbackPort =
+      bothLoopback &&
       configuredUrl.port === originUrl.port &&
-      ((configuredUrl.hostname === 'localhost' && originUrl.hostname === '127.0.0.1') ||
-        (configuredUrl.hostname === '127.0.0.1' && originUrl.hostname === 'localhost'))
+      configuredUrl.hostname !== originUrl.hostname
 
-    return sameLoopbackPort ? browserOrigin : configured
+    if (sameLoopbackPort) {
+      return browserOrigin
+    }
+
+    if (bothLoopback && configuredUrl.hostname !== originUrl.hostname) {
+      configuredUrl.hostname = originUrl.hostname
+      return configuredUrl.origin
+    }
+
+    return configured
   } catch {
     return configured
   }

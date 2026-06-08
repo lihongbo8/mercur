@@ -196,6 +196,7 @@ export function canReviewDijieRoles(
   roleListingId?: string,
 ): boolean {
   return (
+    hasDijieGlobalDataAccess(context) ||
     context.marketplaceOwnerAccess ||
     context.dataScopes.includes("marketplace:review:*") ||
     context.dataScopes.includes("review:*") ||

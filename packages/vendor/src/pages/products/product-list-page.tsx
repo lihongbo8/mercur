@@ -13,7 +13,7 @@ import {
 
 const Root = ({ children }: { children?: ReactNode }) => {
   return (
-    <SingleColumnPage>
+    <SingleColumnPage hasOutlet={false}>
       {Children.count(children) > 0 ? children : <ProductListTable />}
     </SingleColumnPage>
   );

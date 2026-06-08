@@ -13,6 +13,17 @@ const manifestSummary = {
   permissions: ["workspace.read"],
 };
 
+const roleTokenPricing = {
+  inputTokenCentsPerMillion: 120,
+  outputTokenCentsPerMillion: 360,
+  currency: "CNY",
+  developerReceivableBps: 10000 as const,
+  platformFeeBps: 0 as const,
+};
+
+const usageInstructions =
+  "使用者需要提供商品图、目标平台、品牌卖点和人工确认标准后再发起任务。";
+
 function draftListing(overrides: Partial<DijieRoleListingStorageRecord> = {}) {
   return {
     id: "djrole_123",
@@ -25,6 +36,7 @@ function draftListing(overrides: Partial<DijieRoleListingStorageRecord> = {}) {
     title: "商品图检查岗位",
     subtitle: null,
     description: null,
+    usage_instructions: usageInstructions,
     category: null,
     listing_status: "draft" as const,
     review_state: "draft" as const,
@@ -37,13 +49,7 @@ function draftListing(overrides: Partial<DijieRoleListingStorageRecord> = {}) {
       platformFeeBps: 0,
       developerReceivableCents: 0,
     },
-    role_token_pricing: {
-      inputTokenCentsPerMillion: 0,
-      outputTokenCentsPerMillion: 0,
-      currency: "CNY",
-      developerReceivableBps: 10000 as const,
-      platformFeeBps: 0 as const,
-    },
+    role_token_pricing: roleTokenPricing,
     scopes: ["role.execute", "audit.write"],
     confirmation_points: 0,
     submitted_at: null,
@@ -59,8 +65,10 @@ describe("Dijie role listing store", () => {
       packageVersion: "0.1.0",
       ownerId: "member_123",
       title: "商品图检查岗位",
+      usageInstructions,
       manifestSummary,
       confirmationPoints: 2,
+      roleTokenPricing,
     });
 
     expect(result).toMatchObject({
@@ -87,7 +95,9 @@ describe("Dijie role listing store", () => {
         packageVersion: "0.1.0",
         ownerId: "member_123",
         title: "商品图检查岗位",
+        usageInstructions,
         manifestSummary,
+        roleTokenPricing,
       },
     );
 
@@ -101,6 +111,27 @@ describe("Dijie role listing store", () => {
         },
       },
     });
+  });
+
+  it("rejects token pricing below platform cost", () => {
+    const result = createDijieRoleListingDraftRecord({
+      packageId: "pkg_product_image_qc",
+      packageVersion: "0.1.0",
+      ownerId: "member_123",
+      title: "商品图检查岗位",
+      usageInstructions,
+      manifestSummary,
+      roleTokenPricing: {
+        ...roleTokenPricing,
+        inputTokenCentsPerMillion: 0,
+      },
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      status: 400,
+    });
+    expect(result.ok ? "" : result.error).toContain("不能低于平台成本");
   });
 
   it("updates only owner-owned drafts", async () => {

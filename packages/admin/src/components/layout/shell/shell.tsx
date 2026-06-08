@@ -1,4 +1,4 @@
-import { SidebarLeft, TriangleRightMini, XMark } from "@medusajs/icons"
+import { CogSixTooth, SidebarLeft, TriangleRightMini, XMark } from "@medusajs/icons"
 import { IconButton, clx } from "@medusajs/ui"
 import { AnimatePresence } from "motion/react"
 import { Dialog as RadixDialog } from "radix-ui"
@@ -17,8 +17,13 @@ import { useGlobalShortcuts } from "../../../providers/keybind-provider/hooks"
 import { useSidebar } from "../../../providers/sidebar-provider"
 import { ProgressBar } from "../../common/progress-bar"
 import { Notifications } from "../notifications"
+import { UserMenu } from "../user-menu"
 
-export const Shell = ({ children }: PropsWithChildren) => {
+type ShellProps = PropsWithChildren<{
+  hideSidebar?: boolean
+}>
+
+export const Shell = ({ children, hideSidebar = false }: ShellProps) => {
   const globalShortcuts = useGlobalShortcuts()
   const navigation = useNavigation()
 
@@ -28,12 +33,14 @@ export const Shell = ({ children }: PropsWithChildren) => {
     <KeybindProvider shortcuts={globalShortcuts}>
       <div className="relative flex h-screen flex-col items-start overflow-hidden lg:flex-row">
         <NavigationBar loading={loading} />
-        <div>
-          <MobileSidebarContainer>{children}</MobileSidebarContainer>
-          <DesktopSidebarContainer>{children}</DesktopSidebarContainer>
-        </div>
+        {!hideSidebar && (
+          <div>
+            <MobileSidebarContainer>{children}</MobileSidebarContainer>
+            <DesktopSidebarContainer>{children}</DesktopSidebarContainer>
+          </div>
+        )}
         <div className="flex h-screen w-full flex-col overflow-auto">
-          <Topbar />
+          <Topbar hideSidebar={hideSidebar} />
           <main
             className={clx(
               "flex h-full w-full flex-col items-center overflow-y-auto transition-opacity delay-200 duration-200",
@@ -166,8 +173,12 @@ const Breadcrumbs = () => {
   )
 }
 
-const ToggleSidebar = () => {
+const ToggleSidebar = ({ hidden = false }: { hidden?: boolean }) => {
   const { toggle } = useSidebar()
+
+  if (hidden) {
+    return null
+  }
 
   return (
     <div>
@@ -191,14 +202,26 @@ const ToggleSidebar = () => {
   )
 }
 
-const Topbar = () => {
+const Topbar = ({ hideSidebar = false }: { hideSidebar?: boolean }) => {
   return (
     <div className="grid w-full grid-cols-2 border-b p-3">
       <div className="flex items-center gap-x-1.5">
-        <ToggleSidebar />
+        <ToggleSidebar hidden={hideSidebar} />
         <Breadcrumbs />
       </div>
       <div className="flex items-center justify-end gap-x-3">
+        {hideSidebar && (
+          <>
+            <Link
+              className="txt-compact-small-plus flex h-8 items-center gap-x-2 rounded-md border bg-ui-bg-base px-3 text-ui-fg-base shadow-borders-base hover:bg-ui-bg-subtle"
+              to="/settings/marketplace"
+            >
+              <CogSixTooth className="text-ui-fg-muted" />
+              设置
+            </Link>
+            <UserMenu variant="topbar" />
+          </>
+        )}
         <Notifications />
       </div>
     </div>

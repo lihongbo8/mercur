@@ -1,11 +1,11 @@
 import type { MedusaRequest, MedusaResponse } from "@medusajs/framework/http";
-import { listDijieRoleListings } from "../../../lib/dijie/role-listings";
+import { listDijiePublicRoleListingReadModels } from "../../../lib/dijie/role-listings";
 
 export async function GET(req: MedusaRequest, res: MedusaResponse) {
   const query = req.scope.resolve("query");
 
   try {
-    const roles = await listDijieRoleListings((queryInput) => query.graph(queryInput));
+    const roles = await listDijiePublicRoleListingReadModels((queryInput) => query.graph(queryInput));
     return res.status(200).json({
       ok: true,
       roles,

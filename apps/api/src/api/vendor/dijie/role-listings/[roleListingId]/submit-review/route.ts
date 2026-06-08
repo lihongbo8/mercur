@@ -14,6 +14,11 @@ function actorIdFromRequest(req: MedusaRequest): string | undefined {
   return authContext ? stringField(authContext, "actor_id") : undefined;
 }
 
+function sellerIdFromRequest(req: MedusaRequest): string | undefined {
+  const sellerContext = (req as MedusaRequest & { seller_context?: UnknownRecord }).seller_context;
+  return sellerContext ? stringField(sellerContext, "seller_id") : undefined;
+}
+
 function isRoleListingStore(value: unknown): value is DijieRoleListingStore {
   return (
     value !== null &&
@@ -34,10 +39,11 @@ function resolveRoleListingStore(req: MedusaRequest): DijieRoleListingStore | un
 
 export async function POST(req: MedusaRequest, res: MedusaResponse) {
   const actorId = actorIdFromRequest(req);
-  if (!actorId) {
+  const sellerId = sellerIdFromRequest(req);
+  if (!actorId || !sellerId) {
     return res.status(401).json({
       ok: false,
-      error: "提交岗位商品审核需要登录开发者账号。",
+      error: "提交岗位商品审核需要登录开发者账号并选择开发者店铺。",
     });
   }
 
@@ -61,6 +67,7 @@ export async function POST(req: MedusaRequest, res: MedusaResponse) {
     const result = await store.submitDijieRoleListingForReview({
       roleListingId: roleListingId.trim(),
       ownerId: actorId,
+      sellerId,
     });
     if (!result.ok) {
       return res.status(result.status).json({

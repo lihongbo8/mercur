@@ -24,7 +24,7 @@ function response(): TestResponse {
   };
 }
 
-function request(input: { actorId?: string; service?: DijieRoleListingStore }) {
+function request(input: { actorId?: string; sellerId?: string; service?: DijieRoleListingStore }) {
   return {
     params: {
       roleListingId: "djrole_123",
@@ -33,6 +33,11 @@ function request(input: { actorId?: string; service?: DijieRoleListingStore }) {
       ? {
           actor_id: input.actorId,
           actor_type: "member",
+        }
+      : undefined,
+    seller_context: input.sellerId
+      ? {
+          seller_id: input.sellerId,
         }
       : undefined,
     scope: {
@@ -46,6 +51,14 @@ function request(input: { actorId?: string; service?: DijieRoleListingStore }) {
   };
 }
 
+const roleTokenPricing = {
+  inputTokenCentsPerMillion: 120,
+  outputTokenCentsPerMillion: 360,
+  currency: "CNY",
+  developerReceivableBps: 10000,
+  platformFeeBps: 0,
+};
+
 describe("POST /vendor/dijie/role-listings/:roleListingId/submit-review", () => {
   it("submits a draft role listing for admin review", async () => {
     const res = response();
@@ -53,6 +66,7 @@ describe("POST /vendor/dijie/role-listings/:roleListingId/submit-review", () => 
     await POST(
       request({
         actorId: "member_123",
+        sellerId: "sel_001",
         service: {
           async createDijieRoleListing() {
             throw new Error("not used");
@@ -64,6 +78,7 @@ describe("POST /vendor/dijie/role-listings/:roleListingId/submit-review", () => 
             expect(input).toEqual({
               roleListingId: "djrole_123",
               ownerId: "member_123",
+              sellerId: "sel_001",
             });
             return {
               ok: true,
@@ -74,9 +89,9 @@ describe("POST /vendor/dijie/role-listings/:roleListingId/submit-review", () => 
                   package_id: "pkg_product_image_qc",
                   package_version: "0.1.0",
                   owner_id: "member_123",
-                  developer_ref: "member_123",
-                  listing_owner_ref: "member_123",
-                  billing_beneficiary_ref: "member_123",
+                  developer_ref: "sel_001",
+                  listing_owner_ref: "sel_001",
+                  billing_beneficiary_ref: "sel_001",
                   title: "商品图检查岗位",
                   subtitle: null,
                   description: null,
@@ -92,13 +107,7 @@ describe("POST /vendor/dijie/role-listings/:roleListingId/submit-review", () => 
                     platformFeeBps: 0,
                     developerReceivableCents: 0,
                   },
-                  role_token_pricing: {
-                    inputTokenCentsPerMillion: 0,
-                    outputTokenCentsPerMillion: 0,
-                    currency: "CNY",
-                    developerReceivableBps: 10000,
-                    platformFeeBps: 0,
-                  },
+                  role_token_pricing: roleTokenPricing,
                   scopes: ["role.execute", "audit.write"],
                   confirmation_points: 0,
                   submitted_at: new Date("2026-06-04T10:00:00.000Z"),

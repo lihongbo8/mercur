@@ -27,6 +27,7 @@ function response(): TestResponse {
 function request(input: {
   body: unknown;
   actorId?: string;
+  sellerId?: string;
   service?: DijieRoleListingStore;
 }) {
   return {
@@ -40,6 +41,11 @@ function request(input: {
           actor_type: "member",
         }
       : undefined,
+    seller_context: input.sellerId
+      ? {
+          seller_id: input.sellerId,
+        }
+      : undefined,
     scope: {
       resolve() {
         if (!input.service) {
@@ -51,6 +57,17 @@ function request(input: {
   };
 }
 
+const roleTokenPricing = {
+  inputTokenCentsPerMillion: 120,
+  outputTokenCentsPerMillion: 360,
+  currency: "CNY",
+  developerReceivableBps: 10000,
+  platformFeeBps: 0,
+};
+
+const usageInstructions =
+  "使用者需要提供商品图、目标平台、品牌卖点和人工确认标准后再发起任务。";
+
 describe("PATCH /vendor/dijie/role-listings/:roleListingId", () => {
   it("updates a developer-owned role listing draft", async () => {
     const res = response();
@@ -58,8 +75,10 @@ describe("PATCH /vendor/dijie/role-listings/:roleListingId", () => {
     await PATCH(
       request({
         actorId: "member_123",
+        sellerId: "sel_001",
         body: {
           title: "商品图检查岗位 v2",
+          usageInstructions,
           confirmationPoints: 2,
         },
         service: {
@@ -70,6 +89,7 @@ describe("PATCH /vendor/dijie/role-listings/:roleListingId", () => {
             expect(input).toMatchObject({
               roleListingId: "djrole_123",
               ownerId: "member_123",
+              sellerId: "sel_001",
               title: "商品图检查岗位 v2",
               confirmationPoints: 2,
             });
@@ -82,12 +102,13 @@ describe("PATCH /vendor/dijie/role-listings/:roleListingId", () => {
                   package_id: "pkg_product_image_qc",
                   package_version: "0.1.0",
                   owner_id: "member_123",
-                  developer_ref: "member_123",
-                  listing_owner_ref: "member_123",
-                  billing_beneficiary_ref: "member_123",
+                  developer_ref: "sel_001",
+                  listing_owner_ref: "sel_001",
+                  billing_beneficiary_ref: "sel_001",
                   title: "商品图检查岗位 v2",
                   subtitle: null,
                   description: null,
+                  usage_instructions: usageInstructions,
                   category: null,
                   listing_status: "draft",
                   review_state: "draft",
@@ -100,13 +121,7 @@ describe("PATCH /vendor/dijie/role-listings/:roleListingId", () => {
                     platformFeeBps: 0,
                     developerReceivableCents: 0,
                   },
-                  role_token_pricing: {
-                    inputTokenCentsPerMillion: 0,
-                    outputTokenCentsPerMillion: 0,
-                    currency: "CNY",
-                    developerReceivableBps: 10000,
-                    platformFeeBps: 0,
-                  },
+                  role_token_pricing: roleTokenPricing,
                   scopes: ["role.execute", "audit.write"],
                   confirmation_points: 2,
                   submitted_at: null,
@@ -138,6 +153,7 @@ describe("PATCH /vendor/dijie/role-listings/:roleListingId", () => {
     await PATCH(
       request({
         actorId: "member_other",
+        sellerId: "sel_002",
         body: {
           title: "非法更新",
         },

@@ -72,6 +72,10 @@ const REJECTION_REASON_OPTIONS = [
   "费用配置不合规",
 ]
 
+const PLATFORM_INPUT_TOKEN_COST_CENTS_PER_MILLION = 120
+const PLATFORM_OUTPUT_TOKEN_COST_CENTS_PER_MILLION = 360
+const PLATFORM_TOKEN_MAX_MARKUP_MULTIPLIER = 20
+
 const statusColor = (value?: string) => {
   switch (value) {
     case "approved":
@@ -358,20 +362,40 @@ const validateRolePricing = (role: DijieRoleMetadata) => {
     roleTokenPricing.developer_receivable_bps
   )
 
-  if (!isNonNegativeInteger(inputCentsPerMillion)) {
-    errors.push("输入计费必须是非负整数。")
+  if (
+    !isNonNegativeInteger(inputCentsPerMillion) ||
+    inputCentsPerMillion < PLATFORM_INPUT_TOKEN_COST_CENTS_PER_MILLION
+  ) {
+    errors.push("输入 Token 使用费不能低于平台成本 ¥1.20/百万。")
   }
-  if (!isNonNegativeInteger(outputCentsPerMillion)) {
-    errors.push("输出计费必须是非负整数。")
+  if (
+    !isNonNegativeInteger(outputCentsPerMillion) ||
+    outputCentsPerMillion < PLATFORM_OUTPUT_TOKEN_COST_CENTS_PER_MILLION
+  ) {
+    errors.push("输出 Token 使用费不能低于平台成本 ¥3.60/百万。")
+  }
+  if (
+    isNonNegativeInteger(inputCentsPerMillion) &&
+    inputCentsPerMillion >
+      PLATFORM_INPUT_TOKEN_COST_CENTS_PER_MILLION * PLATFORM_TOKEN_MAX_MARKUP_MULTIPLIER
+  ) {
+    errors.push("输入 Token 使用费超过平台最大倍率 20x。")
+  }
+  if (
+    isNonNegativeInteger(outputCentsPerMillion) &&
+    outputCentsPerMillion >
+      PLATFORM_OUTPUT_TOKEN_COST_CENTS_PER_MILLION * PLATFORM_TOKEN_MAX_MARKUP_MULTIPLIER
+  ) {
+    errors.push("输出 Token 使用费超过平台最大倍率 20x。")
   }
   if (tokenCurrency !== "CNY") {
-    errors.push("模型计费币种必须是 CNY。")
+    errors.push("Token 使用费币种必须是 CNY。")
   }
   if (tokenPlatformFeeBps !== 0) {
-    errors.push("模型计费分账不合规。")
+    errors.push("Token 使用费分账不合规。")
   }
   if (tokenDeveloperReceivableBps !== 10000) {
-    errors.push("模型计费应收不合规。")
+    errors.push("Token 使用费应收不合规。")
   }
 
   return errors

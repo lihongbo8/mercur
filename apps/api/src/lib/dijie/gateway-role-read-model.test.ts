@@ -9,6 +9,7 @@ function role(overrides: Partial<DijieRoleListing> = {}): DijieRoleListing {
     title: "商品图检查岗位",
     subtitle: "检查商品图质量",
     description: "适合商品图、美工初审和图片质量检查。",
+    usageInstructions: "使用者需要提供商品图、目标平台和人工确认标准。",
     handle: "djrole_image_review",
     listingStatus: "published",
     reviewState: "approved",

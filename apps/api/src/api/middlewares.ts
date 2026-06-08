@@ -67,6 +67,11 @@ export default defineMiddlewares({
             middlewares: [authenticate("user", ["session", "bearer"])],
         },
         {
+            matcher: "/admin/dijie/dialog/messages",
+            method: ["POST"],
+            middlewares: [authenticate("user", ["session", "bearer"])],
+        },
+        {
             matcher: "/admin/dijie/reviews/:reviewId/evaluations",
             method: ["POST"],
             middlewares: [authenticate("user", ["session", "bearer"])],
@@ -99,6 +104,11 @@ export default defineMiddlewares({
         {
             matcher: "/dijie/executions/:executionId",
             method: ["GET"],
+            middlewares: [authenticate("customer", ["session", "bearer"])],
+        },
+        {
+            matcher: "/dijie/executions",
+            method: ["POST"],
             middlewares: [authenticate("customer", ["session", "bearer"])],
         },
         {

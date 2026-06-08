@@ -41,7 +41,7 @@ function action(input: DijieDialogAction): DijieDialogAction {
 }
 
 function rolePath(role: Pick<DijieRoleListing, "handle" | "id">): string {
-  return `/us/roles/${encodeURIComponent(role.handle || role.id)}`;
+  return `/us/roles/${encodeURIComponent(role.id)}`;
 }
 
 function developerNavigationActions(message: string): DijieDialogAction[] {
@@ -94,22 +94,6 @@ function developerNavigationActions(message: string): DijieDialogAction[] {
         action: "navigate_listing",
         target: "developer_center.role_listings",
         path: "/products",
-        requiresConfirmation: false,
-        risk: "low",
-      }),
-    );
-  }
-
-  if (/(能力|工具|资源).*(查看|列表|打开|进入|管理)?|\b(capabilities|resources|tools?)\b/u.test(text)) {
-    actions.push(
-      action({
-        id: "developer.navigate.capabilities",
-        kind: "navigate",
-        label: "查看能力资源",
-        description: "打开能力资源页，查看 skill、工具、模型 provider 和 adapter 匹配状态。",
-        action: "navigate_capabilities",
-        target: "developer_center.capabilities",
-        path: "/tool-resources",
         requiresConfirmation: false,
         risk: "low",
       }),

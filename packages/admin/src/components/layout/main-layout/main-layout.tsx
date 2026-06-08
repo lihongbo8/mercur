@@ -24,8 +24,14 @@ import { getMenuItemsByType, getNestedMenuItems } from "../../../utils/routes";
 
 export const MainLayout = () => {
   const Sidebar = components.MainSidebar ? components.MainSidebar : MainSidebar;
+  const { pathname } = useLocation();
+  const hideGlobalSidebar =
+    pathname === "/" ||
+    pathname === "/products" ||
+    pathname.startsWith("/products/");
+
   return (
-    <Shell>
+    <Shell hideSidebar={hideGlobalSidebar}>
       <Sidebar />
     </Shell>
   );

@@ -307,7 +307,10 @@ describe("GET /dijie/executions/:executionId", () => {
   });
 
   it("returns a safe audit read model from the audit module service", async () => {
-    const storageRecord = createDijieAuditStorageRecord(record);
+    const storageRecord = {
+      ...createDijieAuditStorageRecord(record),
+      id: "djaudit_123",
+    };
     const store = {
       async retrieveDijieAuditRecordByExecutionId(executionId: string) {
         expect(executionId).toBe("exec_123");
@@ -321,6 +324,7 @@ describe("GET /dijie/executions/:executionId", () => {
     expect(res.statusCode).toBe(200);
     expect(res.body).toMatchObject({
       ok: true,
+      auditRecordId: "djaudit_123",
       roleListingId: "role_123",
       packageId: "pkg_role_123",
       packageVersion: "1.0.0",
@@ -633,13 +637,17 @@ describe("GET /dijie/executions/:executionId", () => {
   });
 
   it("can read the audit record through query graph when the module service is absent", async () => {
-    const storageRecord = createDijieAuditStorageRecord(record);
+    const storageRecord = {
+      ...createDijieAuditStorageRecord(record),
+      id: "djaudit_123",
+    };
     const res = response();
     await GET(queryRequest([storageRecord]) as never, res as never);
 
     expect(res.statusCode).toBe(200);
     expect(res.body).toMatchObject({
       ok: true,
+      auditRecordId: "djaudit_123",
       packageId: "pkg_role_123",
       packageVersion: "1.0.0",
       billingBeneficiaryRef: "dev_001",

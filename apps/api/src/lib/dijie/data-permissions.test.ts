@@ -9,7 +9,7 @@ import {
 } from "./data-permissions";
 
 describe("Dijie data permissions", () => {
-  it("treats local super admins as local-global but not marketplace reviewers", () => {
+  it("lets local super admins review marketplace roles through global data access", () => {
     const context = createDijieAccessContext({
       actor_id: "local_admin_001",
       actor_type: "user",
@@ -22,7 +22,7 @@ describe("Dijie data permissions", () => {
       localSystemAccess: true,
       marketplaceOwnerAccess: false,
     });
-    expect(context && canReviewDijieRoles(context)).toBe(false);
+    expect(context && canReviewDijieRoles(context)).toBe(true);
   });
 
   it("keeps billing account attribution separate from data scopes", () => {

@@ -9,39 +9,6 @@ import {
   sendDijieDeveloperDialogMessageQuery,
 } from "@lib/client";
 
-const capabilityPreview = [
-  {
-    label: "主图巡检 skill",
-    value: "generated_candidate",
-    title: "由 OpenClaw skill-creator 生成候选，需验收后执行",
-  },
-  {
-    label: "详情页巡检 skill",
-    value: "generated_candidate",
-    title: "由 OpenClaw skill-creator 生成候选，需验收后执行",
-  },
-  {
-    label: "产品保真自检 skill",
-    value: "generated_candidate",
-    title: "候选 skill 仍需图片理解和标准产品图 adapter",
-  },
-  {
-    label: "browser / human.confirm / audit.record",
-    value: "available",
-    title: "OpenClaw / AICS 已有可复用能力",
-  },
-  {
-    label: "image.inspect / image.generate",
-    value: "candidate_found",
-    title: "OpenClaw provider 候选，需确认本地模型配置",
-  },
-  {
-    label: "商品资料 / 图片资料 / 问题台账 / 设计标准",
-    value: "adapter_needed",
-    title: "需要 AICS 业务 adapter 接入后才能真实执行",
-  },
-];
-
 type RolePackageDraftSummary = {
   draftId?: string;
   status?: string;
@@ -166,7 +133,6 @@ const requirementFields = [
 type NavigationTarget = {
   path: string;
   message: string;
-  showCapabilities?: boolean;
 };
 
 const createMessageId = () =>
@@ -335,14 +301,6 @@ const getNavigationTarget = (text: string): NavigationTarget | null => {
     };
   }
 
-  if (/(能力|工具|资源).*(查看|列表|打开|进入|管理)?|\b(capabilities|resources|tools?)\b/u.test(text)) {
-    return {
-      path: "/tool-resources",
-      message: "已进入能力资源。",
-      showCapabilities: true,
-    };
-  }
-
   if (/(开发者资料|账户资料|个人资料|资料|地址|主体信息|公司信息).*(查看|编辑|补全|打开|进入|管理)?|\b(profile|settings|developer profile|account)\b/u.test(text)) {
     return {
       path: "/settings/profile",
@@ -352,32 +310,6 @@ const getNavigationTarget = (text: string): NavigationTarget | null => {
 
   return null;
 };
-
-const CapabilityAcquisitionPanel = () => (
-  <div className="rounded-md border bg-ui-bg-base p-4">
-    <div className="flex items-center justify-between gap-x-3">
-      <div>
-        <Text className="txt-compact-medium-plus text-ui-fg-base">能力获取流程</Text>
-        <Text className="mt-1 txt-compact-small text-ui-fg-subtle">
-          岗位需求先解析 skill / tool / provider / adapter，再生成绑定草案
-        </Text>
-      </div>
-      <StatusBadge color="orange">待验收</StatusBadge>
-    </div>
-    <div className="mt-4 grid gap-2">
-      {capabilityPreview.map((item) => (
-        <div
-          key={item.label}
-          className="flex min-h-[42px] items-center justify-between rounded-md border px-3"
-          title={item.title}
-        >
-          <Text className="txt-compact-small-plus text-ui-fg-base">{item.label}</Text>
-          <Text className="txt-compact-small text-ui-fg-subtle">{item.value}</Text>
-        </div>
-      ))}
-    </div>
-  </div>
-);
 
 const RolePackageDraftPanel = ({ draft }: { draft: RolePackageDraftSummary }) => (
   <div className="rounded-md border bg-ui-bg-base p-4">
@@ -452,7 +384,6 @@ export const DeveloperAiPanel = ({ compact = false }: { compact?: boolean }) => 
   const navigate = useNavigate();
   const [draft, setDraft] = useState("");
   const [messages, setMessages] = useState<DeveloperMessage[]>(initialMessages);
-  const [showCapabilities, setShowCapabilities] = useState(false);
   const [running, setRunning] = useState(false);
   const [runningMode, setRunningMode] = useState<"dialog" | "generation" | null>(null);
   const [startedAt, setStartedAt] = useState<number | null>(null);
@@ -567,7 +498,6 @@ export const DeveloperAiPanel = ({ compact = false }: { compact?: boolean }) => 
       return false;
     }
 
-    setShowCapabilities(action.action === "navigate_capabilities");
     appendMessage({
       role: "assistant",
       text: action.description ? `已执行：${action.label}。${action.description}` : `已执行：${action.label}。`,
@@ -748,7 +678,6 @@ export const DeveloperAiPanel = ({ compact = false }: { compact?: boolean }) => 
       return;
     }
 
-    setShowCapabilities(false);
     const controller = new AbortController();
     setActiveController(controller);
     const timeoutId = window.setTimeout(() => {
@@ -772,12 +701,10 @@ export const DeveloperAiPanel = ({ compact = false }: { compact?: boolean }) => 
       if (lowRiskAction) {
         runDialogAction(lowRiskAction);
       } else if (navigationTarget) {
-        setShowCapabilities(!!navigationTarget.showCapabilities);
         runLowRiskAction(navigationTarget.path, navigationTarget.message);
       }
     } catch (error) {
       if (navigationTarget) {
-        setShowCapabilities(!!navigationTarget.showCapabilities);
         runLowRiskAction(navigationTarget.path, navigationTarget.message);
       } else {
         appendMessage({
@@ -831,7 +758,6 @@ export const DeveloperAiPanel = ({ compact = false }: { compact?: boolean }) => 
           </div>
         ))}
         {rolePackageDraft ? <RolePackageDraftPanel draft={rolePackageDraft} /> : null}
-        {showCapabilities ? <CapabilityAcquisitionPanel /> : null}
       </div>
       <div className="grid gap-y-3 border-t p-4">
         <div className="flex items-center justify-between rounded-md border bg-ui-bg-subtle px-4 py-3">

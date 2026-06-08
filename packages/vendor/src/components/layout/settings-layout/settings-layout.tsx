@@ -35,20 +35,23 @@ const extensionNavItems: INavItem[] = customSettingsItems
   }));
 
 const useSettingRoutes = (): INavItem[] => {
-  return useMemo(
-    () => [
+  return useMemo(() => {
+    const routes = [
       {
         label: "开发者资料",
         to: "/settings/profile",
       },
-      {
-        label: "能力资源",
-        to: "/tool-resources",
-      },
       ...extensionNavItems,
-    ],
-    [],
-  );
+    ];
+    const seen = new Set<string>();
+    return routes.filter((route) => {
+      if (seen.has(route.to)) {
+        return false;
+      }
+      seen.add(route.to);
+      return true;
+    });
+  }, []);
 };
 
 /**

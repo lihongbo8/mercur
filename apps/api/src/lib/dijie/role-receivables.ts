@@ -2,6 +2,10 @@ import {
   normalizeDijieRoleProductMetadataFromProduct,
   type DijieRoleProductMetadata,
 } from "./role-product-metadata";
+import {
+  createDijieRoleListingFromStoredRecord,
+  type DijieRoleListing,
+} from "./role-listings";
 
 export type DijieReceivablesQueryGraph = (query: {
   entity: string;
@@ -30,6 +34,28 @@ export type DijieVendorRoleUsageReceivable = {
   lastReceivedAt: string | null;
 };
 
+export type DijieVendorAuthorizationEvent = {
+  roleListingId: string;
+  title: string;
+  source: "entitlement" | "checkout";
+  authorizationFeeCents: number;
+  developerReceivableCents: number;
+  currency: "CNY";
+  authorizedAt: string | null;
+};
+
+export type DijieVendorUsageEvent = {
+  roleListingId: string;
+  title: string;
+  packageId: string;
+  packageVersion: string;
+  inputTokens: number;
+  outputTokens: number;
+  developerReceivableCents: number;
+  currency: "CNY";
+  receivedAt: string | null;
+};
+
 export type DijieVendorReceivablesReadModel = {
   summary: {
     currency: "CNY";
@@ -44,9 +70,18 @@ export type DijieVendorReceivablesReadModel = {
   };
   authorizationByRole: DijieVendorRoleAuthorizationReceivable[];
   roleUsageByRole: DijieVendorRoleUsageReceivable[];
+  authorizationEvents: DijieVendorAuthorizationEvent[];
+  usageEvents: DijieVendorUsageEvent[];
 };
 
 type UnknownRecord = Record<string, unknown>;
+type ReceivableRole = {
+  id: string;
+  title: string;
+  pricing: {
+    developerReceivableCents: number;
+  };
+};
 
 const BLOCKED_ORDER_STATUSES = new Set(["canceled", "cancelled"]);
 const PAID_ORDER_STATUSES = new Set(["completed"]);
@@ -143,10 +178,56 @@ function ordersFromOrderGroups(orderGroups: unknown[]): UnknownRecord[] {
   });
 }
 
-function createSellerRoleMap(sellerId: string, products: unknown[]) {
-  const roles = new Map<string, { id: string; title: string; role: DijieRoleProductMetadata }>();
+function receivableRoleFromProduct(
+  product: UnknownRecord,
+  normalized: DijieRoleProductMetadata,
+): ReceivableRole {
+  return {
+    id: nonEmptyString(product.id) ?? normalized.packageId,
+    title:
+      nonEmptyString(normalized.title) ??
+      nonEmptyString(product.title) ??
+      "未命名岗位",
+    pricing: {
+      developerReceivableCents: normalized.pricing.developerReceivableCents,
+    },
+  };
+}
 
-  for (const productInput of products) {
+function receivableRoleFromListing(listing: DijieRoleListing): ReceivableRole {
+  return {
+    id: listing.id,
+    title: listing.title,
+    pricing: {
+      developerReceivableCents: listing.pricing.developerReceivableCents,
+    },
+  };
+}
+
+function createSellerRoleMap(params: {
+  sellerId: string;
+  products: unknown[];
+  roleListings?: unknown[];
+}) {
+  const roles = new Map<string, ReceivableRole>();
+
+  for (const listingInput of params.roleListings ?? []) {
+    const record = asRecord(listingInput);
+    const listing = createDijieRoleListingFromStoredRecord(record);
+    if (!listing) {
+      continue;
+    }
+    const sellerOwnsRole =
+      nonEmptyString(record.billing_beneficiary_ref) === params.sellerId ||
+      nonEmptyString(record.listing_owner_ref) === params.sellerId ||
+      nonEmptyString(record.developer_ref) === params.sellerId;
+    if (!sellerOwnsRole) {
+      continue;
+    }
+    roles.set(listing.id, receivableRoleFromListing(listing));
+  }
+
+  for (const productInput of params.products) {
     const product = asRecord(productInput);
     const id = nonEmptyString(product.id);
     if (!id) {
@@ -160,22 +241,17 @@ function createSellerRoleMap(sellerId: string, products: unknown[]) {
 
     const seller = asRecord(product.seller);
     const sellerOwnsRole =
-      nonEmptyString(seller.id) === sellerId ||
-      normalized.value.billingBeneficiaryRef === sellerId ||
-      normalized.value.listingOwnerRef === sellerId ||
-      normalized.value.developerRef === sellerId;
+      nonEmptyString(seller.id) === params.sellerId ||
+      normalized.value.billingBeneficiaryRef === params.sellerId ||
+      normalized.value.listingOwnerRef === params.sellerId ||
+      normalized.value.developerRef === params.sellerId;
     if (!sellerOwnsRole) {
       continue;
     }
 
-    roles.set(id, {
-      id,
-      title:
-        nonEmptyString(normalized.value.title) ??
-        nonEmptyString(product.title) ??
-        "未命名岗位",
-      role: normalized.value,
-    });
+    if (!roles.has(id)) {
+      roles.set(id, receivableRoleFromProduct(product, normalized.value));
+    }
   }
 
   return roles;
@@ -183,7 +259,7 @@ function createSellerRoleMap(sellerId: string, products: unknown[]) {
 
 function aggregateAuthorizationReceivables(params: {
   sellerId: string;
-  roles: Map<string, { id: string; title: string; role: DijieRoleProductMetadata }>;
+  roles: Map<string, ReceivableRole>;
   orderGroups: unknown[];
   orders: unknown[];
 }) {
@@ -246,7 +322,7 @@ function aggregateAuthorizationReceivables(params: {
           lastAuthorizedAt: null,
         };
         current.authorizationCount += 1;
-        current.authorizationReceivableCents += role.role.pricing.developerReceivableCents;
+        current.authorizationReceivableCents += role.pricing.developerReceivableCents;
         current.lastAuthorizedAt = laterTimestamp(current.lastAuthorizedAt, authorizedAt);
         byRole.set(role.id, current);
       }
@@ -301,7 +377,7 @@ function latestRecordsByExecution(auditRecords: unknown[]): UnknownRecord[] {
 
 function aggregateRoleUsageReceivables(params: {
   sellerId: string;
-  roles: Map<string, { id: string; title: string; role: DijieRoleProductMetadata }>;
+  roles: Map<string, ReceivableRole>;
   auditRecords: unknown[];
 }) {
   const byRole = new Map<string, DijieVendorRoleUsageReceivable>();
@@ -357,21 +433,165 @@ function aggregateRoleUsageReceivables(params: {
   );
 }
 
+function authorizationEventsFromEntitlements(params: {
+  sellerId: string;
+  roles: Map<string, ReceivableRole>;
+  entitlements: unknown[];
+}): DijieVendorAuthorizationEvent[] {
+  return params.entitlements
+    .map(asRecord)
+    .filter((entitlement) => {
+      return (
+        nonEmptyString(entitlement.billing_beneficiary_ref) === params.sellerId &&
+        nonEmptyString(entitlement.entitlement_status) === "authorized"
+      );
+    })
+    .map((entitlement) => {
+      const roleListingId = nonEmptyString(entitlement.role_listing_id) ?? "unknown_role";
+      const pricing = asRecord(entitlement.pricing);
+      const role = params.roles.get(roleListingId);
+      return {
+        roleListingId,
+        title: role?.title ?? "未知岗位",
+        source: nonEmptyString(entitlement.source) === "checkout" ? "checkout" : "entitlement",
+        authorizationFeeCents:
+          nonNegativeInteger(pricing.authorizationFeeCents) ??
+          role?.pricing.authorizationFeeCents ??
+          0,
+        developerReceivableCents:
+          nonNegativeInteger(pricing.developerReceivableCents) ??
+          role?.pricing.developerReceivableCents ??
+          0,
+        currency: "CNY",
+        authorizedAt: toIsoString(entitlement.authorized_at),
+      } satisfies DijieVendorAuthorizationEvent;
+    })
+    .sort((a, b) => (b.authorizedAt ?? "").localeCompare(a.authorizedAt ?? ""));
+}
+
+function usageEventsFromAuditRecords(params: {
+  sellerId: string;
+  roles: Map<string, ReceivableRole>;
+  auditRecords: unknown[];
+}): DijieVendorUsageEvent[] {
+  return latestRecordsByExecution(params.auditRecords)
+    .flatMap((record) => {
+      const ledger = asRecord(record.role_usage_ledger);
+      const billingBeneficiaryRef =
+        nonEmptyString(record.billing_beneficiary_ref) ??
+        nonEmptyString(ledger.billingBeneficiaryRef);
+      if (billingBeneficiaryRef !== params.sellerId || ledger.source !== "role_usage") {
+        return [];
+      }
+
+      const roleListingId =
+        nonEmptyString(record.role_listing_id) ??
+        nonEmptyString(ledger.roleListingId);
+      const packageId =
+        nonEmptyString(record.package_id) ??
+        nonEmptyString(ledger.packageId);
+      const packageVersion =
+        nonEmptyString(record.package_version) ??
+        nonEmptyString(ledger.packageVersion);
+      const amountCents = nonNegativeInteger(ledger.developerReceivableCents);
+      if (!roleListingId || !packageId || !packageVersion || amountCents === undefined) {
+        return [];
+      }
+
+      const role = params.roles.get(roleListingId);
+      const usage = modelUsageFromRecord(record, ledger);
+      return [
+        {
+          roleListingId,
+          title: role?.title ?? "未知岗位",
+          packageId,
+          packageVersion,
+          inputTokens: usage.inputTokens,
+          outputTokens: usage.outputTokens,
+          developerReceivableCents: amountCents,
+          currency: "CNY",
+          receivedAt: toIsoString(record.received_at),
+        } satisfies DijieVendorUsageEvent,
+      ];
+    })
+    .sort((a, b) => (b.receivedAt ?? "").localeCompare(a.receivedAt ?? ""));
+}
+
+function aggregateAuthorizationEventsByRole(
+  events: DijieVendorAuthorizationEvent[],
+): DijieVendorRoleAuthorizationReceivable[] {
+  const byRole = new Map<string, DijieVendorRoleAuthorizationReceivable>();
+  for (const event of events) {
+    const current = byRole.get(event.roleListingId) ?? {
+      roleListingId: event.roleListingId,
+      title: event.title,
+      authorizationCount: 0,
+      authorizationReceivableCents: 0,
+      lastAuthorizedAt: null,
+    };
+    current.authorizationCount += 1;
+    current.authorizationReceivableCents += event.developerReceivableCents;
+    current.lastAuthorizedAt = laterTimestamp(current.lastAuthorizedAt, event.authorizedAt);
+    byRole.set(event.roleListingId, current);
+  }
+  return [...byRole.values()].sort((a, b) =>
+    (b.lastAuthorizedAt ?? "").localeCompare(a.lastAuthorizedAt ?? ""),
+  );
+}
+
+function mergeAuthorizationReceivables(params: {
+  entitlementBacked: DijieVendorRoleAuthorizationReceivable[];
+  orderBacked: DijieVendorRoleAuthorizationReceivable[];
+}): DijieVendorRoleAuthorizationReceivable[] {
+  const byRole = new Map<string, DijieVendorRoleAuthorizationReceivable>();
+  for (const role of params.entitlementBacked) {
+    byRole.set(role.roleListingId, role);
+  }
+  for (const role of params.orderBacked) {
+    if (!byRole.has(role.roleListingId)) {
+      byRole.set(role.roleListingId, role);
+    }
+  }
+  return [...byRole.values()].sort((a, b) =>
+    (b.lastAuthorizedAt ?? "").localeCompare(a.lastAuthorizedAt ?? ""),
+  );
+}
+
 export function createDijieVendorReceivablesReadModel(params: {
   sellerId: string;
   products: unknown[];
+  roleListings?: unknown[];
+  entitlements?: unknown[];
   orderGroups: unknown[];
   orders: unknown[];
   auditRecords: unknown[];
 }): DijieVendorReceivablesReadModel {
-  const roles = createSellerRoleMap(params.sellerId, params.products);
-  const authorizationByRole = aggregateAuthorizationReceivables({
+  const roles = createSellerRoleMap({
+    sellerId: params.sellerId,
+    products: params.products,
+    roleListings: params.roleListings,
+  });
+  const orderAuthorizationByRole = aggregateAuthorizationReceivables({
     sellerId: params.sellerId,
     roles,
     orderGroups: params.orderGroups,
     orders: params.orders,
   });
   const roleUsageByRole = aggregateRoleUsageReceivables({
+    sellerId: params.sellerId,
+    roles,
+    auditRecords: params.auditRecords,
+  });
+  const authorizationEvents = authorizationEventsFromEntitlements({
+    sellerId: params.sellerId,
+    roles,
+    entitlements: params.entitlements ?? [],
+  });
+  const authorizationByRole = mergeAuthorizationReceivables({
+    entitlementBacked: aggregateAuthorizationEventsByRole(authorizationEvents),
+    orderBacked: orderAuthorizationByRole,
+  });
+  const usageEvents = usageEventsFromAuditRecords({
     sellerId: params.sellerId,
     roles,
     auditRecords: params.auditRecords,
@@ -405,6 +625,8 @@ export function createDijieVendorReceivablesReadModel(params: {
     },
     authorizationByRole,
     roleUsageByRole,
+    authorizationEvents,
+    usageEvents,
   };
 }
 
@@ -412,10 +634,58 @@ export async function getDijieVendorReceivablesReadModel(params: {
   sellerId: string;
   queryGraph: DijieReceivablesQueryGraph;
 }): Promise<DijieVendorReceivablesReadModel> {
-  const [productResult, orderGroupResult, orderResult, auditResult] = await Promise.all([
+  const [productResult, listingResult, entitlementResult, orderGroupResult, orderResult, auditResult] = await Promise.all([
     params.queryGraph({
       entity: "product",
       fields: ["id", "title", "metadata", "seller.id"],
+      pagination: { take: 200 },
+    }),
+    params.queryGraph({
+      entity: "dijie_role_listing",
+      fields: [
+        "id",
+        "package_id",
+        "package_version",
+        "developer_ref",
+        "listing_owner_ref",
+        "billing_beneficiary_ref",
+        "title",
+        "subtitle",
+        "description",
+        "category",
+        "listing_status",
+        "review_state",
+        "capabilities",
+        "manifest_summary",
+        "pricing",
+        "role_token_pricing",
+        "scopes",
+      ],
+      filters: { billing_beneficiary_ref: params.sellerId },
+      pagination: { take: 200 },
+    }),
+    params.queryGraph({
+      entity: "dijie_role_entitlement",
+      fields: [
+        "id",
+        "actor_id",
+        "role_listing_id",
+        "package_id",
+        "package_version",
+        "developer_ref",
+        "listing_owner_ref",
+        "billing_beneficiary_ref",
+        "entitlement_status",
+        "source",
+        "order_id",
+        "pricing",
+        "role_token_pricing",
+        "authorized_at",
+      ],
+      filters: {
+        billing_beneficiary_ref: params.sellerId,
+        entitlement_status: "authorized",
+      },
       pagination: { take: 200 },
     }),
     params.queryGraph({
@@ -482,6 +752,8 @@ export async function getDijieVendorReceivablesReadModel(params: {
   return createDijieVendorReceivablesReadModel({
     sellerId: params.sellerId,
     products: productResult.data ?? [],
+    roleListings: listingResult.data ?? [],
+    entitlements: entitlementResult.data ?? [],
     orderGroups: orderGroupResult.data ?? [],
     orders: orderResult.data ?? [],
     auditRecords: auditResult.data ?? [],

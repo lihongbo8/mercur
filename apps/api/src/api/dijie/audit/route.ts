@@ -67,6 +67,16 @@ function resolveAuditStore(req: MedusaRequest): DijieAuditRecordStore | undefine
   }
 }
 
+function hasBusinessArtifacts(record: DijieAuditRecord): boolean {
+  return record.summary.result.artifacts.some((artifact) => {
+    return Boolean(
+      artifact.id.trim() &&
+        artifact.type.trim() &&
+        artifact.title.trim(),
+    );
+  });
+}
+
 export async function POST(req: MedusaRequest, res: MedusaResponse) {
   const publicKeyPem = process.env.DIJIE_EXECUTION_TOKEN_PUBLIC_KEY_PEM;
   if (!publicKeyPem?.trim()) {
@@ -105,18 +115,34 @@ export async function POST(req: MedusaRequest, res: MedusaResponse) {
     });
   }
 
-  const roleUsageLedger = createDijieRoleTokenUsageLedgerEntryFromAudit(record.record);
-  if (!roleUsageLedger.ok) {
+  const roleUsageLedger = record.record.summary.modelProxyUsage
+    ? createDijieRoleTokenUsageLedgerEntryFromAudit(record.record)
+    : undefined;
+  if (roleUsageLedger && !roleUsageLedger.ok) {
     return res.status(400).json({
       ok: false,
       error: roleUsageLedger.error,
     });
   }
+  if (record.record.summary.status === "completed" && !roleUsageLedger) {
+    return res.status(400).json({
+      ok: false,
+      error: "Completed role execution settlement requires AuditSummary.modelProxyUsage.",
+    });
+  }
+  if (record.record.summary.status === "completed" && !hasBusinessArtifacts(record.record)) {
+    return res.status(400).json({
+      ok: false,
+      error: "Completed role execution requires at least one business artifact.",
+    });
+  }
 
-  const auditRecord: DijieAuditRecord = {
-    ...record.record,
-    roleUsageLedger: roleUsageLedger.value,
-  };
+  const auditRecord: DijieAuditRecord = roleUsageLedger?.ok
+    ? {
+        ...record.record,
+        roleUsageLedger: roleUsageLedger.value,
+      }
+    : record.record;
 
   const store = resolveAuditStore(req);
   if (!store) {
@@ -136,7 +162,7 @@ export async function POST(req: MedusaRequest, res: MedusaResponse) {
     });
   }
 
-  if (isLedgerEntryStore(store)) {
+  if (roleUsageLedger?.ok && isLedgerEntryStore(store)) {
     const ledger = roleUsageLedger.value;
     const ledgerResult = await store.createDijieLedgerEntry({
       accountId: ledger.actorId,
@@ -175,19 +201,21 @@ export async function POST(req: MedusaRequest, res: MedusaResponse) {
     ok: true,
     executionId: auditRecord.summary.executionId,
     auditRecordId: storeResult?.auditRecordId,
-    billingSummary: {
-      source: "role_usage",
-      executionId: roleUsageLedger.value.executionId,
-      roleListingId: roleUsageLedger.value.roleListingId,
-      packageVersion: roleUsageLedger.value.packageVersion,
-      entitlementId: roleUsageLedger.value.entitlementId,
-      developerRef: roleUsageLedger.value.developerRef,
-      billingBeneficiaryRef: roleUsageLedger.value.billingBeneficiaryRef,
-      inputTokens: auditRecord.summary.modelProxyUsage?.inputTokens ?? 0,
-      outputTokens: auditRecord.summary.modelProxyUsage?.outputTokens ?? 0,
-      currency: roleUsageLedger.value.currency,
-      platformReceivableCents: 0,
-      developerReceivableCents: roleUsageLedger.value.developerReceivableCents,
-    },
+    billingSummary: roleUsageLedger?.ok
+      ? {
+          source: "role_usage",
+          executionId: roleUsageLedger.value.executionId,
+          roleListingId: roleUsageLedger.value.roleListingId,
+          packageVersion: roleUsageLedger.value.packageVersion,
+          entitlementId: roleUsageLedger.value.entitlementId,
+          developerRef: roleUsageLedger.value.developerRef,
+          billingBeneficiaryRef: roleUsageLedger.value.billingBeneficiaryRef,
+          inputTokens: auditRecord.summary.modelProxyUsage?.inputTokens ?? 0,
+          outputTokens: auditRecord.summary.modelProxyUsage?.outputTokens ?? 0,
+          currency: roleUsageLedger.value.currency,
+          platformReceivableCents: 0,
+          developerReceivableCents: roleUsageLedger.value.developerReceivableCents,
+        }
+      : null,
   });
 }

@@ -12,7 +12,11 @@ export type DijieRoleListingStatus =
   | "delisted"
   | "archived";
 
-export type DijieRoleReviewState = "draft" | "submitted" | "approved" | "rejected";
+export type DijieRoleReviewState =
+  | "draft"
+  | "submitted"
+  | "approved"
+  | "rejected";
 
 export type DijieRoleManifestSummary = {
   entrypoint?: string;
@@ -38,6 +42,7 @@ export type DijieRoleProductMetadata = {
   title?: string;
   subtitle?: string;
   description?: string;
+  usageInstructions?: string;
   capabilities: string[];
   manifestSummary: DijieRoleManifestSummary;
   pricing: DijieExecutionTokenPricing;
@@ -135,38 +140,57 @@ function roleMetadataFromProduct(product: UnknownRecord): UnknownRecord {
   return asRecord(productMetadata.dijieRole);
 }
 
-function pricingFromRoleMetadata(role: UnknownRecord): DijieExecutionTokenPricing | undefined {
+function pricingFromRoleMetadata(
+  role: UnknownRecord,
+): DijieExecutionTokenPricing | undefined {
   return normalizeOneTimeAuthorizationPricing(role.pricing);
 }
 
-function roleTokenPricingFromRoleMetadata(role: UnknownRecord): DijieRoleTokenPricing | undefined {
-  return normalizeRoleTokenPricing(role.roleTokenPricing ?? role.role_token_pricing);
+function roleTokenPricingFromRoleMetadata(
+  role: UnknownRecord,
+): DijieRoleTokenPricing | undefined {
+  return normalizeRoleTokenPricing(
+    role.roleTokenPricing ?? role.role_token_pricing,
+  );
 }
 
-function listingStatusFromRole(role: UnknownRecord): DijieRoleListingStatus | undefined {
-  const raw = stringField(role, "listingStatus") ?? stringField(role, "listing_status");
+function listingStatusFromRole(
+  role: UnknownRecord,
+): DijieRoleListingStatus | undefined {
+  const raw =
+    stringField(role, "listingStatus") ?? stringField(role, "listing_status");
   const normalized = raw?.toLowerCase();
-  return normalized && LISTING_STATUSES.has(normalized as DijieRoleListingStatus)
+  return normalized &&
+    LISTING_STATUSES.has(normalized as DijieRoleListingStatus)
     ? (normalized as DijieRoleListingStatus)
     : undefined;
 }
 
-function reviewStateFromRole(role: UnknownRecord): DijieRoleReviewState | undefined {
-  const raw = stringField(role, "reviewState") ?? stringField(role, "review_state");
+function reviewStateFromRole(
+  role: UnknownRecord,
+): DijieRoleReviewState | undefined {
+  const raw =
+    stringField(role, "reviewState") ?? stringField(role, "review_state");
   const normalized = raw?.toLowerCase();
   return normalized && REVIEW_STATES.has(normalized as DijieRoleReviewState)
     ? (normalized as DijieRoleReviewState)
     : undefined;
 }
 
-function manifestSummaryFromRole(role: UnknownRecord): DijieRoleManifestSummary {
+function manifestSummaryFromRole(
+  role: UnknownRecord,
+): DijieRoleManifestSummary {
   const manifest = asRecord(role.manifestSummary ?? role.manifest_summary);
   const sandbox = stringField(manifest, "sandbox");
   const requiredCapabilities = stringArray(
-    manifest.requiredCapabilities ?? manifest.required_capabilities ?? manifest.tools,
+    manifest.requiredCapabilities ??
+      manifest.required_capabilities ??
+      manifest.tools,
   );
   return {
-    ...(stringField(manifest, "entrypoint") ? { entrypoint: stringField(manifest, "entrypoint") } : {}),
+    ...(stringField(manifest, "entrypoint")
+      ? { entrypoint: stringField(manifest, "entrypoint") }
+      : {}),
     ...(requiredCapabilities.length > 0 ? { requiredCapabilities } : {}),
     ...(stringArray(manifest.permissions).length > 0
       ? { permissions: stringArray(manifest.permissions) }
@@ -177,10 +201,19 @@ function manifestSummaryFromRole(role: UnknownRecord): DijieRoleManifestSummary 
     sandbox === "custom"
       ? { sandbox }
       : {}),
-    ...(stringArray(manifest.inputs).length > 0 ? { inputs: stringArray(manifest.inputs) } : {}),
-    ...(stringArray(manifest.outputs).length > 0 ? { outputs: stringArray(manifest.outputs) } : {}),
-    ...(stringArray(manifest.secretsRequired ?? manifest.secrets_required).length > 0
-      ? { secretsRequired: stringArray(manifest.secretsRequired ?? manifest.secrets_required) }
+    ...(stringArray(manifest.inputs).length > 0
+      ? { inputs: stringArray(manifest.inputs) }
+      : {}),
+    ...(stringArray(manifest.outputs).length > 0
+      ? { outputs: stringArray(manifest.outputs) }
+      : {}),
+    ...(stringArray(manifest.secretsRequired ?? manifest.secrets_required)
+      .length > 0
+      ? {
+          secretsRequired: stringArray(
+            manifest.secretsRequired ?? manifest.secrets_required,
+          ),
+        }
       : {}),
   };
 }
@@ -206,7 +239,9 @@ function containsLocalAbsolutePathValue(value: unknown): boolean {
     return false;
   }
 
-  return Object.values(value as UnknownRecord).some(containsLocalAbsolutePathValue);
+  return Object.values(value as UnknownRecord).some(
+    containsLocalAbsolutePathValue,
+  );
 }
 
 function containsSensitiveFieldName(value: unknown): boolean {
@@ -262,26 +297,36 @@ function containsPrivateCloudBridgeValue(value: unknown): boolean {
   if (!value || typeof value !== "object") {
     return false;
   }
-  return Object.values(value as UnknownRecord).some(containsPrivateCloudBridgeValue);
+  return Object.values(value as UnknownRecord).some(
+    containsPrivateCloudBridgeValue,
+  );
 }
 
-export function findDijieRoleMetadataPrivacyIssues(roleInput: unknown): string[] {
+export function findDijieRoleMetadataPrivacyIssues(
+  roleInput: unknown,
+): string[] {
   const role = asRecord(roleInput);
   const issues: string[] = [];
-  const hasPrivateCloudBridgeFieldName = containsPrivateCloudBridgeFieldName(role);
+  const hasPrivateCloudBridgeFieldName =
+    containsPrivateCloudBridgeFieldName(role);
 
   if (containsLocalAbsolutePathValue(role)) {
     issues.push("metadata.dijieRole must not contain local absolute paths.");
   }
   if (containsSensitiveFieldName(role)) {
-    issues.push("metadata.dijieRole must not contain secret, token, or provider auth field names.");
+    issues.push(
+      "metadata.dijieRole must not contain secret, token, or provider auth field names.",
+    );
   }
   if (hasPrivateCloudBridgeFieldName) {
     issues.push(
       "metadata.dijieRole must not contain execution, entitlement, device, workspace, order, wallet, mode stage, prompt, or chat context field names.",
     );
   }
-  if (!hasPrivateCloudBridgeFieldName && containsPrivateCloudBridgeValue(role)) {
+  if (
+    !hasPrivateCloudBridgeFieldName &&
+    containsPrivateCloudBridgeValue(role)
+  ) {
     issues.push(
       "metadata.dijieRole must not contain private execution ids, raw tokens, or provider secrets.",
     );
@@ -302,8 +347,12 @@ export function normalizeDijieRoleProductMetadataFromProduct(
   const listingStatus = listingStatusFromRole(role);
   const reviewState = reviewStateFromRole(role);
   const manifestSummary = manifestSummaryFromRole(role);
-  const packageId = stringField(role, "packageId") ?? stringField(role, "package_id");
-  const packageVersion = stringField(role, "packageVersion") ?? stringField(role, "package_version") ?? stringField(role, "version");
+  const packageId =
+    stringField(role, "packageId") ?? stringField(role, "package_id");
+  const packageVersion =
+    stringField(role, "packageVersion") ??
+    stringField(role, "package_version") ??
+    stringField(role, "version");
   const developerRef =
     stringField(role, "developerRef") ??
     stringField(role, "developer_ref") ??
@@ -324,7 +373,10 @@ export function normalizeDijieRoleProductMetadataFromProduct(
     stringField(role, "protocol_version") ??
     DEFAULT_PROTOCOL_VERSION;
   const capabilities = stringArray(role.capabilities);
-  const scopes = stringArray(role.scopes).length > 0 ? stringArray(role.scopes) : DEFAULT_SCOPES;
+  const scopes =
+    stringArray(role.scopes).length > 0
+      ? stringArray(role.scopes)
+      : DEFAULT_SCOPES;
 
   if (stringField(role, "kind") !== "role_product") {
     issues.push("metadata.dijieRole.kind must be role_product.");
@@ -351,7 +403,9 @@ export function normalizeDijieRoleProductMetadataFromProduct(
     issues.push("metadata.dijieRole.reviewState is required.");
   }
   if (!pricing) {
-    issues.push("metadata.dijieRole.pricing must be one_time_authorization in CNY with platformFeeBps=0.");
+    issues.push(
+      "metadata.dijieRole.pricing must be one_time_authorization in CNY with platformFeeBps=0.",
+    );
   }
   if (!roleTokenPricing) {
     issues.push(
@@ -359,10 +413,17 @@ export function normalizeDijieRoleProductMetadataFromProduct(
     );
   }
   if (scopes.some((scope) => !ALLOWED_SCOPES.has(scope))) {
-    issues.push("metadata.dijieRole.scopes may only include role.execute and audit.write.");
+    issues.push(
+      "metadata.dijieRole.scopes may only include role.execute and audit.write.",
+    );
   }
-  if (manifestSummary.entrypoint && containsLocalAbsolutePath(manifestSummary.entrypoint)) {
-    issues.push("metadata.dijieRole.manifestSummary.entrypoint must not be a local absolute path.");
+  if (
+    manifestSummary.entrypoint &&
+    containsLocalAbsolutePath(manifestSummary.entrypoint)
+  ) {
+    issues.push(
+      "metadata.dijieRole.manifestSummary.entrypoint must not be a local absolute path.",
+    );
   }
   issues.push(...findDijieRoleMetadataPrivacyIssues(role));
 
@@ -386,7 +447,10 @@ export function normalizeDijieRoleProductMetadataFromProduct(
     value: {
       kind: "role_product",
       protocolVersion,
-      roleListingId: stringField(role, "roleListingId") ?? stringField(role, "role_listing_id") ?? stringField(product, "id"),
+      roleListingId:
+        stringField(role, "roleListingId") ??
+        stringField(role, "role_listing_id") ??
+        stringField(product, "id"),
       packageId,
       packageVersion,
       developerRef,
@@ -397,6 +461,9 @@ export function normalizeDijieRoleProductMetadataFromProduct(
       title: stringField(role, "title"),
       subtitle: stringField(role, "subtitle"),
       description: stringField(role, "description"),
+      usageInstructions:
+        stringField(role, "usageInstructions") ??
+        stringField(role, "usage_instructions"),
       capabilities,
       manifestSummary,
       pricing,
@@ -406,6 +473,11 @@ export function normalizeDijieRoleProductMetadataFromProduct(
   };
 }
 
-export function isPublicDijieRoleProduct(metadata: DijieRoleProductMetadata): boolean {
-  return metadata.listingStatus === "published" && metadata.reviewState === "approved";
+export function isPublicDijieRoleProduct(
+  metadata: DijieRoleProductMetadata,
+): boolean {
+  return (
+    metadata.listingStatus === "published" &&
+    metadata.reviewState === "approved"
+  );
 }

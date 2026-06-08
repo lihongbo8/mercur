@@ -249,10 +249,21 @@ describe("GET /dijie/my-roles", () => {
             title: "开发岗位",
             packageId: "pkg_developer",
             packageVersion: "1.0.0",
+            roleTokenPricing: {
+              inputTokenCentsPerMillion: 120,
+              outputTokenCentsPerMillion: 360,
+              currency: "CNY",
+            },
+            tokenUsageSummary: {
+              inputTokenFee: "¥1.20/百万 Token",
+              outputTokenFee: "¥3.60/百万 Token",
+            },
           },
         },
       ],
     });
+    expect(JSON.stringify(res.body)).not.toContain("developerReceivableBps");
+    expect(JSON.stringify(res.body)).not.toContain("platformFeeBps");
   });
 
   it("returns authorized roles from stored RoleListing records", async () => {
@@ -273,10 +284,16 @@ describe("GET /dijie/my-roles", () => {
             packageId: "pkg_product_image_qc",
             packageVersion: "0.1.0",
             capabilities: ["workspace.read", "image.inspect"],
+            tokenUsageSummary: {
+              inputTokenFee: "¥1.20/百万 Token",
+              outputTokenFee: "¥3.60/百万 Token",
+            },
           },
         },
       ],
     });
+    expect(JSON.stringify(res.body)).not.toContain("developerReceivableBps");
+    expect(JSON.stringify(res.body)).not.toContain("platformFeeBps");
   });
 
   it("returns roles authorized through local entitlements", async () => {
@@ -295,9 +312,15 @@ describe("GET /dijie/my-roles", () => {
           role: {
             id: "djrole_image_qc",
             packageId: "pkg_product_image_qc",
+            tokenUsageSummary: {
+              inputTokenFee: "¥1.20/百万 Token",
+              outputTokenFee: "¥3.60/百万 Token",
+            },
           },
         },
       ],
     });
+    expect(JSON.stringify(res.body)).not.toContain("developerReceivableBps");
+    expect(JSON.stringify(res.body)).not.toContain("platformFeeBps");
   });
 });

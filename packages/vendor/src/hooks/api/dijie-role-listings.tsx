@@ -23,9 +23,15 @@ export type DijieRoleListing = {
   title: string;
   subtitle?: string | null;
   description?: string | null;
+  usageInstructions?: string | null;
   category?: string | null;
   listingStatus: "draft" | "proposed" | "published" | "delisted" | "archived";
-  reviewState: "draft" | "submitted" | "needs_changes" | "approved" | "rejected";
+  reviewState:
+    | "draft"
+    | "submitted"
+    | "needs_changes"
+    | "approved"
+    | "rejected";
   capabilities: string[];
   pricing?: {
     authorizationFeeCents?: number;
@@ -56,6 +62,7 @@ export type CreateDijieRoleListingPayload = {
   title: string;
   subtitle?: string;
   description?: string;
+  usageInstructions: string;
   category?: string;
   pricing?: {
     kind: "one_time_authorization";

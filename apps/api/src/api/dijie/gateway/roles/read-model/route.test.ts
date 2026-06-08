@@ -37,7 +37,11 @@ function roleRecord() {
     review_state: "approved",
     capabilities: ["视觉检查", "商品图检查"],
     manifest_summary: {
+      entrypoint: "role_package/manifest.json",
+      manifestRef: "role_package/manifest.json",
       requiredCapabilities: ["workspace.read"],
+      inputs: ["商品图", "目标平台"],
+      outputs: ["巡检报告"],
     },
     pricing: {
       kind: "one_time_authorization",
@@ -77,6 +81,29 @@ function request(authContext: Record<string, unknown>) {
         }
         if (name === DIJIE_AUDIT_MODULE) {
           return {
+            retrieveDijieRolePackage: async () => ({
+              package_id: "djpkg_image_review",
+              package_version: "1.0.0",
+              owner_id: "acct_dev",
+              uploaded_at: new Date("2026-06-05T00:00:00.000Z"),
+              manifest_summary: {
+                entrypoint: "role_package/manifest.json",
+                manifestRef: "role_package/manifest.json",
+                requiredCapabilities: ["workspace.read", "image.inspect"],
+                inputs: ["商品图", "目标平台"],
+                outputs: ["主图巡检报告", "详情页优化清单"],
+              },
+              file_manifest: [
+                { path: "role_package/manifest.json" },
+                { path: "role_package/skills/main-image-inspection.md" },
+                { path: "role_package/templates/main-image-plan.md" },
+                { path: "role_package/validation/smart-lock-smoke.md" },
+                { path: "role_package/README.md" },
+                { path: "role_package/listing.md" },
+              ],
+              package_files: [],
+              validation_issues: [],
+            }),
             listDijieRoleEntitlements: async () => [
               {
                 id: "djent_image_review",
@@ -142,6 +169,31 @@ describe("GET /dijie/gateway/roles/read-model", () => {
               outputTokenCentsPerMillion: 200,
               developerReceivableBps: 7000,
               platformFeeBps: 3000,
+            },
+            packageContext: {
+              source: "package_record",
+              manifest: {
+                entrypoint: "role_package/manifest.json",
+                manifestRef: "role_package/manifest.json",
+                inputs: ["商品图", "目标平台"],
+                outputs: ["主图巡检报告", "详情页优化清单"],
+              },
+              requiredCapabilities: ["workspace.read", "image.inspect"],
+              skills: ["role_package/skills/main-image-inspection.md"],
+              templates: ["role_package/templates/main-image-plan.md"],
+              validation: ["role_package/validation/smart-lock-smoke.md"],
+              readme: ["role_package/README.md"],
+              listing: ["role_package/listing.md"],
+              files: [
+                "role_package/manifest.json",
+                "role_package/skills/main-image-inspection.md",
+                "role_package/templates/main-image-plan.md",
+                "role_package/validation/smart-lock-smoke.md",
+                "role_package/README.md",
+                "role_package/listing.md",
+              ],
+              validationIssues: [],
+              digest: expect.stringMatching(/^pkgctx_[0-9a-f]{8}$/),
             },
           },
         ],

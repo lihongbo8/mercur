@@ -37,6 +37,10 @@ type SchedulerReadback = {
   capabilityProfile?: DijieRoleCapabilityProfileReadModel;
 };
 
+type DijieAuditReadbackRecord = DijieAuditStorageRecord & {
+  id?: string;
+};
+
 function asRecord(value: unknown): UnknownRecord {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as UnknownRecord)
@@ -191,8 +195,9 @@ function resolveQueryGraph(req: MedusaRequest): QueryGraph | undefined {
   }
 }
 
-function storageRecordFromGraphResult(value: unknown): DijieAuditStorageRecord | undefined {
+function storageRecordFromGraphResult(value: unknown): DijieAuditReadbackRecord | undefined {
   const record = asRecord(value);
+  const id = stringField(record, "id");
   const executionId = stringField(record, "execution_id");
   const actorId = stringField(record, "actor_id");
   const roleListingId = stringField(record, "role_listing_id");
@@ -228,6 +233,7 @@ function storageRecordFromGraphResult(value: unknown): DijieAuditStorageRecord |
   }
 
   return {
+    ...(id ? { id } : {}),
     execution_id: executionId,
     actor_id: actorId,
     role_listing_id: roleListingId,
@@ -394,7 +400,7 @@ function capabilityProfileFromGraphResult(
 async function retrieveAuditRecord(
   req: MedusaRequest,
   executionId: string,
-): Promise<{ configured: boolean; record?: DijieAuditStorageRecord }> {
+): Promise<{ configured: boolean; record?: DijieAuditReadbackRecord }> {
   const reader = resolveAuditRecordReader(req);
   if (reader) {
     return {
@@ -411,6 +417,7 @@ async function retrieveAuditRecord(
   const { data = [] } = await query.graph({
     entity: "dijie_audit_record",
     fields: [
+      "id",
       "execution_id",
       "actor_id",
       "role_listing_id",
@@ -669,7 +676,7 @@ export async function GET(req: MedusaRequest, res: MedusaResponse) {
     });
   }
 
-  let result: { configured: boolean; record?: DijieAuditStorageRecord };
+  let result: { configured: boolean; record?: DijieAuditReadbackRecord };
   try {
     result = await retrieveAuditRecord(req, executionId);
   } catch {
@@ -717,6 +724,7 @@ export async function GET(req: MedusaRequest, res: MedusaResponse) {
 
   return res.status(200).json({
     ok: true,
+    auditRecordId: result.record.id ?? null,
     ...readModel,
     ...createStructuredExecutionReadback(readModel, schedulerReadback),
     ...schedulerReadback,

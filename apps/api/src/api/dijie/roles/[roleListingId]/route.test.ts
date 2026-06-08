@@ -9,6 +9,12 @@ const roleTokenPricing = {
   platformFeeBps: 0,
 };
 
+const publicRoleTokenPricing = {
+  inputTokenCentsPerMillion: 120,
+  outputTokenCentsPerMillion: 360,
+  currency: "CNY",
+};
+
 type TestResponse = {
   statusCode: number;
   body: unknown;
@@ -122,14 +128,21 @@ describe("GET /dijie/roles/:roleListingId", () => {
         authorizationSummary: {
           authorizationFeeCents: 19900,
           currency: "CNY",
-          inputTokenCentsPerMillion: 120,
-          outputTokenCentsPerMillion: 360,
+          executionFeeNote: "执行费用按实际输入/输出 Token 用量进入 ledger/readback。",
+        },
+        roleTokenPricing: publicRoleTokenPricing,
+        tokenUsageSummary: {
+          inputTokenFee: "¥1.20/百万 Token",
+          outputTokenFee: "¥3.60/百万 Token",
+          executionFeeNote: "消费者执行前可查看单价，执行后以账本实际用量和费用为准。",
         },
         relatedRoles: [{ id: "prod_writer_role", title: "商品文案岗位" }],
       },
     });
     const serialized = JSON.stringify(res.body);
     expect(serialized).not.toContain("metadata.dijieRole");
+    expect(serialized).not.toContain("developerReceivableBps");
+    expect(serialized).not.toContain("platformFeeBps");
     expect(serialized).not.toContain("roleBuildBrief");
     expect(serialized).not.toContain("executionId");
   });

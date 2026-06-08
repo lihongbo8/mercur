@@ -3,7 +3,6 @@ import {
   createDijieCapabilityMatchReport,
   createDijieRoleCapabilityBinding,
   extractDijieCapabilityNeeds,
-  listDijieCapabilitySources,
 } from "./capability-bridge";
 
 const visualRoleIdea = `
@@ -52,14 +51,6 @@ function resultStatus(report: ReturnType<typeof createDijieCapabilityMatchReport
 }
 
 describe("Dijie capability bridge", () => {
-  it("lists reusable OpenClaw and AICS capability sources", () => {
-    const sources = listDijieCapabilitySources();
-
-    expect(sources.some((source) => source.key === "skill.creator")).toBe(true);
-    expect(sources.some((source) => source.key === "browser")).toBe(true);
-    expect(sources.some((source) => source.key === "image.inspect")).toBe(true);
-  });
-
   it("extracts skill and tool needs from a complex role idea and manifest", () => {
     const needs = extractDijieCapabilityNeeds({
       roleIdea: visualRoleIdea,
@@ -128,4 +119,3 @@ describe("Dijie capability bridge", () => {
     });
   });
 });
-

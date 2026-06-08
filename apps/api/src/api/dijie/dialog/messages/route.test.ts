@@ -64,8 +64,8 @@ function request(
                         developerReceivableCents: 0,
                       },
                       role_token_pricing: {
-                        inputTokenCentsPerMillion: 0,
-                        outputTokenCentsPerMillion: 0,
+                        inputTokenCentsPerMillion: 120,
+                        outputTokenCentsPerMillion: 360,
                         currency: "CNY",
                         developerReceivableBps: 10000,
                         platformFeeBps: 0,
@@ -979,6 +979,7 @@ describe("POST /dijie/dialog/messages", () => {
 
   it("allows platform review accounts to use metered admin review assistance", async () => {
     const res = response();
+    let bridgePrompt = "";
 
     await POST(
       request(
@@ -994,23 +995,28 @@ describe("POST /dijie/dialog/messages", () => {
           },
         },
         {
-          completeDijieDialogMessage: async () => ({
-            reply: "审核建议：先核对权限边界、价格和敏感信息。",
-            usage: {
-              provider: "openai",
-              model: "gpt-5.4",
-              promptTokens: 900,
-              completionTokens: 180,
-              totalTokens: 1080,
-              pricing: {
-                pricingKnown: true,
-                pricingSource: "platform_review_config",
-                grossAmountCents: 2,
-                platformReceivableCents: 2,
-                developerReceivableCents: 0,
+          completeDijieDialogMessage: async (input: { message: string; fallbackReply: string }) => {
+            bridgePrompt = input.message;
+            expect(input.fallbackReply).toContain("商品图检查岗位");
+            expect(input.fallbackReply).not.toContain("模型调用费");
+            return {
+              reply: "审核建议：先核对权限边界、平台执行费用口径和敏感信息。",
+              usage: {
+                provider: "openai",
+                model: "gpt-5.4",
+                promptTokens: 900,
+                completionTokens: 180,
+                totalTokens: 1080,
+                pricing: {
+                  pricingKnown: true,
+                  pricingSource: "platform_review_config",
+                  grossAmountCents: 2,
+                  platformReceivableCents: 2,
+                  developerReceivableCents: 0,
+                },
               },
-            },
-          }),
+            };
+          },
         },
       ) as never,
       res as never,
@@ -1019,6 +1025,19 @@ describe("POST /dijie/dialog/messages", () => {
     expect(res.statusCode).toBe(200);
     expect(res.body).toMatchObject({
       modelCalled: true,
+      context: {
+        subject: {
+          roleListingId: "djrole_image_review",
+          reviewId: "review_djrole_image_review",
+        },
+      },
+      grounding: {
+        review: {
+          roleListingId: "djrole_image_review",
+          reviewId: "review_djrole_image_review",
+          title: "商品图检查岗位",
+        },
+      },
       billingPolicy: {
         ledgerSource: "admin_review_assist",
       },
@@ -1040,6 +1059,10 @@ describe("POST /dijie/dialog/messages", () => {
         },
       },
     });
+    expect(bridgePrompt).toContain("pageContext:");
+    expect(bridgePrompt).toContain("adminReview");
+    expect(bridgePrompt).toContain("商品图检查岗位");
+    expect(bridgePrompt).not.toContain("模型调用费");
   });
 
   it("meters user center assistant model usage under the billing account", async () => {

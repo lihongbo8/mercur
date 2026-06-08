@@ -198,9 +198,9 @@ describe("POST /dijie/authorizations", () => {
         orderId: null,
         authorizedAt: "2026-06-04T00:00:00.000Z",
         pricing,
-        roleTokenPricing,
       },
     });
+    expect(JSON.stringify(res.body)).not.toContain("roleTokenPricing");
   });
 
   it("does not create local entitlements for paid roles before checkout", async () => {

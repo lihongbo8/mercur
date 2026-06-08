@@ -15,7 +15,10 @@ function stringField(record: UnknownRecord, field: string): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
-function nullableStringField(record: UnknownRecord, field: string): string | null | undefined {
+function nullableStringField(
+  record: UnknownRecord,
+  field: string,
+): string | null | undefined {
   if (record[field] === null) {
     return null;
   }
@@ -24,7 +27,9 @@ function nullableStringField(record: UnknownRecord, field: string): string | nul
 
 function numberField(record: UnknownRecord, field: string): number | undefined {
   const value = record[field];
-  return Number.isInteger(value) && Number(value) >= 0 ? Number(value) : undefined;
+  return Number.isInteger(value) && Number(value) >= 0
+    ? Number(value)
+    : undefined;
 }
 
 function stringArray(value: unknown): string[] | undefined {
@@ -39,8 +44,16 @@ function stringArray(value: unknown): string[] | undefined {
 }
 
 function actorIdFromRequest(req: MedusaRequest): string | undefined {
-  const authContext = (req as MedusaRequest & { auth_context?: UnknownRecord }).auth_context;
+  const authContext = (req as MedusaRequest & { auth_context?: UnknownRecord })
+    .auth_context;
   return authContext ? stringField(authContext, "actor_id") : undefined;
+}
+
+function sellerIdFromRequest(req: MedusaRequest): string | undefined {
+  const sellerContext = (
+    req as MedusaRequest & { seller_context?: UnknownRecord }
+  ).seller_context;
+  return sellerContext ? stringField(sellerContext, "seller_id") : undefined;
 }
 
 function isRoleListingStore(value: unknown): value is DijieRoleListingStore {
@@ -52,7 +65,9 @@ function isRoleListingStore(value: unknown): value is DijieRoleListingStore {
   );
 }
 
-function resolveRoleListingStore(req: MedusaRequest): DijieRoleListingStore | undefined {
+function resolveRoleListingStore(
+  req: MedusaRequest,
+): DijieRoleListingStore | undefined {
   try {
     const service = req.scope.resolve(DIJIE_AUDIT_MODULE) as unknown;
     return isRoleListingStore(service) ? service : undefined;
@@ -63,10 +78,11 @@ function resolveRoleListingStore(req: MedusaRequest): DijieRoleListingStore | un
 
 export async function PATCH(req: MedusaRequest, res: MedusaResponse) {
   const actorId = actorIdFromRequest(req);
-  if (!actorId) {
+  const sellerId = sellerIdFromRequest(req);
+  if (!actorId || !sellerId) {
     return res.status(401).json({
       ok: false,
-      error: "编辑岗位商品需要登录开发者账号。",
+      error: "编辑岗位商品需要登录开发者账号并选择开发者店铺。",
     });
   }
 
@@ -91,9 +107,13 @@ export async function PATCH(req: MedusaRequest, res: MedusaResponse) {
     const result = await store.updateDijieRoleListingDraft({
       roleListingId: roleListingId.trim(),
       ownerId: actorId,
+      sellerId,
       title: stringField(body, "title"),
       subtitle: nullableStringField(body, "subtitle"),
       description: nullableStringField(body, "description"),
+      usageInstructions:
+        nullableStringField(body, "usageInstructions") ??
+        nullableStringField(body, "usage_instructions"),
       category: nullableStringField(body, "category"),
       capabilities: stringArray(body.capabilities),
       pricing: body.pricing,

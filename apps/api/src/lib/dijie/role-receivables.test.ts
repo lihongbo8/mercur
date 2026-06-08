@@ -178,6 +178,20 @@ describe("Dijie vendor receivables read model", () => {
           lastReceivedAt: "2026-06-04T05:00:00.000Z",
         },
       ],
+      authorizationEvents: [],
+      usageEvents: [
+        {
+          roleListingId: "prod_image_review_role",
+          title: "商品图检查岗位",
+          packageId: "pkg_image_review",
+          packageVersion: "0.1.0",
+          inputTokens: 1200,
+          outputTokens: 800,
+          developerReceivableCents: 3,
+          currency: "CNY",
+          receivedAt: "2026-06-04T05:00:00.000Z",
+        },
+      ],
     });
   });
 
@@ -252,6 +266,8 @@ describe("Dijie vendor receivables read model", () => {
       },
       authorizationByRole: [],
       roleUsageByRole: [],
+      authorizationEvents: [],
+      usageEvents: [],
     });
   });
 });

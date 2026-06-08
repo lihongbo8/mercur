@@ -79,7 +79,6 @@ function safeEntitlement(entitlement: DijieRoleEntitlementStorageRecord & { id: 
     orderId: entitlement.order_id,
     authorizedAt: entitlement.authorized_at.toISOString(),
     pricing: entitlement.pricing,
-    roleTokenPricing: entitlement.role_token_pricing,
   };
 }
 

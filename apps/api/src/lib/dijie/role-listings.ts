@@ -1,4 +1,7 @@
-import type { DijieExecutionTokenPricing, DijieRoleTokenPricing } from "./execution-token";
+import type {
+  DijieExecutionTokenPricing,
+  DijieRoleTokenPricing,
+} from "./execution-token";
 import type { DijieRoleListingStorageRecord } from "./role-listing-store";
 import {
   isPublicDijieRoleProduct,
@@ -17,6 +20,7 @@ export type DijieRoleListing = {
   title: string;
   subtitle: string | null;
   description: string | null;
+  usageInstructions: string | null;
   handle: string | null;
   listingStatus: string;
   reviewState: string | null;
@@ -31,20 +35,52 @@ export type DijieRoleListing = {
   scopes: string[];
 };
 
-export type DijieRoleDetailReadModel = DijieRoleListing & {
-  detailSections: {
-    roleDetails: string[];
-    executionStandards: string[];
-    requiredCapabilities: string[];
-    failureBoundaries: string[];
-  };
+export type DijiePublicRoleListingReadModel = {
+  id: string;
+  title: string;
+  subtitle: string | null;
+  description: string | null;
+  usageInstructions: string | null;
+  handle: string | null;
+  listingStatus: string;
+  reviewState: string | null;
+  developerName: string | null;
+  capabilities: string[];
+  pricing: Pick<
+    DijieExecutionTokenPricing,
+    "kind" | "authorizationFeeCents" | "currency"
+  >;
+  roleTokenPricing: Pick<
+    DijieRoleTokenPricing,
+    "inputTokenCentsPerMillion" | "outputTokenCentsPerMillion" | "currency"
+  >;
   authorizationSummary: {
     authorizationFeeCents: number;
     currency: "CNY";
-    inputTokenCentsPerMillion: number;
-    outputTokenCentsPerMillion: number;
+    executionFeeNote: string;
   };
-  relatedRoles: Array<Pick<DijieRoleListing, "id" | "title" | "subtitle" | "handle">>;
+  tokenUsageSummary: {
+    inputTokenFee: string;
+    outputTokenFee: string;
+    executionFeeNote: string;
+  };
+};
+
+export type DijieRoleDetailReadModel = DijiePublicRoleListingReadModel & {
+  detailSections: {
+    roleDetails: string[];
+    usageInstructions: string[];
+    executionStandards: string[];
+    requiredCapabilities: string[];
+    failureBoundaries: string[];
+    inputRequirements: string[];
+    outputExamples: string[];
+    humanConfirmations: string[];
+    reviewInfo: string[];
+  };
+  relatedRoles: Array<
+    Pick<DijieRoleListing, "id" | "title" | "subtitle" | "handle">
+  >;
 };
 
 export type DijieInstalledRole = {
@@ -52,7 +88,15 @@ export type DijieInstalledRole = {
   entitlementSource: "local_entitlement" | "order_group" | "order";
   orderId: string | null;
   authorizedAt: string | null;
-  role: DijieRoleListing;
+  role: DijiePublicRoleListingReadModel &
+    Pick<
+      DijieRoleListing,
+      | "packageId"
+      | "packageVersion"
+      | "protocolVersion"
+      | "developerId"
+      | "scopes"
+    >;
 };
 
 type UnknownRecord = Record<string, unknown>;
@@ -96,7 +140,9 @@ function sellerRecord(product: UnknownRecord): UnknownRecord {
   return asRecord(product.seller);
 }
 
-export function createDijieRoleListingFromProduct(productInput: unknown): DijieRoleListing | undefined {
+export function createDijieRoleListingFromProduct(
+  productInput: unknown,
+): DijieRoleListing | undefined {
   const product = asRecord(productInput);
   const id = nonEmptyString(product.id);
   if (!id) {
@@ -112,22 +158,23 @@ export function createDijieRoleListingFromProduct(productInput: unknown): DijieR
   const capabilities =
     role.capabilities.length > 0
       ? role.capabilities
-      : role.manifestSummary.requiredCapabilities ?? [];
+      : (role.manifestSummary.requiredCapabilities ?? []);
   return {
     id,
-    title: nonEmptyString(role.title) ?? nonEmptyString(product.title) ?? "未命名岗位",
+    title:
+      nonEmptyString(role.title) ??
+      nonEmptyString(product.title) ??
+      "未命名岗位",
     subtitle: nonEmptyString(role.subtitle ?? product.subtitle) ?? null,
-    description: nonEmptyString(role.description ?? product.description) ?? null,
+    description:
+      nonEmptyString(role.description ?? product.description) ?? null,
+    usageInstructions: nonEmptyString(role.usageInstructions) ?? null,
     handle: nonEmptyString(product.handle) ?? null,
     listingStatus: role.listingStatus,
     reviewState: role.reviewState,
     developerId:
-      nonEmptyString(role.developerRef) ??
-      nonEmptyString(seller.id) ??
-      null,
-    developerName:
-      nonEmptyString(seller.name) ??
-      null,
+      nonEmptyString(role.developerRef) ?? nonEmptyString(seller.id) ?? null,
+    developerName: nonEmptyString(seller.name) ?? null,
     packageId: role.packageId,
     packageVersion: role.packageVersion,
     protocolVersion: role.protocolVersion,
@@ -141,7 +188,8 @@ export function createDijieRoleListingFromProduct(productInput: unknown): DijieR
 export function createDijieRoleListingFromStoredRecord(
   recordInput: unknown,
 ): DijieRoleListing | undefined {
-  const record = asRecord(recordInput) as UnknownRecord & Partial<DijieRoleListingStorageRecord>;
+  const record = asRecord(recordInput) as UnknownRecord &
+    Partial<DijieRoleListingStorageRecord>;
   const id = nonEmptyString(record.id);
   const title = nonEmptyString(record.title);
   const packageId = nonEmptyString(record.package_id);
@@ -149,7 +197,10 @@ export function createDijieRoleListingFromStoredRecord(
   if (!id || !title || !packageId || !packageVersion) {
     return undefined;
   }
-  if (record.listing_status !== "published" || record.review_state !== "approved") {
+  if (
+    record.listing_status !== "published" ||
+    record.review_state !== "approved"
+  ) {
     return undefined;
   }
 
@@ -158,10 +209,13 @@ export function createDijieRoleListingFromStoredRecord(
     : [];
   const manifestSummary = asRecord(record.manifest_summary);
   const fallbackCapabilities = stringArray(
-    manifestSummary.requiredCapabilities ?? manifestSummary.required_capabilities,
+    manifestSummary.requiredCapabilities ??
+      manifestSummary.required_capabilities,
   );
   const pricing = record.pricing as DijieExecutionTokenPricing | undefined;
-  const roleTokenPricing = record.role_token_pricing as DijieRoleTokenPricing | undefined;
+  const roleTokenPricing = record.role_token_pricing as
+    | DijieRoleTokenPricing
+    | undefined;
   if (!pricing || !roleTokenPricing) {
     return undefined;
   }
@@ -171,6 +225,7 @@ export function createDijieRoleListingFromStoredRecord(
     title,
     subtitle: nonEmptyString(record.subtitle) ?? null,
     description: nonEmptyString(record.description) ?? null,
+    usageInstructions: nonEmptyString(record.usage_instructions) ?? null,
     handle: id,
     listingStatus: record.listing_status,
     reviewState: record.review_state,
@@ -182,20 +237,50 @@ export function createDijieRoleListingFromStoredRecord(
     capabilities: capabilities.length > 0 ? capabilities : fallbackCapabilities,
     pricing,
     roleTokenPricing,
-    scopes: Array.isArray(record.scopes) ? stringArray(record.scopes) : ["role.execute", "audit.write"],
+    scopes: Array.isArray(record.scopes)
+      ? stringArray(record.scopes)
+      : ["role.execute", "audit.write"],
   };
 }
 
 function createRoleDetails(listing: DijieRoleListing): string[] {
-  return [
-    listing.description,
-    listing.subtitle,
-  ].filter((value): value is string => Boolean(value));
+  return [listing.description, listing.subtitle].filter(
+    (value): value is string => Boolean(value),
+  );
+}
+
+function textLines(value: string | null): string[] {
+  if (!value) {
+    return [];
+  }
+  return value
+    .split(/\n+/)
+    .map((line) => line.replace(/^[-*]\s*/, "").trim())
+    .filter(Boolean);
+}
+
+function createUsageInstructions(listing: DijieRoleListing): string[] {
+  const explicit = textLines(listing.usageInstructions);
+  if (explicit.length > 0) {
+    return explicit;
+  }
+  const capabilityText = listing.capabilities.join("、");
+  if (
+    /image|图片|视觉|主图|详情|design|generate|inspect/i.test(capabilityText)
+  ) {
+    return [
+      "在使用窗口说明商品、平台、目标风格、卖点、禁用元素和人工确认标准。",
+      "有图片素材时上传商品图、主图或详情页素材；没有图片时先提供明确文字设计需求。",
+    ];
+  }
+  return ["在使用窗口提供业务目标、必要材料、约束条件和人工确认标准。"];
 }
 
 function createExecutionStandards(listing: DijieRoleListing): string[] {
   return listing.capabilities.length > 0
-    ? listing.capabilities.map((capability) => `${capability}：按岗位包公开规则执行并输出可审计结果。`)
+    ? listing.capabilities.map(
+        (capability) => `${capability}：按岗位包公开规则执行并输出可审计结果。`,
+      )
     : ["按岗位包公开规则执行并输出可审计结果。"];
 }
 
@@ -211,23 +296,104 @@ function createFailureBoundaries(listing: DijieRoleListing): string[] {
   ];
 }
 
+function createInputRequirements(listing: DijieRoleListing): string[] {
+  const capabilityText = listing.capabilities.join("、");
+  if (
+    /image|图片|视觉|主图|详情|design|generate|inspect/i.test(capabilityText)
+  ) {
+    return [
+      "提供商品图、详情页素材或明确的文字需求。",
+      "提供品牌、卖点、平台规则和人工确认标准。",
+    ];
+  }
+  return ["提供岗位执行所需的业务材料、目标和人工确认标准。"];
+}
+
+function createOutputExamples(listing: DijieRoleListing): string[] {
+  const capabilityText = listing.capabilities.join("、");
+  if (
+    /image|图片|视觉|主图|详情|design|generate|inspect/i.test(capabilityText)
+  ) {
+    return ["主图巡检报告", "详情页优化清单", "设计方案文本或图片产物引用"];
+  }
+  return ["业务结果摘要", "可回读 artifact 引用", "审计与费用记录摘要"];
+}
+
+function createHumanConfirmations(): string[] {
+  return [
+    "购买/授权前需要用户确认。",
+    "执行前的输入、费用和高风险动作需要进入使用者中心或 OpenClaw 正式确认点。",
+  ];
+}
+
+function tokenCentsPerMillionLabel(value: number): string {
+  return `¥${(value / 100).toFixed(2)}/百万 Token`;
+}
+
+export function createDijiePublicRoleListingReadModel(
+  listing: DijieRoleListing,
+): DijiePublicRoleListingReadModel {
+  return {
+    id: listing.id,
+    title: listing.title,
+    subtitle: listing.subtitle,
+    description: listing.description,
+    usageInstructions: listing.usageInstructions,
+    handle: listing.handle,
+    listingStatus: listing.listingStatus,
+    reviewState: listing.reviewState,
+    developerName: listing.developerName,
+    capabilities: listing.capabilities,
+    pricing: {
+      kind: listing.pricing.kind,
+      authorizationFeeCents: listing.pricing.authorizationFeeCents,
+      currency: listing.pricing.currency,
+    },
+    roleTokenPricing: {
+      inputTokenCentsPerMillion:
+        listing.roleTokenPricing.inputTokenCentsPerMillion,
+      outputTokenCentsPerMillion:
+        listing.roleTokenPricing.outputTokenCentsPerMillion,
+      currency: listing.roleTokenPricing.currency,
+    },
+    authorizationSummary: {
+      authorizationFeeCents: listing.pricing.authorizationFeeCents,
+      currency: "CNY",
+      executionFeeNote:
+        "执行费用按实际输入/输出 Token 用量进入 ledger/readback。",
+    },
+    tokenUsageSummary: {
+      inputTokenFee: tokenCentsPerMillionLabel(
+        listing.roleTokenPricing.inputTokenCentsPerMillion,
+      ),
+      outputTokenFee: tokenCentsPerMillionLabel(
+        listing.roleTokenPricing.outputTokenCentsPerMillion,
+      ),
+      executionFeeNote:
+        "消费者执行前可查看单价，执行后以账本实际用量和费用为准。",
+    },
+  };
+}
+
 export function createDijieRoleDetailReadModel(
   listing: DijieRoleListing,
   allListings: DijieRoleListing[],
 ): DijieRoleDetailReadModel {
   return {
-    ...listing,
+    ...createDijiePublicRoleListingReadModel(listing),
     detailSections: {
       roleDetails: createRoleDetails(listing),
+      usageInstructions: createUsageInstructions(listing),
       executionStandards: createExecutionStandards(listing),
       requiredCapabilities: listing.capabilities,
       failureBoundaries: createFailureBoundaries(listing),
-    },
-    authorizationSummary: {
-      authorizationFeeCents: listing.pricing.authorizationFeeCents,
-      currency: "CNY",
-      inputTokenCentsPerMillion: listing.roleTokenPricing.inputTokenCentsPerMillion,
-      outputTokenCentsPerMillion: listing.roleTokenPricing.outputTokenCentsPerMillion,
+      inputRequirements: createInputRequirements(listing),
+      outputExamples: createOutputExamples(listing),
+      humanConfirmations: createHumanConfirmations(),
+      reviewInfo: [
+        "该岗位只在 approved + published 后进入商城。",
+        "商城只负责购买前解释和授权入口，不执行岗位任务。",
+      ],
     },
     relatedRoles: allListings
       .filter((candidate) => candidate.id !== listing.id)
@@ -269,7 +435,12 @@ function orderIsPaid(order: UnknownRecord): boolean {
 
     const amount = Number(record.amount);
     const capturedAmount = Number(record.captured_amount);
-    return Number.isFinite(amount) && amount > 0 && Number.isFinite(capturedAmount) && capturedAmount >= amount;
+    return (
+      Number.isFinite(amount) &&
+      amount > 0 &&
+      Number.isFinite(capturedAmount) &&
+      capturedAmount >= amount
+    );
   });
 }
 
@@ -292,11 +463,15 @@ function itemProductIds(itemInput: unknown): string[] {
 function ordersFromOrderGroups(orderGroups: unknown[]): UnknownRecord[] {
   return orderGroups.flatMap((orderGroupInput) => {
     const orderGroup = asRecord(orderGroupInput);
-    return Array.isArray(orderGroup.orders) ? orderGroup.orders.map(asRecord) : [];
+    return Array.isArray(orderGroup.orders)
+      ? orderGroup.orders.map(asRecord)
+      : [];
   });
 }
 
-function entitlementSourceRank(source: DijieInstalledRole["entitlementSource"]): number {
+function entitlementSourceRank(
+  source: DijieInstalledRole["entitlementSource"],
+): number {
   if (source === "local_entitlement") {
     return 0;
   }
@@ -306,18 +481,34 @@ function entitlementSourceRank(source: DijieInstalledRole["entitlementSource"]):
   return 2;
 }
 
-function uniqueInstalledRoles(roles: DijieInstalledRole[]): DijieInstalledRole[] {
+function uniqueInstalledRoles(
+  roles: DijieInstalledRole[],
+): DijieInstalledRole[] {
   const byRoleId = new Map<string, DijieInstalledRole>();
   for (const role of roles) {
     const existing = byRoleId.get(role.role.id);
     if (
       !existing ||
-      entitlementSourceRank(role.entitlementSource) < entitlementSourceRank(existing.entitlementSource)
+      entitlementSourceRank(role.entitlementSource) <
+        entitlementSourceRank(existing.entitlementSource)
     ) {
       byRoleId.set(role.role.id, role);
     }
   }
   return [...byRoleId.values()];
+}
+
+function createInstalledRoleReadModel(
+  role: DijieRoleListing,
+): DijieInstalledRole["role"] {
+  return {
+    ...createDijiePublicRoleListingReadModel(role),
+    packageId: role.packageId,
+    packageVersion: role.packageVersion,
+    protocolVersion: role.protocolVersion,
+    developerId: role.developerId,
+    scopes: role.scopes,
+  };
 }
 
 export function createDijieInstalledRolesFromMarketplaceFacts(params: {
@@ -331,11 +522,12 @@ export function createDijieInstalledRolesFromMarketplaceFacts(params: {
   const storedListings = (params.roleListings ?? [])
     .map(createDijieRoleListingFromStoredRecord)
     .filter((listing): listing is DijieRoleListing => Boolean(listing));
-  const listingFacts = storedListings.length > 0
-    ? storedListings
-    : params.products
-        .map(createDijieRoleListingFromProduct)
-        .filter((listing): listing is DijieRoleListing => Boolean(listing));
+  const listingFacts =
+    storedListings.length > 0
+      ? storedListings
+      : params.products
+          .map(createDijieRoleListingFromProduct)
+          .filter((listing): listing is DijieRoleListing => Boolean(listing));
   for (const listing of listingFacts) {
     if (listing) {
       listings.set(listing.id, listing);
@@ -359,7 +551,7 @@ export function createDijieInstalledRolesFromMarketplaceFacts(params: {
       entitlementSource: "local_entitlement",
       orderId: nonEmptyString(entitlement.order_id) ?? null,
       authorizedAt: dateString(entitlement.authorized_at) ?? null,
-      role,
+      role: createInstalledRoleReadModel(role),
     });
   }
 
@@ -378,7 +570,10 @@ export function createDijieInstalledRolesFromMarketplaceFacts(params: {
     }
   }
 
-  for (const order of [...ordersFromOrderGroups(params.orderGroups), ...params.orders.map(asRecord)]) {
+  for (const order of [
+    ...ordersFromOrderGroups(params.orderGroups),
+    ...params.orders.map(asRecord),
+  ]) {
     if (orderIsBlocked(order) || !orderIsPaid(order)) {
       continue;
     }
@@ -405,10 +600,12 @@ export function createDijieInstalledRolesFromMarketplaceFacts(params: {
         installed.push({
           entitlementId,
           entitlementSource:
-            orderId && orderGroupsByOrderId.has(orderId) ? "order_group" : "order",
+            orderId && orderGroupsByOrderId.has(orderId)
+              ? "order_group"
+              : "order",
           orderId: orderId ?? null,
           authorizedAt,
-          role,
+          role: createInstalledRoleReadModel(role),
         });
       }
     }
@@ -417,7 +614,9 @@ export function createDijieInstalledRolesFromMarketplaceFacts(params: {
   return uniqueInstalledRoles(installed);
 }
 
-export async function listDijieRoleListings(queryGraph: DijieQueryGraph): Promise<DijieRoleListing[]> {
+export async function listDijieRoleListings(
+  queryGraph: DijieQueryGraph,
+): Promise<DijieRoleListing[]> {
   try {
     const { data = [] } = await queryGraph({
       entity: "dijie_role_listing",
@@ -429,6 +628,7 @@ export async function listDijieRoleListings(queryGraph: DijieQueryGraph): Promis
         "title",
         "subtitle",
         "description",
+        "usage_instructions",
         "category",
         "listing_status",
         "review_state",
@@ -475,12 +675,21 @@ export async function listDijieRoleListings(queryGraph: DijieQueryGraph): Promis
     .filter((listing): listing is DijieRoleListing => Boolean(listing));
 }
 
+export async function listDijiePublicRoleListingReadModels(
+  queryGraph: DijieQueryGraph,
+): Promise<DijiePublicRoleListingReadModel[]> {
+  const listings = await listDijieRoleListings(queryGraph);
+  return listings.map(createDijiePublicRoleListingReadModel);
+}
+
 export async function getDijieRoleDetailReadModel(params: {
   roleListingId: string;
   queryGraph: DijieQueryGraph;
 }): Promise<DijieRoleDetailReadModel | null> {
   const listings = await listDijieRoleListings(params.queryGraph);
-  const listing = listings.find((candidate) => candidate.id === params.roleListingId);
+  const listing = listings.find(
+    (candidate) => candidate.id === params.roleListingId,
+  );
   return listing ? createDijieRoleDetailReadModel(listing, listings) : null;
 }
 
@@ -488,48 +697,53 @@ export async function listDijieInstalledRoles(params: {
   actorId: string;
   queryGraph: DijieQueryGraph;
 }): Promise<DijieInstalledRole[]> {
-  const storedListingResult = await params.queryGraph({
-    entity: "dijie_role_listing",
-    fields: [
-      "id",
-      "package_id",
-      "package_version",
-      "developer_ref",
-      "title",
-      "subtitle",
-      "description",
-      "category",
-      "listing_status",
-      "review_state",
-      "capabilities",
-      "manifest_summary",
-      "pricing",
-      "role_token_pricing",
-      "scopes",
-    ],
-    filters: {
-      listing_status: "published",
-      review_state: "approved",
-    },
-    pagination: { take: 100 },
-  }).catch(() => ({ data: [] }));
-  const entitlementResult = await params.queryGraph({
-    entity: "dijie_role_entitlement",
-    fields: [
-      "id",
-      "actor_id",
-      "role_listing_id",
-      "entitlement_status",
-      "source",
-      "order_id",
-      "authorized_at",
-    ],
-    filters: {
-      actor_id: params.actorId,
-      entitlement_status: "authorized",
-    },
-    pagination: { take: 100 },
-  }).catch(() => ({ data: [] }));
+  const storedListingResult = await params
+    .queryGraph({
+      entity: "dijie_role_listing",
+      fields: [
+        "id",
+        "package_id",
+        "package_version",
+        "developer_ref",
+        "title",
+        "subtitle",
+        "description",
+        "usage_instructions",
+        "category",
+        "listing_status",
+        "review_state",
+        "capabilities",
+        "manifest_summary",
+        "pricing",
+        "role_token_pricing",
+        "scopes",
+      ],
+      filters: {
+        listing_status: "published",
+        review_state: "approved",
+      },
+      pagination: { take: 100 },
+    })
+    .catch(() => ({ data: [] }));
+  const entitlementResult = await params
+    .queryGraph({
+      entity: "dijie_role_entitlement",
+      fields: [
+        "id",
+        "actor_id",
+        "role_listing_id",
+        "entitlement_status",
+        "source",
+        "order_id",
+        "authorized_at",
+      ],
+      filters: {
+        actor_id: params.actorId,
+        entitlement_status: "authorized",
+      },
+      pagination: { take: 100 },
+    })
+    .catch(() => ({ data: [] }));
 
   const [productResult, orderGroupResult, orderResult] = await Promise.all([
     params.queryGraph({

@@ -106,7 +106,7 @@ Mercur/Medusa 侧原则：
 
 - 开发者为岗位 listing 设置授权价格。
 - 开发者为岗位 listing 设置模型用量单价：`metadata.dijieRole.roleTokenPricing.inputTokenCentsPerMillion` 和 `outputTokenCentsPerMillion`，单位为分/百万 Token。
-- 第一版岗位商品币种固定为 `CNY`，一次授权费和岗位 Token 单价都必须是非负整数分值。
+- 第一版岗位商品币种固定为 `CNY`，一次授权费必须是非负整数分值；岗位 Token 单价必须是整数分值，且不得低于平台 Token 成本价，也不得超过平台配置的最大倍率。
 - 用户第一次购买/授权岗位时付款。
 - 平台收入来自用户直接使用迭界AI主系统时产生的 token、模型、工具和执行用量计费；这些费用由系统平台按账号费用归属收费。
 - 用户进入某个岗位执行上下文后，岗位模型用量按岗位 listing 的开发者定价收费；平台基准价、真实模型成本和开发者挂牌价必须分开记录。
@@ -246,8 +246,8 @@ Mercur/Medusa 云端仍是岗位商场、使用者中心和开发者中心的事
 - `metadata.dijieRole.pricing.developerReceivableBps = 10000`
 - `metadata.dijieRole.pricing.developerReceivableCents = authorizationFeeCents`
 - `metadata.dijieRole.roleTokenPricing.currency = "CNY"`
-- `metadata.dijieRole.roleTokenPricing.inputTokenCentsPerMillion` 必须是非负整数
-- `metadata.dijieRole.roleTokenPricing.outputTokenCentsPerMillion` 必须是非负整数
+- `metadata.dijieRole.roleTokenPricing.inputTokenCentsPerMillion` 必须是整数，且不低于平台输入 Token 成本价
+- `metadata.dijieRole.roleTokenPricing.outputTokenCentsPerMillion` 必须是整数，且不低于平台输出 Token 成本价
 - `metadata.dijieRole.roleTokenPricing.platformFeeBps = 0`
 - `metadata.dijieRole.roleTokenPricing.developerReceivableBps = 10000`
 - `metadata.dijieRole.scopes` 只能包含 `role.execute` 和 `audit.write`
@@ -256,7 +256,7 @@ Mercur/Medusa 云端仍是岗位商场、使用者中心和开发者中心的事
 
 `metadata.dijieRole` 也不能保存 prompt、开发者模式 prompt、`RoleBuildBrief`、`modeStage`、chat/conversation/message history、`executionId`、`actorId`、`entitlementId`、`deviceId`、`workspaceRef`、`localGatewayId`、订单事实或钱包事实。开发者中心和 admin review 只能读取这些严格 listing metadata；如果开发者提交了上述字段，即使商品被误改成 published，公开 listing、entitlement verifier 和执行入口也必须因 parser 校验失败而拒绝。
 
-Admin 审核页必须在发布前校验一次授权费和 `roleTokenPricing`：价格为非负整数、币种为 `CNY`、平台抽成为 0、开发者应收为 10000 bps。校验失败时只能停留在待审核状态，不能把 listing 发布。
+Admin 审核页必须在发布前校验一次授权费和 `roleTokenPricing`：授权费为非负整数、Token 单价不低于平台成本且不超过平台最大倍率、币种为 `CNY`、平台抽成为 0、开发者应收为 10000 bps。校验失败时只能停留在待审核状态，不能把 listing 发布。
 
 `POST /dijie/entitlements/verify` 与 `GET /dijie/roles` 使用同一个严格 parser。也就是说，不能出现“公开岗位列表不显示，但 verifier 仍然把普通商品当成可执行岗位”的旁路。
 

@@ -9,7 +9,7 @@
 本轮必须证明：
 
 - vendor 能创建带 `roleTokenPricing` 的岗位商品。
-- admin 只能审核通过合法岗位定价：`currency = CNY`、输入/输出 Token 单价非负、`platformFeeBps = 0`、`developerReceivableBps = 10000`。
+- admin 只能审核通过合法岗位定价：`currency = CNY`、输入/输出 Token 单价不低于平台成本且不超过平台最大倍率、`platformFeeBps = 0`、`developerReceivableBps = 10000`。
 - vendor 创建商品前能上传 OpenClaw 导出的 `role_package/` 目录，云端只返回公开包收据和安全校验结果。
 - 上传的 `role_package/` 只包含岗位业务逻辑、流程、经验、能力需求和验收材料；实施工具由本地 OpenClaw/迭界AI主系统通过 OpenClaw `tools.catalog`、`tools.effective`、`tools.invoke` 选择、授权、执行和审计。
 - buyer 购买或授权后，云端能从本地 `RoleEntitlement` 或真实订单事实推导 `/dijie/my-roles` 和 `/dijie/execution-token`。
@@ -158,14 +158,14 @@ Expected result:
 - `metadata.dijieRole.pricing.platformFeeBps = 0`.
 - `metadata.dijieRole.pricing.developerReceivableBps = 10000`.
 - `metadata.dijieRole.roleTokenPricing.currency = "CNY"`.
-- `metadata.dijieRole.roleTokenPricing.inputTokenCentsPerMillion` is a non-negative integer.
-- `metadata.dijieRole.roleTokenPricing.outputTokenCentsPerMillion` is a non-negative integer.
+- `metadata.dijieRole.roleTokenPricing.inputTokenCentsPerMillion` is an integer at or above the configured platform input Token cost.
+- `metadata.dijieRole.roleTokenPricing.outputTokenCentsPerMillion` is an integer at or above the configured platform output Token cost.
 - `metadata.dijieRole.roleTokenPricing.platformFeeBps = 0`.
 - `metadata.dijieRole.roleTokenPricing.developerReceivableBps = 10000`.
 
 Failure checks:
 
-- Try leaving one Token price blank or negative. The listing must not be accepted as a valid executable role.
+- Try leaving one Token price blank, below platform cost, or above the platform max multiplier. The listing must not be accepted as a valid executable role.
 - Try changing platform fee away from zero through any available surface. Admin review must block publication.
 
 ## Step 3: Admin Reviews Listing
@@ -176,7 +176,7 @@ Expected result:
 
 - The page displays authorization price and role Token prices.
 - The page blocks approval if currency is not `CNY`.
-- The page blocks approval if either Token price is negative or missing.
+- The page blocks approval if either Token price is missing, below platform cost, or above the platform max multiplier.
 - The page blocks approval if platform fee is not zero.
 - The page blocks approval if developer receivable is not 10000 bps.
 - Once approved and published, `GET /dijie/roles` includes the listing.

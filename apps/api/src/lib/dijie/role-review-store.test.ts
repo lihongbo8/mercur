@@ -20,6 +20,8 @@ function roleListing(
     title: "商品图检查岗位",
     subtitle: "检查商品图是否清晰、合规、适合上架。",
     description: null,
+    usage_instructions:
+      "使用者需要上传商品图、说明品牌卖点、目标平台、风格限制和人工确认标准。",
     category: "视觉设计",
     listing_status: "proposed" as const,
     review_state: "submitted" as const,
@@ -37,8 +39,8 @@ function roleListing(
       developerReceivableCents: 0,
     },
     role_token_pricing: {
-      inputTokenCentsPerMillion: 0,
-      outputTokenCentsPerMillion: 0,
+      inputTokenCentsPerMillion: 120,
+      outputTokenCentsPerMillion: 360,
       currency: "CNY" as const,
       developerReceivableBps: 10000,
       platformFeeBps: 0,
@@ -59,14 +61,18 @@ function repository(input: {
   const reviews = input.reviews ?? [];
 
   return {
-    createDijieRoleReviews: async (data: Omit<DijieRoleReviewStorageRecord, "id">) => {
+    createDijieRoleReviews: async (
+      data: Omit<DijieRoleReviewStorageRecord, "id">,
+    ) => {
       const review = { ...data, id: `djreview_${data.role_listing_id}` };
       reviews.push(review);
       return review;
     },
     listDijieRoleReviews: async (filters?: Record<string, unknown>) =>
       reviews.filter((review) =>
-        filters?.role_listing_id ? review.role_listing_id === filters.role_listing_id : true,
+        filters?.role_listing_id
+          ? review.role_listing_id === filters.role_listing_id
+          : true,
       ),
     updateDijieRoleReviews: async (
       data: Partial<Omit<DijieRoleReviewStorageRecord, "id">> & { id: string },
@@ -79,7 +85,9 @@ function repository(input: {
       return reviews[index];
     },
     listDijieRoleListings: async (filters?: Record<string, unknown>) =>
-      listings.filter((listing) => (filters?.id ? listing.id === filters.id : true)),
+      listings.filter((listing) =>
+        filters?.id ? listing.id === filters.id : true,
+      ),
     updateDijieRoleListings: async (
       data: Partial<Omit<DijieRoleListingStorageRecord, "id">> & { id: string },
     ) => {

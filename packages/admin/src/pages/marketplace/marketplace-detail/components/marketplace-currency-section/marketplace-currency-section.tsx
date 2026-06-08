@@ -50,7 +50,7 @@ export const MarketplaceCurrencySection = ({
       />
       <ReadonlyRow
         label="审核策略"
-        value="岗位审核只允许 CNY 授权费和 CNY 模型计费。"
+        value="岗位审核只允许 CNY 授权费和 CNY Token 使用费。"
       />
     </Container>
   )

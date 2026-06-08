@@ -683,10 +683,6 @@ function readManifest(input: unknown): UnknownRecord {
   return {};
 }
 
-export function listDijieCapabilitySources(): DijieCapabilitySource[] {
-  return DEFAULT_SOURCES.map((source) => ({ ...source }));
-}
-
 export function extractDijieCapabilityNeeds(input: unknown): {
   requiredSkills: DijieCapabilityNeed[];
   requiredCapabilities: DijieCapabilityNeed[];

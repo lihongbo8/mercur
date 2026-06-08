@@ -22,17 +22,14 @@ import {
   submitDijieRolePackageDraftQuery,
   uploadDijieRolePackageQuery,
 } from "@lib/client";
-import {
-  createDijieRoleListingQuery,
-  submitDijieRoleListingReviewQuery,
-} from "@hooks/api/dijie-role-listings";
 import { ProductCreateSchemaType } from "../../../types";
 
 const ROLE_PACKAGE_UPLOAD_ERROR_MESSAGE =
   "资料包安全检查未通过，请回到主系统重新生成后再上传。";
 const ROLE_PACKAGE_REQUIRED_MESSAGE = "请先上传岗位资料包。";
 const ROLE_PACKAGE_INVALID_MESSAGE = "岗位资料包无法用于上架，请重新上传。";
-const DEFAULT_METERED_PRICE = "0";
+const PLATFORM_TOKEN_PRICE_HINT =
+  "开发者可自行定价；提交时后端会按平台成本和上限倍率做硬限制。";
 
 const ROLE_PACKAGE_STATUS_COLOR = {
   检查中: "orange",
@@ -45,7 +42,7 @@ const ROLE_PACKAGE_STEPS = [
   "上传资料包",
   "安全检查",
   "身份回填",
-  "提交审核",
+  "等待确认",
 ] as const;
 
 type RolePackageStatus = keyof typeof ROLE_PACKAGE_STATUS_COLOR;
@@ -74,22 +71,15 @@ type RolePackageDraftSummary = {
   blockingIssues?: string[];
 };
 
-const parseInteger = (value: unknown) => {
-  const text = typeof value === "string" ? value.trim() : String(value ?? "");
-  if (!text) {
-    return 0;
+const centsPerMillionHint = (value: unknown, baselineCents: number) => {
+  if (value === undefined || value === null || String(value).trim() === "") {
+    return `未填写不能提交；平台成本基线为 ${baselineCents} 分/百万 Token。`;
   }
-  const parsed = Number.parseInt(text, 10);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
-};
-
-const parseYuanToCents = (value: unknown) => {
-  const text = typeof value === "string" ? value.trim() : String(value ?? "");
-  if (!text) {
-    return 0;
+  const amount = Number(value);
+  if (!Number.isSafeInteger(amount) || amount < 0) {
+    return "请输入整数分/百万 Token。";
   }
-  const parsed = Number.parseFloat(text);
-  return Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed * 100) : 0;
+  return `${amount} 分/百万 Token = ¥${(amount / 100).toFixed(2)}/百万 Token。`;
 };
 
 const DeveloperModeStatus = ({ ready, running }: DeveloperModeStatusProps) => {
@@ -143,7 +133,13 @@ const LatestRolePackageDraftPanel = ({
       : blocked
         ? "需修复"
         : "生成中";
-  const statusColor = ready ? "green" : submitted ? "grey" : blocked ? "red" : "orange";
+  const statusColor = ready
+    ? "green"
+    : submitted
+      ? "grey"
+      : blocked
+        ? "red"
+        : "orange";
 
   return (
     <div className="flex flex-col gap-3 rounded-lg border border-ui-border-base bg-ui-bg-base px-4 py-3 shadow-elevation-card-rest md:flex-row md:items-center md:justify-between">
@@ -155,11 +151,17 @@ const LatestRolePackageDraftPanel = ({
           <StatusBadge color={statusColor}>{statusLabel}</StatusBadge>
         </div>
         <Text size="xsmall" className="text-ui-fg-subtle">
-          {draft.packageId ?? draft.draftId} · {draft.fileCount ?? 0} 个文件 · 质量评分{" "}
-          {draft.qualityReport?.score ?? 0}
+          {draft.packageId ?? draft.draftId} · {draft.fileCount ?? 0} 个文件 ·
+          质量评分 {draft.qualityReport?.score ?? 0}
         </Text>
       </div>
-      <Button size="small" variant="secondary" type="button" disabled={!ready || running} onClick={onUseDraft}>
+      <Button
+        size="small"
+        variant="secondary"
+        type="button"
+        disabled={!ready || running}
+        onClick={onUseDraft}
+      >
         {running ? "承接中" : "承接草稿"}
       </Button>
     </div>
@@ -265,37 +267,9 @@ export const ProductCreateGeneralSection = () => {
     message?: string;
     error?: string;
   }>({ running: false });
-  const [latestDraft, setLatestDraft] = useState<RolePackageDraftSummary | null>(null);
+  const [latestDraft, setLatestDraft] =
+    useState<RolePackageDraftSummary | null>(null);
   const [draftSubmitRunning, setDraftSubmitRunning] = useState(false);
-
-  useEffect(() => {
-    const hiddenPriceFields = [
-      "role_input_token_price_cents_per_million",
-      "role_output_token_price_cents_per_million",
-    ] as const;
-
-    hiddenPriceFields.forEach((fieldName) => {
-      if (!form.getValues(fieldName)) {
-        form.setValue(fieldName, DEFAULT_METERED_PRICE, {
-          shouldDirty: false,
-          shouldValidate: true,
-        });
-      }
-    });
-  }, [form]);
-
-  const usagePrice = form.watch("role_output_token_price_cents_per_million");
-
-  useEffect(() => {
-    form.setValue(
-      "role_input_token_price_cents_per_million",
-      usagePrice || DEFAULT_METERED_PRICE,
-      {
-        shouldDirty: false,
-        shouldValidate: true,
-      },
-    );
-  }, [form, usagePrice]);
 
   useEffect(() => {
     let cancelled = false;
@@ -303,7 +277,10 @@ export const ProductCreateGeneralSection = () => {
     fetchLatestDijieRolePackageDraftQuery()
       .then((result) => {
         if (!cancelled) {
-          setLatestDraft((result as { draft?: RolePackageDraftSummary | null })?.draft ?? null);
+          setLatestDraft(
+            (result as { draft?: RolePackageDraftSummary | null })?.draft ??
+              null,
+          );
         }
       })
       .catch(() => {
@@ -320,7 +297,9 @@ export const ProductCreateGeneralSection = () => {
   const rolePackageReady = Boolean(
     form.watch("role_package_id") && form.watch("role_package_version"),
   );
-  const roleRequiredCapabilities = (form.watch("role_required_capabilities") || "")
+  const roleRequiredCapabilities = (
+    form.watch("role_required_capabilities") || ""
+  )
     .split(/[\n,]/)
     .map((capability) => capability.trim())
     .filter(Boolean);
@@ -351,84 +330,6 @@ export const ProductCreateGeneralSection = () => {
     rolePackageUpload.error || rolePackageValidationError
       ? "text-ui-fg-error"
       : "text-ui-fg-subtle";
-
-  const createAndSubmitRoleListing = async ({
-    packageId,
-    packageVersion,
-    manifestSummary,
-  }: {
-    packageId: string;
-    packageVersion: string;
-    manifestSummary?: RolePackageDraftSummary["manifestSummary"];
-  }) => {
-    const requiredCapabilities = Array.isArray(
-      manifestSummary?.requiredCapabilities,
-    )
-      ? manifestSummary.requiredCapabilities
-          .filter((capability): capability is string => typeof capability === "string")
-          .map((capability) => capability.trim())
-          .filter(Boolean)
-      : [];
-    const currentTitle = form.getValues("title")?.trim();
-    const title =
-      currentTitle ||
-      manifestSummary?.name?.trim() ||
-      manifestSummary?.title?.trim() ||
-      packageId;
-    if (!currentTitle) {
-      form.setValue("title", title, {
-        shouldDirty: true,
-        shouldValidate: true,
-      });
-    }
-
-    const authorizationFeeCents = parseYuanToCents(
-      form.getValues("role_authorization_fee_yuan"),
-    );
-    const inputTokenCentsPerMillion = parseInteger(
-      form.getValues("role_input_token_price_cents_per_million"),
-    );
-    const outputTokenCentsPerMillion = parseInteger(
-      form.getValues("role_output_token_price_cents_per_million"),
-    );
-    const confirmationPoints = requiredCapabilities.includes("human.confirm")
-      ? 1
-      : 0;
-
-    const created = await createDijieRoleListingQuery({
-      packageId,
-      packageVersion,
-      title,
-      subtitle: form.getValues("subtitle")?.trim() || undefined,
-      description: form.getValues("description")?.trim() || undefined,
-      pricing: {
-        kind: "one_time_authorization",
-        authorizationFeeCents,
-        currency: "CNY",
-        platformFeeBps: 0,
-        developerReceivableCents: authorizationFeeCents,
-      },
-      roleTokenPricing: {
-        inputTokenCentsPerMillion,
-        outputTokenCentsPerMillion,
-        currency: "CNY",
-        developerReceivableBps: 10000,
-        platformFeeBps: 0,
-      },
-      confirmationPoints,
-    });
-
-    if (!created.roleListingId) {
-      throw new Error("岗位商品创建返回不完整");
-    }
-
-    await submitDijieRoleListingReviewQuery(created.roleListingId);
-    form.setValue("role_listing_id", created.roleListingId, {
-      shouldDirty: true,
-      shouldValidate: false,
-    });
-    return created.roleListingId;
-  };
 
   const handleRolePackageUpload = async (
     event: ChangeEvent<HTMLInputElement>,
@@ -480,7 +381,10 @@ export const ProductCreateGeneralSection = () => {
         uploadedPackage.manifestSummary?.requiredCapabilities;
       const normalizedRequiredCapabilities = Array.isArray(requiredCapabilities)
         ? requiredCapabilities
-            .filter((capability): capability is string => typeof capability === "string")
+            .filter(
+              (capability): capability is string =>
+                typeof capability === "string",
+            )
             .map((capability) => capability.trim())
             .filter(Boolean)
         : [];
@@ -494,17 +398,25 @@ export const ProductCreateGeneralSection = () => {
           },
         );
       }
-      const roleListingId = await createAndSubmitRoleListing({
-        packageId: uploadedPackage.packageId,
-        packageVersion: uploadedPackage.packageVersion,
-        manifestSummary: uploadedPackage.manifestSummary,
+      const manifestTitle =
+        uploadedPackage.manifestSummary?.name?.trim() ||
+        uploadedPackage.manifestSummary?.title?.trim();
+      if (!form.getValues("title")?.trim() && manifestTitle) {
+        form.setValue("title", manifestTitle, {
+          shouldDirty: true,
+          shouldValidate: true,
+        });
+      }
+      form.setValue("role_listing_id", "", {
+        shouldDirty: true,
+        shouldValidate: false,
       });
       setRolePackageUpload({
         running: false,
         message:
           normalizedRequiredCapabilities.length > 0
-            ? `资料包已就绪，已同步 ${normalizedRequiredCapabilities.length} 项本地能力需求，并提交审核：${roleListingId}。`
-            : `资料包已就绪，并提交审核：${roleListingId}。`,
+            ? `资料包已就绪，已同步 ${normalizedRequiredCapabilities.length} 项本地能力需求。请继续确认商品信息后手动提交审核。`
+            : "资料包已就绪。请继续确认商品信息后手动提交审核。",
       });
     } catch {
       setRolePackageUpload({
@@ -524,7 +436,9 @@ export const ProductCreateGeneralSection = () => {
     setDraftSubmitRunning(true);
     setRolePackageUpload({ running: true });
     try {
-      const result = await submitDijieRolePackageDraftQuery(latestDraft.draftId) as {
+      const result = (await submitDijieRolePackageDraftQuery(
+        latestDraft.draftId,
+      )) as {
         packageId?: string;
         packageVersion?: string;
       };
@@ -546,22 +460,35 @@ export const ProductCreateGeneralSection = () => {
           shouldValidate: true,
         });
       }
-      const requiredCapabilities = latestDraft.manifestSummary?.requiredCapabilities ?? [];
-      form.setValue("role_required_capabilities", requiredCapabilities.join("\n"), {
+      const requiredCapabilities =
+        latestDraft.manifestSummary?.requiredCapabilities ?? [];
+      form.setValue(
+        "role_required_capabilities",
+        requiredCapabilities.join("\n"),
+        {
+          shouldDirty: true,
+          shouldValidate: true,
+        },
+      );
+      const manifestTitle =
+        latestDraft.manifestSummary?.name?.trim() ||
+        latestDraft.manifestSummary?.title?.trim();
+      if (!form.getValues("title")?.trim() && manifestTitle) {
+        form.setValue("title", manifestTitle, {
+          shouldDirty: true,
+          shouldValidate: true,
+        });
+      }
+      form.setValue("role_listing_id", "", {
         shouldDirty: true,
-        shouldValidate: true,
-      });
-      const roleListingId = await createAndSubmitRoleListing({
-        packageId: result.packageId,
-        packageVersion: result.packageVersion,
-        manifestSummary: latestDraft.manifestSummary,
+        shouldValidate: false,
       });
       setRolePackageUpload({
         running: false,
         message:
           requiredCapabilities.length > 0
-            ? `AI 草稿已承接，已同步 ${requiredCapabilities.length} 项本地能力需求，并提交审核：${roleListingId}。`
-            : `AI 草稿已承接，并提交审核：${roleListingId}。`,
+            ? `AI 草稿已承接，已同步 ${requiredCapabilities.length} 项本地能力需求。请继续确认商品信息后手动提交审核。`
+            : "AI 草稿已承接。请继续确认商品信息后手动提交审核。",
       });
       setLatestDraft({ ...latestDraft, status: "submitted" });
     } catch {
@@ -591,10 +518,7 @@ export const ProductCreateGeneralSection = () => {
                 <Form.Item>
                   <Form.Label>岗位名称</Form.Label>
                   <Form.Control>
-                    <Input
-                      {...field}
-                      placeholder="例如：客户线索质检专员"
-                    />
+                    <Input {...field} placeholder="例如：客户线索质检专员" />
                   </Form.Control>
                   <Form.ErrorMessage>
                     {form.formState.errors.title?.message}
@@ -642,6 +566,29 @@ export const ProductCreateGeneralSection = () => {
                   placeholder="用开发者自己的语言说明岗位会处理哪些输入、输出什么结果。"
                 />
               </Form.Control>
+            </Form.Item>
+          );
+        }}
+      />
+      <Form.Field
+        control={form.control}
+        name="role_usage_instructions"
+        render={({ field }) => {
+          return (
+            <Form.Item>
+              <Form.Label>使用规范</Form.Label>
+              <Form.Control>
+                <Textarea
+                  {...field}
+                  placeholder="说明使用者在使用窗口需要提供哪些资料、怎么描述任务、哪些情况会失败或需要人工确认。例如：美工岗位需要上传商品图/详情页素材，说明品牌、卖点、平台规则、目标风格、禁用元素和确认标准。"
+                />
+              </Form.Control>
+              <Text size="xsmall" className="text-ui-fg-subtle">
+                这段会显示在商城详情和使用者岗位详情里，也会进入审核中心检查。
+              </Text>
+              <Form.ErrorMessage>
+                {form.formState.errors.role_usage_instructions?.message}
+              </Form.ErrorMessage>
             </Form.Item>
           );
         }}
@@ -718,14 +665,42 @@ export const ProductCreateGeneralSection = () => {
         />
         <Form.Field
           control={form.control}
+          name="role_input_token_price_cents_per_million"
+          render={({ field }) => {
+            return (
+              <Form.Item>
+                <Form.Label>输入 Token 使用费（分/百万 Token）</Form.Label>
+                <Form.Control>
+                  <Input {...field} inputMode="numeric" placeholder="120" />
+                </Form.Control>
+                <Text size="xsmall" className="text-ui-fg-subtle">
+                  {centsPerMillionHint(field.value, 120)}
+                  {PLATFORM_TOKEN_PRICE_HINT}
+                </Text>
+                <Form.ErrorMessage>
+                  {
+                    form.formState.errors
+                      .role_input_token_price_cents_per_million?.message
+                  }
+                </Form.ErrorMessage>
+              </Form.Item>
+            );
+          }}
+        />
+        <Form.Field
+          control={form.control}
           name="role_output_token_price_cents_per_million"
           render={({ field }) => {
             return (
               <Form.Item>
-                <Form.Label>调用单价（分/百万次计量）</Form.Label>
+                <Form.Label>输出 Token 使用费（分/百万 Token）</Form.Label>
                 <Form.Control>
-                  <Input {...field} inputMode="numeric" placeholder="0" />
+                  <Input {...field} inputMode="numeric" placeholder="360" />
                 </Form.Control>
+                <Text size="xsmall" className="text-ui-fg-subtle">
+                  {centsPerMillionHint(field.value, 360)}
+                  消费者端会明码展示并按实际用量结算。
+                </Text>
                 <Form.ErrorMessage>
                   {
                     form.formState.errors
@@ -735,17 +710,6 @@ export const ProductCreateGeneralSection = () => {
               </Form.Item>
             );
           }}
-        />
-        <Form.Field
-          control={form.control}
-          name="role_input_token_price_cents_per_million"
-          render={({ field }) => (
-            <input
-              {...field}
-              type="hidden"
-              value={field.value ?? DEFAULT_METERED_PRICE}
-            />
-          )}
         />
       </div>
       <Form.Field

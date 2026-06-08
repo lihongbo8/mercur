@@ -48,10 +48,24 @@ function rolePackage() {
   };
 }
 
+const roleTokenPricing = {
+  inputTokenCentsPerMillion: 120,
+  outputTokenCentsPerMillion: 360,
+  currency: "CNY" as const,
+  developerReceivableBps: 10000,
+  platformFeeBps: 0,
+};
+
+const usageInstructions =
+  "使用者需要提供商品图、目标平台、品牌卖点和人工确认标准后再发起任务。";
+
 function request(input: {
   body: unknown;
   actorId?: string;
-  service?: (DijieRoleListingStore & DijieRolePackageReader) | DijieRoleListingReader;
+  sellerId?: string;
+  service?:
+    | (DijieRoleListingStore & DijieRolePackageReader)
+    | DijieRoleListingReader;
 }) {
   return {
     body: input.body,
@@ -59,6 +73,11 @@ function request(input: {
       ? {
           actor_id: input.actorId,
           actor_type: "member",
+        }
+      : undefined,
+    seller_context: input.sellerId
+      ? {
+          seller_id: input.sellerId,
         }
       : undefined,
     scope: {
@@ -78,12 +97,13 @@ function storedListing() {
     package_id: "pkg_product_image_qc",
     package_version: "0.1.0",
     owner_id: "member_123",
-    developer_ref: "member_123",
-    listing_owner_ref: "member_123",
-    billing_beneficiary_ref: "member_123",
+    developer_ref: "sel_001",
+    listing_owner_ref: "sel_001",
+    billing_beneficiary_ref: "sel_001",
     title: "商品图检查岗位",
     subtitle: "检查商品图片质量",
     description: "输出图片质量问题和修改建议。",
+    usage_instructions: usageInstructions,
     category: "视觉质检",
     listing_status: "proposed" as const,
     review_state: "submitted" as const,
@@ -96,13 +116,7 @@ function storedListing() {
       platformFeeBps: 0,
       developerReceivableCents: 29900,
     },
-    role_token_pricing: {
-      inputTokenCentsPerMillion: 120,
-      outputTokenCentsPerMillion: 360,
-      currency: "CNY" as const,
-      developerReceivableBps: 10000,
-      platformFeeBps: 0,
-    },
+    role_token_pricing: roleTokenPricing,
     scopes: ["role.execute", "audit.write"],
     confirmation_points: 2,
     submitted_at: new Date("2026-06-04T01:00:00.000Z"),
@@ -117,10 +131,13 @@ describe("POST /vendor/dijie/role-listings", () => {
     await POST(
       request({
         actorId: "member_123",
+        sellerId: "sel_001",
         body: {
           packageId: "pkg_product_image_qc",
           packageVersion: "0.1.0",
           title: "商品图检查岗位",
+          usageInstructions,
+          roleTokenPricing,
         },
         service: {
           async retrieveDijieRolePackage(input) {
@@ -133,8 +150,13 @@ describe("POST /vendor/dijie/role-listings", () => {
           async createDijieRoleListing(input) {
             expect(input).toMatchObject({
               ownerId: "member_123",
+              developerRef: "sel_001",
+              listingOwnerRef: "sel_001",
+              billingBeneficiaryRef: "sel_001",
               packageId: "pkg_product_image_qc",
               title: "商品图检查岗位",
+              usageInstructions,
+              roleTokenPricing,
             });
             return {
               ok: true,
@@ -145,12 +167,13 @@ describe("POST /vendor/dijie/role-listings", () => {
                   package_id: "pkg_product_image_qc",
                   package_version: "0.1.0",
                   owner_id: "member_123",
-                  developer_ref: "member_123",
-                  listing_owner_ref: "member_123",
-                  billing_beneficiary_ref: "member_123",
+                  developer_ref: "sel_001",
+                  listing_owner_ref: "sel_001",
+                  billing_beneficiary_ref: "sel_001",
                   title: "商品图检查岗位",
                   subtitle: null,
                   description: null,
+                  usage_instructions: usageInstructions,
                   category: null,
                   listing_status: "draft",
                   review_state: "draft",
@@ -163,13 +186,7 @@ describe("POST /vendor/dijie/role-listings", () => {
                     platformFeeBps: 0,
                     developerReceivableCents: 0,
                   },
-                  role_token_pricing: {
-                    inputTokenCentsPerMillion: 0,
-                    outputTokenCentsPerMillion: 0,
-                    currency: "CNY",
-                    developerReceivableBps: 10000,
-                    platformFeeBps: 0,
-                  },
+                  role_token_pricing: roleTokenPricing,
                   scopes: ["role.execute", "audit.write"],
                   confirmation_points: 0,
                   submitted_at: null,
@@ -206,10 +223,12 @@ describe("POST /vendor/dijie/role-listings", () => {
     await POST(
       request({
         actorId: "member_other",
+        sellerId: "sel_001",
         body: {
           packageId: "pkg_product_image_qc",
           packageVersion: "0.1.0",
           title: "商品图检查岗位",
+          usageInstructions,
         },
         service: {
           async retrieveDijieRolePackage() {
@@ -251,7 +270,7 @@ describe("GET /vendor/dijie/role-listings", () => {
     expect(res.statusCode).toBe(401);
     expect(res.body).toMatchObject({
       ok: false,
-      error: "读取开发者岗位商品需要登录开发者账号。",
+      error: "读取开发者岗位商品需要登录开发者账号并选择开发者店铺。",
     });
   });
 
@@ -260,6 +279,7 @@ describe("GET /vendor/dijie/role-listings", () => {
     await GET(
       request({
         actorId: "member_123",
+        sellerId: "sel_001",
         body: {},
         service: {
           async retrieveDijieRoleListing() {
@@ -267,7 +287,7 @@ describe("GET /vendor/dijie/role-listings", () => {
           },
           async listDijieStoredRoleListings(input) {
             expect(input).toEqual({
-              ownerId: "member_123",
+              developerRef: "sel_001",
               take: 100,
             });
             return [storedListing()];

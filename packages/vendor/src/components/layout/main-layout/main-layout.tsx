@@ -54,6 +54,7 @@ const addNestedItems = (
 const MainSidebar = () => {
   const coreRoutes = useCoreRoutes();
   const customMenuItems = getMenuItemsByType(allMenuItems, "main");
+  const coreRoutePaths = new Set(coreRoutes.map((route) => route.to));
 
   const routesWithNested = coreRoutes.map((route) => ({
     ...route,
@@ -61,6 +62,7 @@ const MainSidebar = () => {
   }));
 
   const customRoutesWithNested = customMenuItems
+    .filter((item) => !coreRoutePaths.has(item.path))
     .sort((a, b) => (a.rank ?? 0) - (b.rank ?? 0))
     .map((item) => {
       const Icon = item.icon;
@@ -278,11 +280,6 @@ export const useCoreRoutes = (): Omit<INavItem, "pathname">[] => {
       icon: <User />,
       label: "开发者资料",
       to: "/settings/profile",
-    },
-    {
-      icon: <Buildings />,
-      label: "能力资源",
-      to: "/tool-resources",
     },
   ];
 };

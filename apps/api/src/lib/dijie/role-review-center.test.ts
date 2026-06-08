@@ -17,6 +17,8 @@ function roleProduct(overrides: Record<string, unknown> = {}) {
         developerRef: "dev_001",
         listingStatus: "proposed",
         reviewState: "submitted",
+        usageInstructions:
+          "使用者需要上传商品图、说明品牌卖点、目标平台、风格限制和人工确认标准。",
         capabilities: ["商品图检查", "违规风险提示"],
         manifestSummary: {
           entrypoint: "role_package/manifest.json",
@@ -56,6 +58,8 @@ describe("Dijie review center read model", () => {
           subtitle: "检查商品图是否清晰、合规、适合上架。",
           listing_status: "proposed",
           review_state: "submitted",
+          usage_instructions:
+            "使用者需要上传商品图、说明品牌卖点、目标平台、风格限制和人工确认标准。",
           manifest_summary: {
             requiredCapabilities: ["workspace.read", "browser.use"],
           },
@@ -88,6 +92,172 @@ describe("Dijie review center read model", () => {
     });
   });
 
+  it("keeps a stable action review id after a stored review exists", () => {
+    const model = createDijieReviewCenterReadModel(
+      [
+        {
+          id: "djrole_image_review",
+          package_id: "djpkg_image_review",
+          package_version: "1.0.0",
+          developer_ref: "acct_dev",
+          title: "商品图检查岗位",
+          listing_status: "proposed",
+          review_state: "submitted",
+          manifest_summary: {
+            requiredCapabilities: ["workspace.read", "browser.use"],
+          },
+        },
+      ],
+      {
+        reviews: [
+          {
+            id: "djreview_image_review",
+            role_listing_id: "djrole_image_review",
+            reviewer_id: "admin_001",
+            role_standard_decision: "pass",
+            safety_compliance_decision: "pending",
+            pricing_reasonability_decision: "pending",
+            final_result: "pending",
+            summary: null,
+            records: [],
+            finalized_at: null,
+          },
+        ],
+      },
+    );
+
+    expect(model.queue[0]).toMatchObject({
+      reviewId: "review_djrole_image_review",
+      evaluations: {
+        roleStandard: "pass",
+        safetyCompliance: "pending",
+        pricingReasonability: "pending",
+      },
+    });
+  });
+
+  it("does not treat image.inspect inspection roles as missing image understanding", () => {
+    const model = createDijieReviewCenterReadModel([
+      {
+        id: "djrole_image_inspect",
+        package_id: "djpkg_image_inspect",
+        package_version: "1.0.0",
+        developer_ref: "acct_dev",
+        title: "智能门锁电商美工岗位",
+        description: "提供主图巡检、商品图检查和详情页优化清单。",
+        listing_status: "proposed",
+        review_state: "submitted",
+        manifest_summary: {
+          requiredCapabilities: ["image.inspect", "audit.record"],
+        },
+        pricing: { currency: "CNY" },
+      },
+    ]);
+
+    const imageUnderstanding = model.queue[0].specialtyChecks.find(
+      (item) => item.id === "image_understanding",
+    );
+
+    expect(imageUnderstanding).toMatchObject({
+      status: "pass",
+    });
+    expect(model.queue[0].statusReason).not.toContain("图片理解");
+  });
+
+  it("does not allow approval while automatic blocking checks remain", () => {
+    const model = createDijieReviewCenterReadModel(
+      [
+        {
+          id: "djrole_blocked_designer",
+          package_id: "djpkg_blocked_designer",
+          package_version: "1.0.0",
+          developer_ref: "acct_dev",
+          title: "商品图美工岗位",
+          listing_status: "proposed",
+          review_state: "submitted",
+          manifest_summary: {
+            requiredCapabilities: ["workspace.read"],
+          },
+          pricing: { currency: "CNY" },
+        },
+      ],
+      {
+        reviews: [
+          {
+            id: "djreview_blocked_designer",
+            role_listing_id: "djrole_blocked_designer",
+            reviewer_id: "admin_001",
+            role_standard_decision: "pass",
+            safety_compliance_decision: "pass",
+            pricing_reasonability_decision: "pass",
+            final_result: "pending",
+            summary: null,
+            records: [],
+            finalized_at: null,
+          },
+        ],
+      },
+    );
+
+    expect(model.queue[0].statusReason).toContain("需处理");
+    expect(model.queue[0].allowedActions).toContain("save_evaluations");
+    expect(model.queue[0].allowedActions).not.toContain("finalize_approved");
+  });
+
+  it("shows post-approval missing fields as review suggestions instead of blockers", () => {
+    const model = createDijieReviewCenterReadModel([
+      {
+        id: "djrole_approved_designer",
+        package_id: "djpkg_approved_designer",
+        package_version: "1.0.0",
+        developer_ref: "acct_dev",
+        title: "智能门锁电商美工岗位",
+        description: "提供主图巡检、设计方案输出和详情页优化清单。",
+        listing_status: "published",
+        review_state: "approved",
+        usage_instructions: null,
+        manifest_summary: {
+          requiredCapabilities: [
+            "image.inspect",
+            "image.generate",
+            "document.write",
+            "audit.record",
+          ],
+        },
+        pricing: {
+          authorizationFeeCents: 39900,
+          currency: "CNY",
+          platformFeeBps: 0,
+          developerReceivableCents: 39900,
+          developerReceivableBps: 10000,
+        },
+        role_token_pricing: {
+          inputTokenCentsPerMillion: 120,
+          outputTokenCentsPerMillion: 360,
+          currency: "CNY",
+          developerReceivableBps: 10000,
+          platformFeeBps: 0,
+        },
+      },
+    ]);
+
+    expect(model.queue[0]).toMatchObject({
+      reviewState: "approved",
+      listingStatus: "published",
+      allowedActions: [],
+    });
+    expect(model.queue[0].statusReason).toContain("复核建议");
+    expect(model.queue[0].statusReason).not.toContain("需处理");
+    expect(
+      [
+        ...model.queue[0].capabilityChecks,
+        ...model.queue[0].specialtyChecks,
+        ...model.queue[0].safetyChecks,
+        ...model.queue[0].pricingSummary.checks,
+      ].some((item) => item.status === "blocked"),
+    ).toBe(false);
+  });
+
   it("projects the admin UI as one role review with checklist items", () => {
     const model = createDijieReviewCenterReadModel([roleProduct()], {
       adminAccountId: "admin_001",
@@ -118,6 +288,7 @@ describe("Dijie review center read model", () => {
       },
       reviewChecklist: [
         { id: "public_materials", title: "公开材料" },
+        { id: "usage_instructions", title: "使用规范" },
         { id: "safety_summary", title: "安全摘要" },
         { id: "pricing_confirmation", title: "价格确认" },
       ],
@@ -152,6 +323,8 @@ describe("Dijie review center read model", () => {
     expect(model.sampleRoleTitle).toBeNull();
     expect(model.statusPanel.pendingRoles).toBe(0);
     expect(model.queue).toEqual([]);
-    expect(model.emptyState).toBe("暂无岗位审核提交，后端接入后会显示真实审核队列。");
+    expect(model.emptyState).toBe(
+      "暂无岗位审核提交，后端接入后会显示真实审核队列。",
+    );
   });
 });

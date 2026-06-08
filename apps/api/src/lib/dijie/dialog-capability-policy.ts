@@ -143,7 +143,6 @@ const POLICY_BY_SURFACE: Record<DijieDialogSurface, PolicyTemplate> = {
       "navigate_listing",
       "navigate_sales",
       "navigate_payouts",
-      "navigate_capabilities",
       "navigate_profile",
       "explain_pricing",
     ],

@@ -1,4 +1,4 @@
-import { ArrowLongRight, CheckCircle, CloudArrowUp } from "@medusajs/icons"
+import { ArrowLongRight, CheckCircle, CloudArrowUp } from "@medusajs/icons";
 import {
   Badge,
   Button,
@@ -9,43 +9,43 @@ import {
   Tooltip,
   toast,
   usePrompt,
-} from "@medusajs/ui"
-import { Link } from "react-router-dom"
+} from "@medusajs/ui";
+import { Link } from "react-router-dom";
 
-import { SectionRow } from "@components/common/section"
-import { useProductDetailContext } from "../../context"
+import { SectionRow } from "@components/common/section";
+import { useProductDetailContext } from "../../context";
 
-type RoleReviewState = "draft" | "submitted" | "approved" | "rejected"
+type RoleReviewState = "draft" | "submitted" | "approved" | "rejected";
 type RoleListingStatus =
   | "draft"
   | "proposed"
   | "published"
   | "rejected"
   | "delisted"
-  | "archived"
+  | "archived";
 
 type RoleMetadata = Record<string, unknown> & {
-  reviewState?: RoleReviewState
-  review_state?: RoleReviewState
-  listingStatus?: RoleListingStatus
-  listing_status?: RoleListingStatus
-  packageId?: string
-  package_id?: string
-  packageVersion?: string
-  package_version?: string
-  pricing?: Record<string, unknown>
-  roleTokenPricing?: Record<string, unknown>
-  role_token_pricing?: Record<string, unknown>
-  reviewRejectionReason?: string
-  review_rejection_reason?: string
-}
+  reviewState?: RoleReviewState;
+  review_state?: RoleReviewState;
+  listingStatus?: RoleListingStatus;
+  listing_status?: RoleListingStatus;
+  packageId?: string;
+  package_id?: string;
+  packageVersion?: string;
+  package_version?: string;
+  usageInstructions?: string;
+  usage_instructions?: string;
+  pricing?: Record<string, unknown>;
+  reviewRejectionReason?: string;
+  review_rejection_reason?: string;
+};
 
 const REVIEW_STATE_LABELS: Record<string, string> = {
   draft: "草稿",
   submitted: "待审核",
   approved: "已通过",
   rejected: "已驳回",
-}
+};
 
 const LISTING_STATUS_LABELS: Record<string, string> = {
   draft: "草稿",
@@ -54,52 +54,52 @@ const LISTING_STATUS_LABELS: Record<string, string> = {
   rejected: "已驳回",
   delisted: "已下架",
   archived: "已归档",
-}
+};
 
 const statusColor = (value?: string) => {
   switch (value) {
     case "approved":
     case "published":
-      return "green"
+      return "green";
     case "submitted":
     case "proposed":
-      return "orange"
+      return "orange";
     case "rejected":
-      return "red"
+      return "red";
     default:
-      return "grey"
+      return "grey";
   }
-}
+};
 
 const asRecord = (value: unknown): Record<string, unknown> => {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
-    : {}
-}
+    : {};
+};
 
 const readString = (...values: unknown[]) => {
   for (const value of values) {
     if (typeof value === "string" && value.trim()) {
-      return value.trim()
+      return value.trim();
     }
   }
 
-  return undefined
-}
+  return undefined;
+};
 
 const readNumber = (...values: unknown[]) => {
   for (const value of values) {
     if (typeof value === "number" && Number.isFinite(value)) {
-      return value
+      return value;
     }
   }
 
-  return undefined
-}
+  return undefined;
+};
 
 const isLocalPathString = (value?: string) => {
   if (!value) {
-    return false
+    return false;
   }
 
   return (
@@ -108,50 +108,50 @@ const isLocalPathString = (value?: string) => {
     value.startsWith("file://") ||
     /^[A-Za-z]:[\\/]/.test(value) ||
     value.split(/[\\/]/).includes("..")
-  )
-}
+  );
+};
 
 const readPublicString = (...values: unknown[]) => {
-  const value = readString(...values)
+  const value = readString(...values);
 
-  return value && !isLocalPathString(value) ? value : undefined
-}
+  return value && !isLocalPathString(value) ? value : undefined;
+};
 
 const getRoleMetadata = (product: Record<string, unknown>) => {
-  const metadata = asRecord(product.metadata)
-  const role = asRecord(metadata.dijieRole)
+  const metadata = asRecord(product.metadata);
+  const role = asRecord(metadata.dijieRole);
 
-  return Object.keys(role).length ? (role as RoleMetadata) : null
-}
+  return Object.keys(role).length ? (role as RoleMetadata) : null;
+};
 
 const getReviewState = (role: RoleMetadata | null) => {
-  return role?.reviewState ?? role?.review_state ?? "draft"
-}
+  return role?.reviewState ?? role?.review_state ?? "draft";
+};
 
 const getListingStatus = (role: RoleMetadata | null) => {
-  return role?.listingStatus ?? role?.listing_status ?? "draft"
-}
+  return role?.listingStatus ?? role?.listing_status ?? "draft";
+};
 
 const formatCny = (cents?: number) => {
   if (typeof cents !== "number" || !Number.isFinite(cents)) {
-    return "-"
+    return "-";
   }
 
   return new Intl.NumberFormat("zh-CN", {
     style: "currency",
     currency: "CNY",
     maximumFractionDigits: 2,
-  }).format(cents / 100)
-}
+  }).format(cents / 100);
+};
 
 const formatDate = (value?: string) => {
   if (!value) {
-    return "-"
+    return "-";
   }
 
-  const date = new Date(value)
+  const date = new Date(value);
   if (Number.isNaN(date.getTime())) {
-    return "-"
+    return "-";
   }
 
   return date.toLocaleString("zh-CN", {
@@ -160,39 +160,24 @@ const formatDate = (value?: string) => {
     day: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
-  })
-}
+  });
+};
 
 const getRoleSummary = (product: Record<string, unknown>) => {
-  const role = getRoleMetadata(product)
-  const pricing = asRecord(role?.pricing)
-  const roleTokenPricing = asRecord(
-    role?.roleTokenPricing ?? role?.role_token_pricing
-  )
+  const role = getRoleMetadata(product);
+  const pricing = asRecord(role?.pricing);
   const packageVersion = readPublicString(
     role?.packageVersion,
-    role?.package_version
-  )
-  const hasPackage = !!readPublicString(role?.packageId, role?.package_id)
+    role?.package_version,
+  );
+  const hasPackage = !!readPublicString(role?.packageId, role?.package_id);
   const authorizationFeeCents = readNumber(
     pricing.authorizationFeeCents,
     pricing.authorization_fee_cents,
     pricing.amountCents,
     pricing.amount_cents,
-    (role as Record<string, unknown> | null)?.authorizationFeeCents
-  )
-  const inputTokenCentsPerMillion = readNumber(
-    roleTokenPricing.inputTokenCentsPerMillion,
-    roleTokenPricing.input_token_cents_per_million,
-    roleTokenPricing.inputCentsPerMillion,
-    roleTokenPricing.input_cents_per_million
-  )
-  const outputTokenCentsPerMillion = readNumber(
-    roleTokenPricing.outputTokenCentsPerMillion,
-    roleTokenPricing.output_token_cents_per_million,
-    roleTokenPricing.outputCentsPerMillion,
-    roleTokenPricing.output_cents_per_million
-  )
+    (role as Record<string, unknown> | null)?.authorizationFeeCents,
+  );
 
   return {
     role,
@@ -202,17 +187,19 @@ const getRoleSummary = (product: Record<string, unknown>) => {
     listingStatus: getListingStatus(role),
     rejectionReason: readPublicString(
       role?.reviewRejectionReason,
-      role?.review_rejection_reason
+      role?.review_rejection_reason,
+    ),
+    usageInstructions: readPublicString(
+      role?.usageInstructions,
+      role?.usage_instructions,
     ),
     authorizationFeeCents,
-    inputTokenCentsPerMillion,
-    outputTokenCentsPerMillion,
-  }
-}
+  };
+};
 
 export const RoleGeneralSection = () => {
-  const { product } = useProductDetailContext()
-  const summary = getRoleSummary(product)
+  const { product } = useProductDetailContext();
+  const summary = getRoleSummary(product);
 
   return (
     <Container className="divide-y p-0">
@@ -249,13 +236,14 @@ export const RoleGeneralSection = () => {
       {summary.reviewState === "rejected" && (
         <SectionRow title="驳回原因" value={summary.rejectionReason || "-"} />
       )}
+      <SectionRow title="使用规范" value={summary.usageInstructions || "-"} />
     </Container>
-  )
-}
+  );
+};
 
 export const RolePricingSection = () => {
-  const { product } = useProductDetailContext()
-  const summary = getRoleSummary(product)
+  const { product } = useProductDetailContext();
+  const summary = getRoleSummary(product);
 
   return (
     <Container className="divide-y p-0">
@@ -270,38 +258,26 @@ export const RolePricingSection = () => {
         value={formatCny(summary.authorizationFeeCents)}
       />
       <SectionRow
-        title="输入计量"
-        value={
-          summary.inputTokenCentsPerMillion === undefined
-            ? "-"
-            : `${formatCny(summary.inputTokenCentsPerMillion)} / 百万`
-        }
-      />
-      <SectionRow
-        title="输出计量"
-        value={
-          summary.outputTokenCentsPerMillion === undefined
-            ? "-"
-            : `${formatCny(summary.outputTokenCentsPerMillion)} / 百万`
-        }
+        title="开发者应收"
+        value="授权费按平台结算规则归集；执行费用由平台账本核算"
       />
     </Container>
-  )
-}
+  );
+};
 
 export const RoleActionSection = () => {
-  const { product } = useProductDetailContext()
-  const prompt = usePrompt()
-  const summary = getRoleSummary(product)
+  const { product } = useProductDetailContext();
+  const prompt = usePrompt();
+  const summary = getRoleSummary(product);
   const canSubmit =
     summary.hasPackage &&
     summary.reviewState !== "submitted" &&
-    summary.reviewState !== "approved"
+    summary.reviewState !== "approved";
 
   const handleSubmitReview = async () => {
     if (!summary.hasPackage) {
-      toast.error("请先上传岗位包")
-      return
+      toast.error("请先上传岗位包");
+      return;
     }
 
     const confirmed = await prompt({
@@ -309,12 +285,12 @@ export const RoleActionSection = () => {
       description: "当前只进入确认态，不会直接提交给平台审核。",
       confirmText: "停在确认态",
       cancelText: "取消",
-    })
+    });
 
     if (confirmed) {
-      toast.warning("已停在确认态，暂未提交审核。")
+      toast.warning("已停在确认态，暂未提交审核。");
     }
-  }
+  };
 
   return (
     <Container className="p-0">
@@ -332,9 +308,7 @@ export const RoleActionSection = () => {
           size="small"
           onClick={handleSubmitReview}
           disabled={!canSubmit}
-          title={
-            canSubmit ? "提交给审核中心" : "当前状态不可重复提交"
-          }
+          title={canSubmit ? "提交给审核中心" : "当前状态不可重复提交"}
         >
           <CheckCircle />
           提交审核
@@ -353,5 +327,5 @@ export const RoleActionSection = () => {
         </Button>
       </div>
     </Container>
-  )
-}
+  );
+};

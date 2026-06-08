@@ -1,9 +1,9 @@
 import {
   normalizeOneTimeAuthorizationPricing,
-  normalizeRoleTokenPricing,
   type DijieExecutionTokenPricing,
   type DijieRoleTokenPricing,
 } from "./execution-token";
+import { validateDijieRoleTokenPricingAgainstPlatformPolicy } from "./role-token-pricing-policy";
 import type { DijieRoleManifestSummary } from "./role-product-metadata";
 
 export type DijieStoredRoleListingStatus =
@@ -31,6 +31,7 @@ export type DijieRoleListingStorageRecord = {
   title: string;
   subtitle: string | null;
   description: string | null;
+  usage_instructions: string | null;
   category: string | null;
   listing_status: DijieStoredRoleListingStatus;
   review_state: DijieStoredRoleReviewState;
@@ -92,6 +93,7 @@ export type DijieRoleListingStore = {
   submitDijieRoleListingForReview: (input: {
     roleListingId: string;
     ownerId?: string;
+    sellerId?: string;
   }) => Promise<DijieRoleListingMutationResult>;
 };
 
@@ -102,6 +104,7 @@ export type DijieRoleListingReader = {
   listDijieStoredRoleListings: (input?: {
     publicOnly?: boolean;
     ownerId?: string;
+    developerRef?: string;
     take?: number;
   }) => Promise<Array<DijieRoleListingStorageRecord & { id: string }>>;
 };
@@ -113,6 +116,7 @@ export type CreateDijieRoleListingInput = {
   title: string;
   subtitle?: string;
   description?: string;
+  usageInstructions?: string;
   category?: string;
   developerRef?: string;
   listingOwnerRef?: string;
@@ -127,9 +131,11 @@ export type CreateDijieRoleListingInput = {
 export type UpdateDijieRoleListingInput = {
   roleListingId: string;
   ownerId?: string;
+  sellerId?: string;
   title?: string;
   subtitle?: string | null;
   description?: string | null;
+  usageInstructions?: string | null;
   category?: string | null;
   capabilities?: string[];
   pricing?: unknown;
@@ -158,23 +164,22 @@ const DEFAULT_AUTHORIZATION_PRICING: DijieExecutionTokenPricing = {
   developerReceivableCents: 0,
 };
 
-const DEFAULT_ROLE_TOKEN_PRICING: DijieRoleTokenPricing = {
-  inputTokenCentsPerMillion: 0,
-  outputTokenCentsPerMillion: 0,
-  currency: "CNY",
-  developerReceivableBps: 10000,
-  platformFeeBps: 0,
-};
-
 function nonEmptyString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
-function nullableString(value: string | null | undefined): string | null | undefined {
+function nullableString(
+  value: string | null | undefined,
+): string | null | undefined {
   if (value === null) {
     return null;
   }
   return nonEmptyString(value);
+}
+
+function requiredUsageInstructions(value: unknown): string | undefined {
+  const instructions = nonEmptyString(value);
+  return instructions && instructions.length >= 10 ? instructions : undefined;
 }
 
 function stringArray(value: unknown): string[] {
@@ -203,18 +208,13 @@ function listingCapabilities(input: CreateDijieRoleListingInput): string[] {
   return stringArray(input.manifestSummary.requiredCapabilities);
 }
 
-function pricingOrDefault(value: unknown): DijieExecutionTokenPricing | undefined {
+function pricingOrDefault(
+  value: unknown,
+): DijieExecutionTokenPricing | undefined {
   if (value === undefined) {
     return DEFAULT_AUTHORIZATION_PRICING;
   }
   return normalizeOneTimeAuthorizationPricing(value);
-}
-
-function roleTokenPricingOrDefault(value: unknown): DijieRoleTokenPricing | undefined {
-  if (value === undefined) {
-    return DEFAULT_ROLE_TOKEN_PRICING;
-  }
-  return normalizeRoleTokenPricing(value);
 }
 
 export function createDijieRoleListingDraftRecord(
@@ -224,13 +224,32 @@ export function createDijieRoleListingDraftRecord(
   if (!title) {
     return { ok: false, status: 400, error: "岗位商品标题不能为空。" };
   }
-  if (!nonEmptyString(input.packageId) || !nonEmptyString(input.packageVersion)) {
-    return { ok: false, status: 400, error: "岗位商品必须关联已上传的岗位包。" };
+  const usageInstructions = requiredUsageInstructions(input.usageInstructions);
+  if (!usageInstructions) {
+    return {
+      ok: false,
+      status: 400,
+      error:
+        "岗位使用规范不能为空，且需要说明使用者应提供哪些材料和如何发起任务。",
+    };
+  }
+  if (
+    !nonEmptyString(input.packageId) ||
+    !nonEmptyString(input.packageVersion)
+  ) {
+    return {
+      ok: false,
+      status: 400,
+      error: "岗位商品必须关联已上传的岗位包。",
+    };
   }
 
-  const developerRef = nonEmptyString(input.developerRef) ?? nonEmptyString(input.ownerId);
+  const developerRef =
+    nonEmptyString(input.developerRef) ?? nonEmptyString(input.ownerId);
   const listingOwnerRef =
-    nonEmptyString(input.listingOwnerRef) ?? nonEmptyString(input.ownerId) ?? developerRef;
+    nonEmptyString(input.listingOwnerRef) ??
+    nonEmptyString(input.ownerId) ??
+    developerRef;
   const billingBeneficiaryRef =
     nonEmptyString(input.billingBeneficiaryRef) ?? developerRef;
   if (!developerRef || !listingOwnerRef || !billingBeneficiaryRef) {
@@ -238,12 +257,18 @@ export function createDijieRoleListingDraftRecord(
   }
 
   const pricing = pricingOrDefault(input.pricing);
-  const roleTokenPricing = roleTokenPricingOrDefault(input.roleTokenPricing);
+  const roleTokenPricing = validateDijieRoleTokenPricingAgainstPlatformPolicy(
+    input.roleTokenPricing,
+  );
   if (!pricing) {
-    return { ok: false, status: 400, error: "岗位授权费必须是一次性 CNY 授权费，平台抽成为 0。" };
+    return {
+      ok: false,
+      status: 400,
+      error: "岗位授权费必须是一次性 CNY 授权费，平台抽成为 0。",
+    };
   }
-  if (!roleTokenPricing) {
-    return { ok: false, status: 400, error: "岗位模型计费必须是 CNY，平台抽成为 0。" };
+  if (!roleTokenPricing.ok) {
+    return { ok: false, status: 400, error: roleTokenPricing.error };
   }
 
   return {
@@ -258,13 +283,14 @@ export function createDijieRoleListingDraftRecord(
       title,
       subtitle: nonEmptyString(input.subtitle) ?? null,
       description: nonEmptyString(input.description) ?? null,
+      usage_instructions: usageInstructions,
       category: nonEmptyString(input.category) ?? null,
       listing_status: "draft",
       review_state: "draft",
       capabilities: listingCapabilities(input),
       manifest_summary: input.manifestSummary,
       pricing,
-      role_token_pricing: roleTokenPricing,
+      role_token_pricing: roleTokenPricing.value,
       scopes: DEFAULT_SCOPES,
       confirmation_points: confirmationPoints(input.confirmationPoints),
       submitted_at: null,
@@ -294,7 +320,8 @@ function assertDraftEditable(
 ): { ok: true } | { ok: false; status: number; error: string } {
   if (
     listing.listing_status !== "draft" ||
-    (listing.review_state !== "draft" && listing.review_state !== "needs_changes")
+    (listing.review_state !== "draft" &&
+      listing.review_state !== "needs_changes")
   ) {
     return { ok: false, status: 409, error: "只有草稿岗位商品可以编辑。" };
   }
@@ -333,7 +360,12 @@ export async function retrieveDijieRoleListingWithRepository(
 
 export async function listDijieStoredRoleListingsWithRepository(
   repository: DijieRoleListingLookupRepository,
-  input: { publicOnly?: boolean; ownerId?: string; take?: number } = {},
+  input: {
+    publicOnly?: boolean;
+    ownerId?: string;
+    developerRef?: string;
+    take?: number;
+  } = {},
 ) {
   return repository.listDijieRoleListings(
     {
@@ -344,12 +376,72 @@ export async function listDijieStoredRoleListingsWithRepository(
           }
         : {}),
       ...(input.ownerId ? { owner_id: input.ownerId } : {}),
+      ...(input.developerRef ? { developer_ref: input.developerRef } : {}),
     },
     {
       take: input.take ?? 100,
       order: { submitted_at: "DESC" },
     },
   );
+}
+
+function reviewSummaryForListing(record: DijieRoleListingStorageRecord) {
+  switch (record.review_state) {
+    case "submitted":
+      return {
+        state: record.review_state,
+        label: "审核中",
+        message: "岗位已提交平台审核，等待审核人员处理。",
+      };
+    case "needs_changes":
+      return {
+        state: record.review_state,
+        label: "要求补充",
+        message: "平台审核要求补充材料，可修改后重新提交。",
+      };
+    case "approved":
+      return {
+        state: record.review_state,
+        label: "已通过",
+        message: "岗位已通过审核，发布后可进入商城授权。",
+      };
+    case "rejected":
+      return {
+        state: record.review_state,
+        label: "已驳回",
+        message: "平台审核已驳回，该岗位不能继续提交或上架。",
+      };
+    default:
+      return {
+        state: record.review_state,
+        label: "未提交",
+        message: "岗位商品仍是草稿，补齐材料后可提交审核。",
+      };
+  }
+}
+
+function allowedActionsForListing(
+  record: DijieRoleListingStorageRecord,
+): string[] {
+  const actions = ["download_package"];
+  if (
+    record.listing_status === "draft" &&
+    (record.review_state === "draft" || record.review_state === "needs_changes")
+  ) {
+    actions.push("edit_draft", "submit_review");
+  }
+  if (
+    record.listing_status === "published" &&
+    record.review_state === "approved"
+  ) {
+    actions.push("open_storefront");
+  }
+  return actions;
+}
+
+function statusReasonForListing(record: DijieRoleListingStorageRecord): string {
+  const editable = assertDraftEditable(record);
+  return editable.ok ? reviewSummaryForListing(record).message : editable.error;
 }
 
 export function createDijieRoleListingManagementReadModel(
@@ -367,6 +459,7 @@ export function createDijieRoleListingManagementReadModel(
     title: record.title,
     subtitle: record.subtitle,
     description: record.description,
+    usageInstructions: record.usage_instructions,
     category: record.category,
     listingStatus: record.listing_status,
     reviewState: record.review_state,
@@ -374,23 +467,53 @@ export function createDijieRoleListingManagementReadModel(
     pricing: record.pricing,
     roleTokenPricing: record.role_token_pricing,
     confirmationPoints: record.confirmation_points,
-    submittedAt: record.submitted_at instanceof Date
-      ? record.submitted_at.toISOString()
-      : record.submitted_at,
-    publishedAt: record.published_at instanceof Date
-      ? record.published_at.toISOString()
-      : record.published_at,
+    submittedAt:
+      record.submitted_at instanceof Date
+        ? record.submitted_at.toISOString()
+        : record.submitted_at,
+    publishedAt:
+      record.published_at instanceof Date
+        ? record.published_at.toISOString()
+        : record.published_at,
     packageDownload: {
       available: true,
       url: `/vendor/dijie/role-packages/${encodeURIComponent(
         record.package_id,
       )}/download?version=${encodeURIComponent(record.package_version)}`,
     },
+    reviewSummary: reviewSummaryForListing(record),
+    allowedActions: allowedActionsForListing(record),
+    statusReason: statusReasonForListing(record),
   };
 }
 
+function sellerCanAccessListing(
+  listing: DijieRoleListingStorageRecord,
+  sellerId: string | undefined,
+): boolean {
+  if (!sellerId) {
+    return false;
+  }
+  return (
+    listing.developer_ref === sellerId ||
+    listing.listing_owner_ref === sellerId ||
+    listing.billing_beneficiary_ref === sellerId
+  );
+}
+
+function assertListingAccess(
+  listing: DijieRoleListingStorageRecord,
+  input: { ownerId?: string; sellerId?: string },
+): { ok: true } | { ok: false; status: number; error: string } {
+  if (sellerCanAccessListing(listing, input.sellerId)) {
+    return { ok: true };
+  }
+  return assertOwner(listing, input.ownerId);
+}
+
 export async function updateDijieRoleListingDraftWithRepository(
-  repository: DijieRoleListingLookupRepository & DijieRoleListingUpdateRepository,
+  repository: DijieRoleListingLookupRepository &
+    DijieRoleListingUpdateRepository,
   input: UpdateDijieRoleListingInput,
 ) {
   const listing = await retrieveDijieRoleListingWithRepository(repository, {
@@ -400,9 +523,12 @@ export async function updateDijieRoleListingDraftWithRepository(
     return { ok: false as const, status: 404, error: "未找到岗位商品。" };
   }
 
-  const owner = assertOwner(listing, input.ownerId);
-  if (!owner.ok) {
-    return owner;
+  const access = assertListingAccess(listing, {
+    ownerId: input.ownerId,
+    sellerId: input.sellerId,
+  });
+  if (!access.ok) {
+    return access;
   }
   const editable = assertDraftEditable(listing);
   if (!editable.ok) {
@@ -410,29 +536,57 @@ export async function updateDijieRoleListingDraftWithRepository(
   }
 
   const pricing =
-    input.pricing === undefined ? undefined : normalizeOneTimeAuthorizationPricing(input.pricing);
+    input.pricing === undefined
+      ? undefined
+      : normalizeOneTimeAuthorizationPricing(input.pricing);
   const roleTokenPricing =
     input.roleTokenPricing === undefined
       ? undefined
-      : normalizeRoleTokenPricing(input.roleTokenPricing);
+      : validateDijieRoleTokenPricingAgainstPlatformPolicy(
+          input.roleTokenPricing,
+        );
   if (input.pricing !== undefined && !pricing) {
-    return { ok: false as const, status: 400, error: "岗位授权费必须是一致的 CNY 一次性授权费。" };
+    return {
+      ok: false as const,
+      status: 400,
+      error: "岗位授权费必须是一致的 CNY 一次性授权费。",
+    };
   }
-  if (input.roleTokenPricing !== undefined && !roleTokenPricing) {
-    return { ok: false as const, status: 400, error: "岗位模型计费必须是 CNY，平台抽成为 0。" };
+  if (
+    input.roleTokenPricing !== undefined &&
+    (!roleTokenPricing || !roleTokenPricing.ok)
+  ) {
+    return {
+      ok: false as const,
+      status: 400,
+      error: roleTokenPricing?.error ?? "岗位 Token 使用费不符合平台硬限制。",
+    };
   }
 
   const updated = await repository.updateDijieRoleListings({
     id: input.roleListingId,
-    ...(nonEmptyString(input.title) ? { title: nonEmptyString(input.title) } : {}),
-    ...(input.subtitle !== undefined ? { subtitle: nullableString(input.subtitle) ?? null } : {}),
+    ...(nonEmptyString(input.title)
+      ? { title: nonEmptyString(input.title) }
+      : {}),
+    ...(input.subtitle !== undefined
+      ? { subtitle: nullableString(input.subtitle) ?? null }
+      : {}),
     ...(input.description !== undefined
       ? { description: nullableString(input.description) ?? null }
       : {}),
-    ...(input.category !== undefined ? { category: nullableString(input.category) ?? null } : {}),
-    ...(input.capabilities !== undefined ? { capabilities: stringArray(input.capabilities) } : {}),
+    ...(input.usageInstructions !== undefined
+      ? { usage_instructions: nullableString(input.usageInstructions) ?? null }
+      : {}),
+    ...(input.category !== undefined
+      ? { category: nullableString(input.category) ?? null }
+      : {}),
+    ...(input.capabilities !== undefined
+      ? { capabilities: stringArray(input.capabilities) }
+      : {}),
     ...(pricing ? { pricing } : {}),
-    ...(roleTokenPricing ? { role_token_pricing: roleTokenPricing } : {}),
+    ...(roleTokenPricing?.ok
+      ? { role_token_pricing: roleTokenPricing.value }
+      : {}),
     ...(input.confirmationPoints !== undefined
       ? { confirmation_points: confirmationPoints(input.confirmationPoints) }
       : {}),
@@ -448,8 +602,9 @@ export async function updateDijieRoleListingDraftWithRepository(
 }
 
 export async function submitDijieRoleListingForReviewWithRepository(
-  repository: DijieRoleListingLookupRepository & DijieRoleListingUpdateRepository,
-  input: { roleListingId: string; ownerId?: string },
+  repository: DijieRoleListingLookupRepository &
+    DijieRoleListingUpdateRepository,
+  input: { roleListingId: string; ownerId?: string; sellerId?: string },
 ) {
   const listing = await retrieveDijieRoleListingWithRepository(repository, {
     roleListingId: input.roleListingId,
@@ -458,13 +613,34 @@ export async function submitDijieRoleListingForReviewWithRepository(
     return { ok: false as const, status: 404, error: "未找到岗位商品。" };
   }
 
-  const owner = assertOwner(listing, input.ownerId);
-  if (!owner.ok) {
-    return owner;
+  const access = assertListingAccess(listing, {
+    ownerId: input.ownerId,
+    sellerId: input.sellerId,
+  });
+  if (!access.ok) {
+    return access;
   }
   const editable = assertDraftEditable(listing);
   if (!editable.ok) {
     return editable;
+  }
+  const roleTokenPricing = validateDijieRoleTokenPricingAgainstPlatformPolicy(
+    listing.role_token_pricing,
+  );
+  if (!roleTokenPricing.ok) {
+    return {
+      ok: false as const,
+      status: 400,
+      error: roleTokenPricing.error,
+    };
+  }
+  if (!requiredUsageInstructions(listing.usage_instructions)) {
+    return {
+      ok: false as const,
+      status: 400,
+      error:
+        "岗位使用规范不能为空，需先说明使用者应提供哪些材料和如何发起任务。",
+    };
   }
 
   const updated = await repository.updateDijieRoleListings({

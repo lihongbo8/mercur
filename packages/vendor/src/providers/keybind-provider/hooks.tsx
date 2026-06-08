@@ -151,14 +151,6 @@ export const useGlobalShortcuts = () => {
       type: "pageShortcut",
       to: "/settings/profile",
     },
-    {
-      keys: {
-        Mac: ["G", "T"],
-      },
-      label: "能力资源",
-      type: "pageShortcut",
-      to: "/tool-resources",
-    },
     // Commands
     {
       keys: {

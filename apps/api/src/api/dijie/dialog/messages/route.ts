@@ -46,6 +46,10 @@ import {
   type RoleBuildArtifact,
 } from "../../../../lib/dijie/role-package-build-session";
 import { listDijieRoleListings } from "../../../../lib/dijie/role-listings";
+import {
+  getDijieReviewCenterReadModel,
+  type DijieReviewQueueItem,
+} from "../../../../lib/dijie/role-review-center";
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -183,6 +187,87 @@ function roleBuildArtifactsForDialog(
   }));
 }
 
+function selectAdminReviewItem(
+  items: DijieReviewQueueItem[],
+  context: DijieDialogContext,
+): DijieReviewQueueItem | undefined {
+  const roleListingId = context.subject.roleListingId;
+  const reviewId = context.subject.reviewId;
+  if (roleListingId || reviewId) {
+    return items.find(
+      (item) =>
+        (roleListingId && item.id === roleListingId) ||
+        (reviewId && item.reviewId === reviewId),
+    );
+  }
+  return items[0];
+}
+
+function adminReviewPromptContext(item: DijieReviewQueueItem | undefined) {
+  if (!item) {
+    return {};
+  }
+  const compactChecks = (checks: DijieReviewQueueItem["capabilityChecks"]) =>
+    checks.map((check) => ({
+      id: check.id,
+      label: check.label,
+      status: check.status,
+      note: check.note,
+    }));
+
+  return {
+    roleListingId: item.id,
+    reviewId: item.reviewId,
+    title: item.title,
+    developerName: item.developerName,
+    reviewState: item.reviewState,
+    listingStatus: item.listingStatus,
+    statusReason: item.statusReason,
+    evaluations: item.evaluations,
+    packageSummary: {
+      requiredCapabilities: item.packageSummary.requiredCapabilities,
+      skills: item.packageSummary.skills.slice(0, 12),
+      templates: item.packageSummary.templates.slice(0, 12),
+      validationIssues: item.packageSummary.validationIssues,
+    },
+    capabilityChecks: compactChecks(item.capabilityChecks),
+    safetyChecks: compactChecks(item.safetyChecks),
+    pricingSummary: {
+      authorizationFee: item.pricingSummary.authorizationFee,
+      platformExecutionFee:
+        item.pricingSummary.platformExecutionFee ?? item.pricingSummary.modelUsageFee,
+      developerRevenue: item.pricingSummary.developerRevenue,
+      hiddenFeeRisk: item.pricingSummary.hiddenFeeRisk,
+      checks: compactChecks(item.pricingSummary.checks),
+    },
+    specialtyChecks: compactChecks(item.specialtyChecks),
+    allowedActions: item.allowedActions,
+  };
+}
+
+function contextWithAdminReviewSubject(
+  context: DijieDialogContext,
+  item: DijieReviewQueueItem | undefined,
+): DijieDialogContext {
+  if (!item || context.surface !== "admin_review") {
+    return context;
+  }
+  const packageId = context.subject.packageId ?? item.packageId ?? undefined;
+  return createDijieDialogContext({
+    accountId: context.accountId,
+    accountType: context.accountType,
+    surface: context.surface,
+    mode: context.mode,
+    billingAccountId: context.billingAccountId,
+    subject: {
+      ...context.subject,
+      roleListingId: context.subject.roleListingId ?? item.id,
+      reviewId: context.subject.reviewId ?? item.reviewId,
+      ...(packageId ? { packageId } : {}),
+    },
+  });
+}
+
 function contextFromRequest(
   req: MedusaRequest,
   body: UnknownRecord,
@@ -265,14 +350,28 @@ export async function POST(req: MedusaRequest, res: MedusaResponse) {
         error: "迭界AI对话会话存储暂未配置。",
       });
     }
+    const adminReviewItem =
+      context.surface === "admin_review"
+        ? selectAdminReviewItem(
+            (
+              await getDijieReviewCenterReadModel(
+                (queryInput) => query.graph(queryInput),
+                { adminAccountId: context.accountId },
+              )
+            ).queue,
+            context,
+          )
+        : undefined;
+    const dialogContext = contextWithAdminReviewSubject(context, adminReviewItem);
     const roles =
-      context.surface === "buyer_storefront"
+      dialogContext.surface === "buyer_storefront"
         ? await listDijieRoleListings((queryInput) => query.graph(queryInput))
         : [];
     const fallbackReply = createDijieDialogMessageResponse({
-      context,
+      context: dialogContext,
       message,
       roles,
+      adminReview: adminReviewItem,
     });
     const modelBridge = resolveDijieOpenClawDialogModelBridge(req);
     if (
@@ -511,18 +610,22 @@ export async function POST(req: MedusaRequest, res: MedusaResponse) {
       fallbackReply.billingPolicy.modelAllowed &&
       modelBridge &&
       !shouldSkipDijieModelForActions({
-        context,
+        context: dialogContext,
         actions: fallbackReply.actions,
       })
         ? await modelBridge.completeDijieDialogMessage({
-            context,
+            context: dialogContext,
             billingPolicy: fallbackReply.billingPolicy,
             message: buildSurfacePrompt({
-              context,
+              context: dialogContext,
               capabilityPolicy,
               message,
               fallbackReply: fallbackReply.reply,
               actions: fallbackReply.actions,
+              pageContext:
+                dialogContext.surface === "admin_review"
+                  ? { adminReview: adminReviewPromptContext(adminReviewItem) }
+                  : undefined,
             }),
             fallbackReply: fallbackReply.reply,
             roles: fallbackReply.grounding.roles,
@@ -530,15 +633,16 @@ export async function POST(req: MedusaRequest, res: MedusaResponse) {
         : null;
     const reply = modelResult
       ? createDijieDialogMessageResponse({
-          context,
+          context: dialogContext,
           message,
           roles,
+          adminReview: adminReviewItem,
           modelResult,
         })
       : fallbackReply;
     const recorded = await dialogStore.recordDijieDialogTurn({
       sessionId: stringField(body, "sessionId") ?? stringField(body, "session_id"),
-      context,
+      context: dialogContext,
       capabilityPolicy,
       userMessage: message,
       assistantReply: reply,
@@ -555,7 +659,7 @@ export async function POST(req: MedusaRequest, res: MedusaResponse) {
       ok: true,
       sessionId: recorded.value.session.id,
       ledgerEntryId: recorded.value.ledgerEntry.id,
-      context,
+      context: dialogContext,
       message: {
         role: "assistant",
         content: reply.reply,

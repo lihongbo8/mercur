@@ -13,6 +13,15 @@ const roleTokenPricing = {
   platformFeeBps: 0,
 };
 
+const publicRoleTokenPricing = {
+  inputTokenCentsPerMillion: 120,
+  outputTokenCentsPerMillion: 360,
+  currency: "CNY",
+};
+
+const usageInstructions =
+  "使用者需要提供业务目标、素材来源、限制条件和人工确认标准后再发起任务。";
+
 const roleProduct = {
   id: "prod_role_researcher",
   title: "资料研究岗位",
@@ -33,6 +42,7 @@ const roleProduct = {
       developerRef: "dev_001",
       listingStatus: "published",
       reviewState: "approved",
+      usageInstructions,
       capabilities: ["资料收集"],
       pricing: {
         kind: "one_time_authorization",
@@ -53,6 +63,7 @@ describe("Dijie role listing projection", () => {
       title: "资料研究岗位",
       subtitle: "整理资料并输出简报",
       description: "适合做资料收集和结构化总结。",
+      usageInstructions,
       handle: "research-role",
       listingStatus: "published",
       reviewState: "approved",
@@ -92,20 +103,31 @@ describe("Dijie role listing projection", () => {
 
     expect(listing).toBeDefined();
     expect(related).toBeDefined();
-    const detail = createDijieRoleDetailReadModel(listing!, [listing!, related!]);
+    const detail = createDijieRoleDetailReadModel(listing!, [
+      listing!,
+      related!,
+    ]);
 
     expect(detail).toMatchObject({
       id: "prod_role_researcher",
       title: "资料研究岗位",
       detailSections: {
         roleDetails: ["适合做资料收集和结构化总结。", "整理资料并输出简报"],
+        usageInstructions: [usageInstructions],
         requiredCapabilities: ["资料收集"],
       },
       authorizationSummary: {
         authorizationFeeCents: 19900,
         currency: "CNY",
-        inputTokenCentsPerMillion: 120,
-        outputTokenCentsPerMillion: 360,
+        executionFeeNote:
+          "执行费用按实际输入/输出 Token 用量进入 ledger/readback。",
+      },
+      roleTokenPricing: publicRoleTokenPricing,
+      tokenUsageSummary: {
+        inputTokenFee: "¥1.20/百万 Token",
+        outputTokenFee: "¥3.60/百万 Token",
+        executionFeeNote:
+          "消费者执行前可查看单价，执行后以账本实际用量和费用为准。",
       },
       relatedRoles: [
         {

@@ -1,7 +1,9 @@
 import { ArrowUpRightOnBox } from "@medusajs/icons";
 import { Button, Container, Heading, StatusBadge, Text } from "@medusajs/ui";
+import { useQuery } from "@tanstack/react-query";
 
 import { DeveloperAiPanel } from "../../components/dijie/developer-ai-assistant";
+import { fetchQuery } from "../../lib/client/client";
 
 type StatusItem = {
   label: string;
@@ -9,42 +11,80 @@ type StatusItem = {
   title: string;
 };
 
-const statusItems: StatusItem[] = [
-  {
-    label: "上架状态",
-    value: "待同步",
-    title: "商品、草稿和审核状态",
-  },
-  {
-    label: "审核",
-    value: "0",
-    title: "等待平台审核的岗位",
-  },
-  {
-    label: "销售",
-    value: "0",
-    title: "岗位销售记录",
-  },
-  {
-    label: "结算",
-    value: "待同步",
-    title: "开发者应收和结算状态",
-  },
-  {
-    label: "能力",
-    value: "开放使用",
-    title: "岗位运行可按权限调用本地已开放能力资源",
-  },
-  {
-    label: "确认点",
-    value: "2",
-    title: "发布、改价和结算前需要人工确认",
-  },
-];
+type DeveloperDashboardResponse = {
+  ok: true;
+  dashboard: {
+    listings: {
+      total: number;
+      pendingReview: number;
+      needsChanges: number;
+      published: number;
+      confirmationPoints: number;
+    };
+    receivables: {
+      summary: {
+        authorizationCount: number;
+        totalDeveloperReceivableCents: number;
+      };
+    } | null;
+  };
+};
 
 const marketplaceHref = "http://127.0.0.1:3026/us";
 
+function formatCny(cents?: number | null) {
+  return `¥${((cents ?? 0) / 100).toLocaleString("zh-CN", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
+}
+
 export const Home = () => {
+  const dashboardQuery = useQuery({
+    queryKey: ["aics", "developer-dashboard"],
+    queryFn: () =>
+      fetchQuery("/vendor/dijie/developer-dashboard", {
+        method: "GET",
+        sellerScoped: true,
+      }) as Promise<DeveloperDashboardResponse>,
+  });
+
+  const dashboard = dashboardQuery.data?.dashboard;
+  const statusItems: StatusItem[] = [
+    {
+      label: "岗位商品",
+      value: String(dashboard?.listings.total ?? 0),
+      title: "当前开发者店铺的 AICS 岗位商品",
+    },
+    {
+      label: "审核",
+      value: `${dashboard?.listings.pendingReview ?? 0} 待审 / ${
+        dashboard?.listings.needsChanges ?? 0
+      } 需补充`,
+      title: "等待平台审核或需要补充的岗位",
+    },
+    {
+      label: "已上架",
+      value: String(dashboard?.listings.published ?? 0),
+      title: "已审核通过并发布的岗位",
+    },
+    {
+      label: "销售",
+      value: `${dashboard?.receivables?.summary.authorizationCount ?? 0} 次授权`,
+      title: "岗位授权销售记录",
+    },
+    {
+      label: "结算",
+      value: formatCny(dashboard?.receivables?.summary.totalDeveloperReceivableCents),
+      title: "授权费和 role_usage 开发者应收",
+    },
+    {
+      label: "确认点",
+      value: String(dashboard?.listings.confirmationPoints ?? 0),
+      title: "岗位包声明的人工确认点",
+    },
+  ];
+
   return (
     <div
       className="grid h-[calc(100vh-24px)] min-h-[640px] gap-4 overflow-hidden"
@@ -66,8 +106,8 @@ export const Home = () => {
             </a>
           </Button>
           <StatusBadge color="blue">开发者模式</StatusBadge>
-          <StatusBadge color="grey">待审核 0</StatusBadge>
-          <StatusBadge color="orange">确认点 2</StatusBadge>
+          <StatusBadge color="grey">待审核 {dashboard?.listings.pendingReview ?? 0}</StatusBadge>
+          <StatusBadge color="orange">确认点 {dashboard?.listings.confirmationPoints ?? 0}</StatusBadge>
         </div>
       </div>
 
@@ -76,6 +116,15 @@ export const Home = () => {
       <Container className="min-h-0 overflow-hidden p-0">
         <div className="border-b px-6 py-5">
           <Heading level="h2">开发状态</Heading>
+          {dashboardQuery.isError ? (
+            <Text size="small" className="mt-1 text-ui-fg-error">
+              {dashboardQuery.error.message}
+            </Text>
+          ) : (
+            <Text size="small" className="mt-1 text-ui-fg-subtle">
+              来自当前 seller 的 dashboard 读模型。
+            </Text>
+          )}
         </div>
         <div className="divide-y">
           {statusItems.map((item) => (

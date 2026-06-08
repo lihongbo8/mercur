@@ -20,13 +20,25 @@ import {
   type DijieOpenClawDialogModelResult,
   type DijieDialogModelUsage,
 } from "./dialog-model-bridge";
+import type { DijieReviewQueueItem } from "./role-review-center";
 import type { DijieRoleListing } from "./role-listings";
 
 export type DijieDialogMessageResponse = {
   reply: string;
   grounding: {
-    roles: Array<Pick<DijieRoleListing, "id" | "title" | "subtitle" | "handle">>;
+    roles: Array<
+      Pick<DijieRoleListing, "id" | "title" | "subtitle" | "handle">
+    >;
     source: "role_listings" | "dialog_context";
+    review?:
+      | {
+          roleListingId: string;
+          reviewId: string;
+          title: string;
+          reviewState: string;
+          listingStatus: string;
+        }
+      | undefined;
   };
   billingPolicy: DijieDialogBillingPolicy;
   modelUsage: DijieDialogModelUsage | null;
@@ -71,6 +83,7 @@ function roleText(role: DijieRoleListing): string {
     role.title,
     role.subtitle,
     role.description,
+    role.usageInstructions,
     role.developerName,
     role.packageId,
     ...role.capabilities,
@@ -80,7 +93,10 @@ function roleText(role: DijieRoleListing): string {
     .toLowerCase();
 }
 
-function matchingRoles(message: string, roles: DijieRoleListing[]): DijieRoleListing[] {
+function matchingRoles(
+  message: string,
+  roles: DijieRoleListing[],
+): DijieRoleListing[] {
   const terms = roleSearchTerms(message);
   if (terms.length === 0) {
     return roles.slice(0, 5);
@@ -95,13 +111,29 @@ function matchingRoles(message: string, roles: DijieRoleListing[]): DijieRoleLis
 
 function roleSummary(role: DijieRoleListing): string {
   const fee = role.pricing.authorizationFeeCents / 100;
-  const price = fee > 0 ? `${fee.toFixed(2)} ${role.pricing.currency}` : "0 CNY";
+  const price =
+    fee > 0 ? `${fee.toFixed(2)} ${role.pricing.currency}` : "0 CNY";
   const subtitle = role.subtitle ? `：${role.subtitle}` : "";
   return `${role.title}${subtitle}，授权费 ${price}`;
 }
 
-function createBuyerStorefrontReply(message: string, roles: DijieRoleListing[]) {
+function createBuyerStorefrontReply(
+  message: string,
+  roles: DijieRoleListing[],
+) {
   const matches = matchingRoles(message, roles);
+  const text = normalizedText(message);
+  const asksExecution =
+    /(执行|运行|调用|开始任务|做任务|生成主图|直接做)/u.test(text);
+  if (asksExecution) {
+    return {
+      reply:
+        matches.length > 0
+          ? `商城页不能执行岗位，也不能读取你的私有执行记录。可以先查看并授权：${matches.map(roleSummary).join("；")}。授权后请进入使用者中心或 OpenClaw 正式执行。`
+          : "商城页不能执行岗位，也不能读取你的私有执行记录。请先选择并授权已审核上架岗位，授权后再进入使用者中心或 OpenClaw 正式执行。",
+      roles: matches,
+    };
+  }
   if (matches.length === 0) {
     const terms = roleSearchTerms(message);
     const queryHint = terms.length > 0 ? `“${terms[0]}”` : "这个需求";
@@ -121,18 +153,81 @@ function createBuyerStorefrontReply(message: string, roles: DijieRoleListing[]) 
   };
 }
 
-function createAdminReviewReply(message: string) {
-  const text = normalizedText(message);
-  if (text.includes("安全") || text.includes("违法") || text.includes("合规")) {
-    return "审核助手建议先看违法违规风险、权限边界、敏感数据、本地路径或密钥暴露、审计回读是否脱敏。建议不会自动改变审核结论，需要审核人员手动保存三项评估。";
+function reviewIssues(
+  review: DijieReviewQueueItem | undefined,
+  section: "all" | "safety" | "pricing",
+) {
+  if (!review) {
+    return [];
   }
-  if (text.includes("价格") || text.includes("定价") || text.includes("计费")) {
-    return "审核助手建议核对授权费、模型调用费、开发者收益、平台费用和隐藏收费风险；最终价格是否合理仍由审核人员确认。";
-  }
-  return "审核助手可以辅助总结岗位、查缺失、评估安全合规、评估定价并起草意见；最终通过、要求补充或驳回必须由审核人员手动确认。";
+  const checks =
+    section === "safety"
+      ? [...review.safetyChecks, ...review.specialtyChecks]
+      : section === "pricing"
+        ? review.pricingSummary.checks
+        : [
+            ...review.capabilityChecks,
+            ...review.safetyChecks,
+            ...review.pricingSummary.checks,
+            ...review.specialtyChecks,
+          ];
+
+  return checks
+    .filter((item) => item.status !== "pass")
+    .map((item) => `${item.label}：${item.note}`)
+    .slice(0, 5);
 }
 
-function modelReplyText(modelResult: DijieOpenClawDialogModelResult | null | undefined): string {
+function adminReviewGrounding(review: DijieReviewQueueItem | undefined) {
+  if (!review) {
+    return undefined;
+  }
+  return {
+    roleListingId: review.id,
+    reviewId: review.reviewId,
+    title: review.title,
+    reviewState: String(review.reviewState),
+    listingStatus: String(review.listingStatus),
+  };
+}
+
+function createAdminReviewReply(
+  message: string,
+  review?: DijieReviewQueueItem,
+) {
+  const text = normalizedText(message);
+  const roleLabel = review ? `「${review.title}」` : "当前岗位";
+  const price = review?.pricingSummary.authorizationFee ?? "未读取";
+  const executionFee =
+    review?.pricingSummary.platformExecutionFee ??
+    review?.pricingSummary.modelUsageFee ??
+    "未读取";
+
+  if (text.includes("安全") || text.includes("违法") || text.includes("合规")) {
+    const issues = reviewIssues(review, "safety");
+    return issues.length > 0
+      ? `${roleLabel} 的安全合规需重点核对：${issues.join("；")}。建议不会自动改变审核结论，需要审核人员手动保存三项评估。`
+      : `${roleLabel} 暂未命中阻断级安全问题，仍需人工复核权限边界、敏感数据和审计回读。AI 不会自动通过或驳回。`;
+  }
+  if (text.includes("价格") || text.includes("定价") || text.includes("计费")) {
+    const issues = reviewIssues(review, "pricing");
+    const issueText =
+      issues.length > 0
+        ? `需处理：${issues.join("；")}。`
+        : "暂未命中阻断级定价问题。";
+    return `${roleLabel} 当前授权费 ${price}，平台执行费用口径 ${executionFee}。${issueText}最终价格是否合理仍由审核人员确认。`;
+  }
+  const issues = reviewIssues(review, "all");
+  const issueText =
+    issues.length > 0
+      ? `当前缺失/风险点：${issues.join("；")}。`
+      : "当前 read model 未发现自动阻断项。";
+  return `${roleLabel} 已绑定审核 read model：状态 ${review?.reviewStateLabel ?? "未读取"}，授权费 ${price}。${issueText}AI 只辅助总结、查缺失、评估安全和起草意见；最终通过、要求补充或驳回必须由审核人员手动确认。`;
+}
+
+function modelReplyText(
+  modelResult: DijieOpenClawDialogModelResult | null | undefined,
+): string {
   const raw = modelResult?.reply.trim();
   if (!raw) {
     return "";
@@ -140,7 +235,9 @@ function modelReplyText(modelResult: DijieOpenClawDialogModelResult | null | und
 
   try {
     const parsed = JSON.parse(raw) as { reply?: unknown };
-    return typeof parsed.reply === "string" && parsed.reply.trim() ? parsed.reply.trim() : raw;
+    return typeof parsed.reply === "string" && parsed.reply.trim()
+      ? parsed.reply.trim()
+      : raw;
   } catch {
     return raw;
   }
@@ -150,6 +247,7 @@ export function createDijieDialogMessageResponse(input: {
   context: DijieDialogContext;
   message: string;
   roles?: DijieRoleListing[];
+  adminReview?: DijieReviewQueueItem | undefined;
   modelResult?: DijieOpenClawDialogModelResult | null;
 }): DijieDialogMessageResponse {
   const billingPolicy = getDijieDialogBillingPolicy(input.context);
@@ -234,8 +332,12 @@ export function createDijieDialogMessageResponse(input: {
 
   if (input.context.surface === "admin_review") {
     return withModelResult({
-      reply: createAdminReviewReply(input.message),
-      grounding: { roles: [], source: "dialog_context" },
+      reply: createAdminReviewReply(input.message, input.adminReview),
+      grounding: {
+        roles: [],
+        source: "dialog_context",
+        review: adminReviewGrounding(input.adminReview),
+      },
     });
   }
 

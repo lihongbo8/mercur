@@ -54,10 +54,17 @@ function request() {
                     developerRef: "dev_001",
                     listingStatus: "proposed",
                     reviewState: "submitted",
+                    usageInstructions:
+                      "使用者需要上传商品图、说明品牌卖点、目标平台、风格限制和人工确认标准。",
                     capabilities: ["商品图检查", "违规风险提示"],
                     manifestSummary: {
                       entrypoint: "role_package/manifest.json",
-                      requiredCapabilities: ["workspace.read", "browser.use"],
+                      requiredCapabilities: [
+                        "workspace.read",
+                        "image.inspect",
+                        "document.write",
+                        "audit.record",
+                      ],
                       sandbox: "workspace-write",
                     },
                     pricing: {
@@ -110,6 +117,7 @@ describe("GET /admin/dijie/review-center", () => {
         },
         reviewChecklist: [
           { id: "public_materials", title: "公开材料" },
+          { id: "usage_instructions", title: "使用规范" },
           { id: "safety_summary", title: "安全摘要" },
           { id: "pricing_confirmation", title: "价格确认" },
         ],

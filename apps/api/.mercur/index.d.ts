@@ -431,6 +431,9 @@ export type Routes = {
         };
         custom: typeof import("../../src/api/admin/custom/route");
         dijie: {
+            dialog: {
+                messages: typeof import("../../src/api/admin/dijie/dialog/messages/route");
+            };
             reviewCenter: typeof import("../../src/api/admin/dijie/review-center/route");
             reviews: {
                 $reviewId: {
@@ -708,8 +711,8 @@ export type Routes = {
             capabilities: {
                 bind: typeof import("../../src/api/vendor/dijie/capabilities/bind/route");
                 resolve: typeof import("../../src/api/vendor/dijie/capabilities/resolve/route");
-                sources: typeof import("../../src/api/vendor/dijie/capabilities/sources/route");
             };
+            developerDashboard: typeof import("../../src/api/vendor/dijie/developer-dashboard/route");
             receivables: typeof import("../../src/api/vendor/dijie/receivables/route");
             roleListings: typeof import("../../src/api/vendor/dijie/role-listings/route") & {
                 $roleListingId: typeof import("../../src/api/vendor/dijie/role-listings/[roleListingId]/route") & {
@@ -746,7 +749,7 @@ export type Routes = {
             verify: typeof import("../../src/api/dijie/entitlements/verify/route");
         };
         executionToken: typeof import("../../src/api/dijie/execution-token/route");
-        executions: {
+        executions: typeof import("../../src/api/dijie/executions/route") & {
             $executionId: typeof import("../../src/api/dijie/executions/[executionId]/route");
         };
         gateway: {

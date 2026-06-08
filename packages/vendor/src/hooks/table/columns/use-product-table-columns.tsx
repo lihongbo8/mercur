@@ -33,10 +33,6 @@ const getRoleMetadata = (product: HttpTypes.VendorProduct) => {
     pricing?: {
       authorizationFeeCents?: number;
     };
-    roleTokenPricing?: {
-      inputTokenCentsPerMillion?: number;
-      outputTokenCentsPerMillion?: number;
-    };
   };
 };
 
@@ -61,26 +57,6 @@ export const useProductTableColumns = () => {
           return (
             <span className="text-ui-fg-subtle txt-compact-small truncate">
               {formatCny(role.pricing?.authorizationFeeCents)}
-            </span>
-          );
-        },
-      }),
-      columnHelper.display({
-        id: "usage_price",
-        header: () => (
-          <div className="flex h-full w-full items-center">
-            <span className="truncate">调用单价</span>
-          </div>
-        ),
-        cell: ({ row }) => {
-          const role = getRoleMetadata(row.original);
-          const price =
-            role.roleTokenPricing?.outputTokenCentsPerMillion ??
-            role.roleTokenPricing?.inputTokenCentsPerMillion;
-
-          return (
-            <span className="text-ui-fg-subtle txt-compact-small truncate">
-              {price === undefined ? "-" : `${formatCny(price)} / 百万`}
             </span>
           );
         },

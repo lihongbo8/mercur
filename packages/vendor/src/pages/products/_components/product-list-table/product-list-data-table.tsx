@@ -179,24 +179,6 @@ const useColumns = () => {
         ),
       }),
       columnHelper.display({
-        id: "usage_price",
-        header: () => (
-          <div className="flex h-full w-full items-center">
-            <span className="truncate">调用单价</span>
-          </div>
-        ),
-        cell: ({ row }) => {
-          const price =
-            row.original.roleTokenPricing?.outputTokenCentsPerMillion ??
-            row.original.roleTokenPricing?.inputTokenCentsPerMillion;
-          return (
-            <span className="txt-compact-small truncate text-ui-fg-subtle">
-              {price === undefined ? "-" : `${formatCny(price)} / 百万`}
-            </span>
-          );
-        },
-      }),
-      columnHelper.display({
         id: "submitted_at",
         header: () => (
           <div className="flex h-full w-full items-center">
