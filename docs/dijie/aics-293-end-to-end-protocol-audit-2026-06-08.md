@@ -59,8 +59,8 @@ Follow-up items that should not block this AICS-293 PR bundle:
 - Developer-center generation now has an explicit human start gate: the assistant collects/repairs requirements and presents a plan first; it only starts role-package generation after the developer clearly replies `开始开发` or an equivalent confirmation.
 - Draft adoption now requires previewing the current draft files, optional per-file edits, backend revalidation after each save, and per-file developer confirmation before submit.
 - Confirmation scope is dynamic and comes from the draft's actual `file_manifest/package_files`; the platform does not hard-code 13 or 16 files as a submit rule.
-- Chrome developer smoke on 2026-06-09 verified the existing 13-file draft stays blocked as `需修复 / 0/13 已确认`, preview opens the file editor, and confirm/adopt actions remain disabled until the draft is ready and fully confirmed.
-- AICS-302 remains scoped to the fresh developer-center generation smoke. This addendum closes the guardrails and adoption flow, but it is not a substitute for generating a new complete ready role package from natural language in Chrome.
+- Chrome developer smoke on 2026-06-09 first verified the existing 13-file draft stays blocked as `需修复 / 0/13 已确认`, preview opens the file editor, and confirm/adopt actions remain disabled until the draft is ready and fully confirmed.
+- AICS-302 remains scoped to developer-center role-package generation only. Real Chrome evidence is recorded in `docs/dijie/aics-302-developer-generation-smoke-2026-06-09.md`: the developer supplied a smart-lock ecommerce visual-designer requirement, the assistant stopped at a plan until explicit `开始开发`, model-backed staged generation completed the existing partial draft from 13/16 to a 16-file ready package, all files were previewed/confirmed, the package was adopted, and an AICS role listing was saved as `草稿 / 未提交`.
 
 ## Remaining Follow-Up Findings
 
