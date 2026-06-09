@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import {
+  confirmDijieRolePackageDraftFileWithRepository,
   markDijieRolePackageDraftSubmittedWithRepository,
   updateDijieRolePackageDraftWithRepository,
   type DijieRolePackageDraftStorageRecord,
@@ -94,6 +95,87 @@ describe("role package draft store", () => {
       id: "djdraft_1",
       draft_status: "ready",
       package_files: [{ path: "role_package/manifest.json", content: "{}" }],
+    });
+  });
+
+  it("confirms a ready draft file against the current content hash", async () => {
+    const updates: unknown[] = [];
+    const repo = {
+      async listDijieRolePackageDrafts() {
+        return [record()];
+      },
+      async updateDijieRolePackageDrafts(data: unknown) {
+        updates.push(data);
+        return [record(data as Partial<DijieRolePackageDraftStorageRecord & { id: string }>)];
+      },
+    };
+
+    const result = await confirmDijieRolePackageDraftFileWithRepository(repo, {
+      draftId: "djdraft_1",
+      ownerId: "acct_dev",
+      path: "role_package/manifest.json",
+    });
+
+    expect(result.ok).toBe(true);
+    expect(updates[0]).toMatchObject({
+      id: "djdraft_1",
+      file_confirmations: {
+        "role_package/manifest.json": {
+          path: "role_package/manifest.json",
+          confirmed_by: "acct_dev",
+        },
+      },
+    });
+  });
+
+  it("rejects file confirmation before the draft passes validation", async () => {
+    const repo = {
+      async listDijieRolePackageDrafts() {
+        return [
+          record({
+            draft_status: "partial",
+            blocking_issues: ["missing role_package/validation/smoke-test.md"],
+          }),
+        ];
+      },
+      async updateDijieRolePackageDrafts(data: unknown) {
+        throw new Error(`should not update unready drafts: ${JSON.stringify(data)}`);
+      },
+    };
+
+    const result = await confirmDijieRolePackageDraftFileWithRepository(repo, {
+      draftId: "djdraft_1",
+      ownerId: "acct_dev",
+      path: "role_package/manifest.json",
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      status: 409,
+      error: "岗位包草稿未通过验收，不能确认文件。",
+    });
+  });
+
+  it("rejects confirmation after a draft has already been submitted", async () => {
+    const repo = {
+      async listDijieRolePackageDrafts() {
+        return [record({ draft_status: "submitted" })];
+      },
+      async updateDijieRolePackageDrafts() {
+        throw new Error("should not update submitted drafts");
+      },
+    };
+
+    const result = await confirmDijieRolePackageDraftFileWithRepository(repo, {
+      draftId: "djdraft_1",
+      ownerId: "acct_dev",
+      path: "role_package/manifest.json",
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      status: 409,
+      error: "岗位包草稿已提交，不能继续确认。",
     });
   });
 });

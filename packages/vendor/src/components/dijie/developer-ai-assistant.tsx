@@ -30,6 +30,13 @@ type DeveloperMessage = {
   text: string;
 };
 
+type PendingRolePackageGeneration = {
+  generationMessage: string;
+  notes: string[];
+  skippedFields: string[];
+  shouldStartNewDraft: boolean;
+};
+
 type DialogResponse = {
   message?: {
     content?: string;
@@ -60,8 +67,6 @@ type DijieRolePackageGenerationErrorData = {
   };
 };
 
-const ROLE_PACKAGE_REQUIRED_FILE_COUNT = 16;
-const ROLE_PACKAGE_STAGES_PER_SUBMIT = ROLE_PACKAGE_REQUIRED_FILE_COUNT;
 const ROLE_PACKAGE_EXPECTED_SECONDS_PER_FILE_MIN = 60;
 const ROLE_PACKAGE_EXPECTED_SECONDS_PER_FILE_MAX = 95;
 const DIALOG_REQUEST_TIMEOUT_MS = 60_000;
@@ -84,6 +89,9 @@ const rolePackageOutputPaths = [
   "role_package/validation/smoke-test.md",
   "role_package/validation/acceptance-samples.md",
 ];
+
+const ROLE_PACKAGE_TEMPLATE_FILE_COUNT = rolePackageOutputPaths.length;
+const ROLE_PACKAGE_STAGES_PER_SUBMIT = ROLE_PACKAGE_TEMPLATE_FILE_COUNT;
 
 const requirementFields = [
   {
@@ -142,7 +150,7 @@ const initialMessages: DeveloperMessage[] = [
   {
     id: "devmsg_intro",
     role: "assistant",
-    text: "说一下你要开发的岗位。复杂岗位请包含业务场景、SOP、skill、工具能力、验收标准和失败标准。",
+    text: "说一下你要开发的岗位。我会先整理开发方案、补齐缺口并请你确认；只有你明确回复“开始开发”后才会生成岗位包。",
   },
 ];
 
@@ -211,6 +219,19 @@ const isResumeRolePackageGenerationIntent = (text: string) =>
     text.trim()
   );
 
+const isStartDevelopmentConfirmation = (text: string) => {
+  const normalized = text.trim();
+  if (!normalized || normalized.length > 48) {
+    return false;
+  }
+
+  return /^(开始开发|确认开始|确认开发|开始生成|确认生成|开始构建|确认构建|可以开始|同意开始|开始吧|生成吧|开发吧|go ahead|start|confirm)$/iu.test(
+    normalized
+  ) || /^(好|可以|确认|同意|没问题|OK|ok|yes|开始).{0,12}(开始|开发|生成|构建|岗位包|role_package)$/iu.test(
+    normalized
+  );
+};
+
 const extractSkippedRequirementFields = (text: string, missingKeys: string[]) => {
   if (!/(跳过|不用|不需要|没有|默认|你来补|平台补|先这样|不补了)/u.test(text)) {
     return [];
@@ -244,7 +265,7 @@ const buildRequirementPrompt = (missing: Array<(typeof requirementFields)[number
     "我先不生成岗位包，还需要把需求补清楚一点。",
     `缺口：${visibleMissing.map((field) => field.label).join("、")}。`,
     `你可以继续一句一句补充，例如：${visibleMissing[0]?.question ?? "补充业务场景和验收标准。"}`,
-    "如果某项确实不需要，直接说“跳过这些，开始生成”也可以。",
+    "如果某项确实不需要，可以说“跳过这些，按默认补方案”。我会先整理方案，再等你确认开始开发。",
   ].join("\n");
 };
 
@@ -261,6 +282,39 @@ const buildGenerationMessage = (notes: string[], skippedFields: string[]) => {
       : "",
   ]
     .filter(Boolean)
+    .join("\n");
+};
+
+const buildDevelopmentPlanMessage = (input: {
+  notes: string[];
+  skippedFields: string[];
+  shouldStartNewDraft: boolean;
+  existingFileCount?: number;
+}) => {
+  const skippedLabels = requirementFields
+    .filter((field) => input.skippedFields.includes(field.key))
+    .map((field) => field.label);
+  const remainingFiles = Math.max(
+    ROLE_PACKAGE_TEMPLATE_FILE_COUNT - (input.shouldStartNewDraft ? 0 : input.existingFileCount ?? 0),
+    1,
+  );
+
+  return [
+    "我已根据你的需求整理好开发方案，先不开始生成岗位包。",
+    "",
+    "方案范围：",
+    "1. 生成智能门锁电商美工岗位的完整 role_package。",
+    "2. 覆盖主图巡检、详情页巡检、产品保真自检、视觉问题记录、设计标准维护和人工确认点。",
+    `3. 当前模板预计输出 manifest、README、listing、tool_requirements、skills、knowledge、templates、validation 等 ${ROLE_PACKAGE_TEMPLATE_FILE_COUNT} 个文件；实际文件数量以本次草稿生成结果为准。`,
+    "4. 生成完成后，开发者需要逐个预览、必要时局部编辑，并确认本次草稿里的每个文件，再进入上传/提交审核。",
+    skippedLabels.length > 0
+      ? `5. 你选择默认补全或跳过的部分：${skippedLabels.join("、")}；我会在岗位包里写清默认假设。`
+      : "",
+    "",
+    `预计生成：${remainingFiles} 个剩余文件，约 ${estimateRemainingGenerationTime(remainingFiles)}。`,
+    "确认要开始开发时，请单独回复“开始开发”。如果还要调整方案，继续补充需求即可。",
+  ]
+    .filter((line) => line !== "")
     .join("\n");
 };
 
@@ -391,6 +445,8 @@ export const DeveloperAiPanel = ({ compact = false }: { compact?: boolean }) => 
   const [rolePackageDraft, setRolePackageDraft] = useState<RolePackageDraftSummary | null>(null);
   const [requirementNotes, setRequirementNotes] = useState<string[]>([]);
   const [skippedRequirementFields, setSkippedRequirementFields] = useState<string[]>([]);
+  const [pendingGenerationPlan, setPendingGenerationPlan] =
+    useState<PendingRolePackageGeneration | null>(null);
   const [activeController, setActiveController] = useState<AbortController | null>(null);
   const abortReasonRef = useRef<"manual" | null>(null);
 
@@ -464,19 +520,19 @@ export const DeveloperAiPanel = ({ compact = false }: { compact?: boolean }) => 
     if (runningMode === "dialog") {
       return "正在调用 OpenClaw 模型回答开发问题。";
     }
-    const savedFiles = Math.min(rolePackageDraft?.fileCount ?? 0, ROLE_PACKAGE_REQUIRED_FILE_COUNT);
-    const remainingFiles = Math.max(ROLE_PACKAGE_REQUIRED_FILE_COUNT - savedFiles, 0);
+    const savedFiles = Math.min(rolePackageDraft?.fileCount ?? 0, ROLE_PACKAGE_TEMPLATE_FILE_COUNT);
+    const remainingFiles = Math.max(ROLE_PACKAGE_TEMPLATE_FILE_COUNT - savedFiles, 0);
     const currentPath = rolePackageOutputPaths[savedFiles] ?? "剩余岗位包文件";
     if (remainingFiles === 0 || rolePackageDraft?.status === "ready") {
       return "岗位包文件已生成完成，正在收尾校验 ready 草稿。";
     }
     if (elapsedSeconds >= 600) {
-      return `正在等待模型生成第 ${savedFiles + 1}/${ROLE_PACKAGE_REQUIRED_FILE_COUNT} 个文件：${currentPath}。预计剩余 ${estimateRemainingGenerationTime(remainingFiles)}，已完成 ${savedFiles} 个文件会保留。`;
+      return `正在等待模型生成第 ${savedFiles + 1}/${ROLE_PACKAGE_TEMPLATE_FILE_COUNT} 个模板文件：${currentPath}。预计剩余 ${estimateRemainingGenerationTime(remainingFiles)}，已完成 ${savedFiles} 个文件会保留。`;
     }
     if (elapsedSeconds >= 60) {
-      return `当前文件较复杂，仍在生成第 ${savedFiles + 1}/${ROLE_PACKAGE_REQUIRED_FILE_COUNT} 个文件：${currentPath}。预计剩余 ${estimateRemainingGenerationTime(remainingFiles)}。`;
+      return `当前文件较复杂，仍在生成第 ${savedFiles + 1}/${ROLE_PACKAGE_TEMPLATE_FILE_COUNT} 个模板文件：${currentPath}。预计剩余 ${estimateRemainingGenerationTime(remainingFiles)}。`;
     }
-    return `正在生成第 ${savedFiles + 1}/${ROLE_PACKAGE_REQUIRED_FILE_COUNT} 个文件：${currentPath}。预计剩余 ${estimateRemainingGenerationTime(remainingFiles)}。`;
+    return `正在生成第 ${savedFiles + 1}/${ROLE_PACKAGE_TEMPLATE_FILE_COUNT} 个模板文件：${currentPath}。预计剩余 ${estimateRemainingGenerationTime(remainingFiles)}。`;
   }, [elapsedSeconds, rolePackageDraft, running, runningMode]);
 
   const appendMessage = (message: Omit<DeveloperMessage, "id">) => {
@@ -514,6 +570,9 @@ export const DeveloperAiPanel = ({ compact = false }: { compact?: boolean }) => 
 
     appendMessage({ role: "user", text });
 
+    const currentPendingGenerationPlan = pendingGenerationPlan;
+    const confirmsPendingGeneration =
+      !!currentPendingGenerationPlan && isStartDevelopmentConfirmation(text);
     const generationIntent = isGenerationIntent(text);
     const shouldResumeRolePackage =
       !!rolePackageDraft &&
@@ -526,37 +585,43 @@ export const DeveloperAiPanel = ({ compact = false }: { compact?: boolean }) => 
     const requirementContinuation = isRequirementContinuation(text, requirementNotes.length > 0);
 
     if (
+      confirmsPendingGeneration ||
       shouldGenerateRolePackage ||
       requirementContinuation ||
       (generationIntent && !navigationTarget)
     ) {
-      const nextNotes = shouldResumeRolePackage
-        ? requirementNotes
-        : [...requirementNotes, text];
+      const nextNotes = confirmsPendingGeneration
+        ? currentPendingGenerationPlan.notes
+        : shouldResumeRolePackage
+          ? requirementNotes
+          : [...requirementNotes, text];
       const currentRequirementText = nextNotes.join("\n");
       const initialAnalysis = analyzeRoleRequirement(
         currentRequirementText,
-        skippedRequirementFields
+        confirmsPendingGeneration ? currentPendingGenerationPlan.skippedFields : skippedRequirementFields
       );
       const proceedDespiteMissing =
-        shouldResumeRolePackage || shouldProceedWithIncompleteRequirements(text);
-      const nextSkippedFields = [
-        ...new Set([
-          ...skippedRequirementFields,
-          ...(proceedDespiteMissing
-            ? extractSkippedRequirementFields(
-                text,
-                initialAnalysis.missing.map((field) => field.key)
-              )
-            : []),
-        ]),
-      ];
+        confirmsPendingGeneration || shouldResumeRolePackage || shouldProceedWithIncompleteRequirements(text);
+      const nextSkippedFields = confirmsPendingGeneration
+        ? currentPendingGenerationPlan.skippedFields
+        : [
+            ...new Set([
+              ...skippedRequirementFields,
+              ...(proceedDespiteMissing
+                ? extractSkippedRequirementFields(
+                    text,
+                    initialAnalysis.missing.map((field) => field.key)
+                  )
+                : []),
+            ]),
+          ];
       const analysis = analyzeRoleRequirement(currentRequirementText, nextSkippedFields);
 
       setRequirementNotes(nextNotes);
       setSkippedRequirementFields(nextSkippedFields);
 
-      if (!shouldResumeRolePackage && !analysis.ready && !proceedDespiteMissing) {
+      if (!confirmsPendingGeneration && !shouldResumeRolePackage && !analysis.ready && !proceedDespiteMissing) {
+        setPendingGenerationPlan(null);
         appendMessage({
           role: "assistant",
           text: buildRequirementPrompt(analysis.missing),
@@ -565,30 +630,55 @@ export const DeveloperAiPanel = ({ compact = false }: { compact?: boolean }) => 
         return;
       }
 
-      const generationMessage = shouldResumeRolePackage
+      const generationMessage = confirmsPendingGeneration
+        ? currentPendingGenerationPlan.generationMessage
+        : shouldResumeRolePackage
         ? rolePackageDraft.sourceMessage?.trim() ||
           buildGenerationMessage(
             nextNotes.length > 0
               ? nextNotes
               : [
                   "继续生成已有 partial role_package 草稿。请依据已有草稿摘要和已生成文件，补全下一个缺失文件。",
-                ],
+            ],
             nextSkippedFields
           )
         : buildGenerationMessage(nextNotes, nextSkippedFields);
-      const shouldStartNewDraft = rolePackageDraft?.status === "ready" && isRequirementChangeIntent(text);
+      const shouldStartNewDraft = confirmsPendingGeneration
+        ? currentPendingGenerationPlan.shouldStartNewDraft
+        : rolePackageDraft?.status === "ready" && isRequirementChangeIntent(text);
+
+      if (!confirmsPendingGeneration && !shouldResumeRolePackage) {
+        setPendingGenerationPlan({
+          generationMessage,
+          notes: nextNotes,
+          skippedFields: nextSkippedFields,
+          shouldStartNewDraft,
+        });
+        appendMessage({
+          role: "assistant",
+          text: buildDevelopmentPlanMessage({
+            notes: nextNotes,
+            skippedFields: nextSkippedFields,
+            shouldStartNewDraft,
+            existingFileCount: rolePackageDraft?.fileCount,
+          }),
+        });
+        setDraft("");
+        return;
+      }
+
+      setPendingGenerationPlan(null);
       const controller = new AbortController();
       setActiveController(controller);
       setRunning(true);
       setRunningMode("generation");
       setStartedAt(Date.now());
-      setShowCapabilities(false);
       const startingFileCount = shouldStartNewDraft ? 0 : (rolePackageDraft?.fileCount ?? 0);
-      const estimatedRemainingFiles = Math.max(ROLE_PACKAGE_REQUIRED_FILE_COUNT - startingFileCount, 1);
+      const estimatedRemainingFiles = Math.max(ROLE_PACKAGE_TEMPLATE_FILE_COUNT - startingFileCount, 1);
       appendMessage({
         role: "assistant",
         text: shouldStartNewDraft
-          ? `已收到新增需求，将基于新的完整规格重新生成一个 role_package 草稿。本轮会逐个生成 ${ROLE_PACKAGE_REQUIRED_FILE_COUNT} 个文件，预计 ${estimateRemainingGenerationTime(ROLE_PACKAGE_REQUIRED_FILE_COUNT)}；耗时长是正常的，完成一个文件就保存一次。`
+          ? `已收到新增需求，将基于新的完整规格重新生成一个 role_package 草稿。本轮按当前模板逐个生成文件，预计 ${estimateRemainingGenerationTime(ROLE_PACKAGE_TEMPLATE_FILE_COUNT)}；耗时长是正常的，完成一个文件就保存一次。`
           : shouldResumeRolePackage
             ? `继续生成已有 partial 岗位包草稿，本轮会逐个生成剩余 ${estimatedRemainingFiles} 个文件，预计 ${estimateRemainingGenerationTime(estimatedRemainingFiles)}；耗时长是正常的，完成一个文件就保存一次。`
             : `已收到岗位开发规格，本轮会逐个生成剩余 ${estimatedRemainingFiles} 个文件，预计 ${estimateRemainingGenerationTime(estimatedRemainingFiles)}；耗时长是正常的，完成一个文件就保存一次，全部校验通过后才变成可上传 ready。`,
@@ -620,7 +710,7 @@ export const DeveloperAiPanel = ({ compact = false }: { compact?: boolean }) => 
             setRolePackageDraft(generatedDraft);
             appendMessage({
               role: "system",
-              text: `已保存阶段草稿：${generatedDraft.fileCount ?? 0}/${ROLE_PACKAGE_REQUIRED_FILE_COUNT} 个文件，状态 ${generatedDraft.status ?? "partial"}；预计剩余 ${estimateRemainingGenerationTime(Math.max(ROLE_PACKAGE_REQUIRED_FILE_COUNT - (generatedDraft.fileCount ?? 0), 0))}。`,
+              text: `已保存阶段草稿：${generatedDraft.fileCount ?? 0}/${ROLE_PACKAGE_TEMPLATE_FILE_COUNT} 个模板文件，状态 ${generatedDraft.status ?? "partial"}；预计剩余 ${estimateRemainingGenerationTime(Math.max(ROLE_PACKAGE_TEMPLATE_FILE_COUNT - (generatedDraft.fileCount ?? 0), 0))}。`,
             });
           }
 
@@ -644,7 +734,7 @@ export const DeveloperAiPanel = ({ compact = false }: { compact?: boolean }) => 
           role: "assistant",
           text:
             generatedDraft?.status === "ready"
-              ? `已生成 ready 岗位包草稿，包含 ${generatedDraft.fileCount ?? 0} 个文件，质量评分 ${generatedDraft.qualityReport?.score ?? 0}。可以去上传岗位页承接。`
+              ? `已生成 ready 岗位包草稿，包含 ${generatedDraft.fileCount ?? 0} 个文件，质量评分 ${generatedDraft.qualityReport?.score ?? 0}。开发者需要逐个预览、可局部编辑，并确认本次草稿里的全部文件后，再去上传岗位页承接。`
               : generatedDraft
                 ? `已保存 partial 岗位包草稿，包含 ${generatedDraft.fileCount ?? 0} 个文件；发送“继续生成”可以从未完成文件接着生成。`
                 : "本次没有形成可保存的岗位包草稿，请补充岗位规格后重试。",
@@ -663,7 +753,7 @@ export const DeveloperAiPanel = ({ compact = false }: { compact?: boolean }) => 
               : "当前生成请求被浏览器或网络中断；已保存的 partial 草稿会保留，可以发送“继续生成”接着跑。"
             : `${formatGenerationErrorMessage(error)}${
                 partialDraft
-                  ? `\n已保留 partial 草稿：${partialDraft.fileCount ?? 0}/${ROLE_PACKAGE_REQUIRED_FILE_COUNT} 个文件。你可以继续生成未完成阶段。`
+                  ? `\n已保留 partial 草稿：${partialDraft.fileCount ?? 0}/${ROLE_PACKAGE_TEMPLATE_FILE_COUNT} 个模板文件。你可以继续生成未完成阶段。`
                   : ""
               }`,
         });
@@ -777,7 +867,7 @@ export const DeveloperAiPanel = ({ compact = false }: { compact?: boolean }) => 
           <Text className="txt-compact-small text-ui-fg-subtle">
             {running
               ? "岗位包生成是长任务，可能需要十几到二十多分钟；完成一个文件就保存一次，可停止后继续。"
-              : "长规格会作为岗位包生成输入，不会只做关键词导航。"}
+              : "长规格会先整理成开发方案，确认开始后才会生成岗位包。"}
           </Text>
           <Button
             size="small"
@@ -809,7 +899,7 @@ export const DeveloperAiAssistantDock = () => {
           <div className="flex items-center justify-between border-b px-4 py-3">
             <div>
               <Text className="txt-compact-medium-plus text-ui-fg-base">AI 开发助手</Text>
-              <Text className="txt-compact-small text-ui-fg-subtle">当前页面可直接生成岗位包或导航</Text>
+              <Text className="txt-compact-small text-ui-fg-subtle">先整理方案，确认后生成岗位包</Text>
             </div>
             <IconButton
               size="small"

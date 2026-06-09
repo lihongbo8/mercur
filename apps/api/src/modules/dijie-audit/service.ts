@@ -91,6 +91,7 @@ import {
   type DijieRolePackageStore,
 } from "../../lib/dijie/role-package-store";
 import {
+  confirmDijieRolePackageDraftFileWithRepository,
   createDijieRolePackageDraftWithRepository,
   markDijieRolePackageDraftSubmittedWithRepository,
   retrieveDijieRolePackageDraftWithRepository,
@@ -260,6 +261,15 @@ class DijieAuditModuleService
     input: Parameters<DijieRolePackageDraftStore["updateDijieRolePackageDraft"]>[0],
   ) {
     return updateDijieRolePackageDraftWithRepository(
+      this as unknown as DijieRolePackageDraftLookupRepository & DijieRolePackageDraftUpdateRepository,
+      input,
+    );
+  }
+
+  async confirmDijieRolePackageDraftFile(
+    input: Parameters<DijieRolePackageDraftStore["confirmDijieRolePackageDraftFile"]>[0],
+  ) {
+    return confirmDijieRolePackageDraftFileWithRepository(
       this as unknown as DijieRolePackageDraftLookupRepository & DijieRolePackageDraftUpdateRepository,
       input,
     );

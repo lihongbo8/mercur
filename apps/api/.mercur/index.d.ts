@@ -724,7 +724,10 @@ export type Routes = {
                     download: typeof import("../../src/api/vendor/dijie/role-packages/[packageId]/download/route");
                 };
                 drafts: {
-                    $draftId: {
+                    $draftId: typeof import("../../src/api/vendor/dijie/role-packages/drafts/[draftId]/route") & {
+                        files: typeof import("../../src/api/vendor/dijie/role-packages/drafts/[draftId]/files/route") & {
+                            confirm: typeof import("../../src/api/vendor/dijie/role-packages/drafts/[draftId]/files/confirm/route");
+                        };
                         submit: typeof import("../../src/api/vendor/dijie/role-packages/drafts/[draftId]/submit/route");
                     };
                     latest: typeof import("../../src/api/vendor/dijie/role-packages/drafts/latest/route");

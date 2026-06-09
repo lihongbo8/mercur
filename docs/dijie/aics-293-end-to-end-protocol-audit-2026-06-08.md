@@ -54,6 +54,14 @@ Follow-up items that should not block this AICS-293 PR bundle:
 - OpenClaw workboard authorization status now says `待同步` until a real sync result exists, and it normalizes nested Marketplace read-model shapes such as `readModel.roles[].entitlement.id`.
 - Storefront paid authorization now recognizes `dijieOrderId/orderId/order_id` query params and uses them to materialize paid entitlements after checkout; it also avoids retrying the same checkout order id in a loop.
 
+## Developer Generation Addendum - 2026-06-09
+
+- Developer-center generation now has an explicit human start gate: the assistant collects/repairs requirements and presents a plan first; it only starts role-package generation after the developer clearly replies `开始开发` or an equivalent confirmation.
+- Draft adoption now requires previewing the current draft files, optional per-file edits, backend revalidation after each save, and per-file developer confirmation before submit.
+- Confirmation scope is dynamic and comes from the draft's actual `file_manifest/package_files`; the platform does not hard-code 13 or 16 files as a submit rule.
+- Chrome developer smoke on 2026-06-09 verified the existing 13-file draft stays blocked as `需修复 / 0/13 已确认`, preview opens the file editor, and confirm/adopt actions remain disabled until the draft is ready and fully confirmed.
+- AICS-302 remains scoped to the fresh developer-center generation smoke. This addendum closes the guardrails and adoption flow, but it is not a substitute for generating a new complete ready role package from natural language in Chrome.
+
 ## Remaining Follow-Up Findings
 
 1. Storefront paid authorization is not complete.

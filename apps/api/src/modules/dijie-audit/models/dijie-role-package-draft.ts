@@ -15,6 +15,7 @@ const DijieRolePackageDraft = model.define("dijie_role_package_draft", {
   quality_report: model.json(),
   upload_validation_issues: model.json(),
   blocking_issues: model.json(),
+  file_confirmations: model.json().nullable(),
   model_usage: model.json().nullable(),
   submitted_package_id: model.text().searchable().nullable(),
 });
