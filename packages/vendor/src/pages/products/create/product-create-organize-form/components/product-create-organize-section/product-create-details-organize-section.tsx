@@ -1,6 +1,6 @@
 import { useState } from "react";
 
-import { Heading } from "@medusajs/ui";
+import { Heading, Text } from "@medusajs/ui";
 
 import { Form } from "@components/common/form";
 import { Combobox } from "@components/inputs/combobox";
@@ -12,6 +12,10 @@ import { CategoryCombobox } from "@pages/products/common/components/category-com
 
 export const ProductCreateOrganizationSection = () => {
   const form = useTabbedForm<ProductCreateSchemaType>();
+  const rolePackageId = form.watch("role_package_id");
+  const rolePackageVersion = form.watch("role_package_version");
+  const roleCategory = form.watch("role_category");
+  const isAicsRoleListing = Boolean(rolePackageId && rolePackageVersion);
 
   const collections = useComboboxData({
     queryKey: ["product_collections"],
@@ -100,54 +104,65 @@ export const ProductCreateOrganizationSection = () => {
           }}
         />
       </div>
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        <Form.Field
-          control={form.control}
-          name="categories"
-          render={({ field }) => {
-            const [isFocused, setIsFocused] = useState(false);
+      {isAicsRoleListing ? (
+        <div className="rounded-md border border-ui-border-base bg-ui-bg-base px-4 py-3">
+          <Text size="small" weight="plus">
+            岗位分类
+          </Text>
+          <Text size="small" className="mt-1 text-ui-fg-subtle">
+            {roleCategory || "未选择"}。AICS 岗位商品使用岗位分类进入审核、商城和使用者中心，不再绑定普通商品主分类。
+          </Text>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <Form.Field
+            control={form.control}
+            name="categories"
+            render={({ field }) => {
+              const [isFocused, setIsFocused] = useState(false);
 
-            return (
-              <Form.Item>
-                <Form.Label tooltip="用于商城前台归类展示。">
-                  主分类
-                </Form.Label>
-                <Form.Control>
-                  <CategoryCombobox
-                    {...field}
-                    onFocus={() => setIsFocused(true)}
-                    onBlur={() => {
-                      setIsFocused(false);
-                      field.onBlur();
-                    }}
-                    isSingleSelect
-                    allowClear={false}
-                  />
-                </Form.Control>
-                {!isFocused && <Form.ErrorMessage />}
-              </Form.Item>
-            );
-          }}
-        />
-        <Form.Field
-          control={form.control}
-          name={"secondary_categories" as any}
-          render={({ field }) => {
-            return (
-              <Form.Item>
-                <Form.Label optional>辅助分类</Form.Label>
-                <Form.Control>
-                  <CategoryCombobox
-                    {...field}
-                    value={field.value || []}
-                  />
-                </Form.Control>
-                <Form.ErrorMessage />
-              </Form.Item>
-            );
-          }}
-        />
-      </div>
+              return (
+                <Form.Item>
+                  <Form.Label tooltip="用于商城前台归类展示。">
+                    主分类
+                  </Form.Label>
+                  <Form.Control>
+                    <CategoryCombobox
+                      {...field}
+                      onFocus={() => setIsFocused(true)}
+                      onBlur={() => {
+                        setIsFocused(false);
+                        field.onBlur();
+                      }}
+                      isSingleSelect
+                      allowClear={false}
+                    />
+                  </Form.Control>
+                  {!isFocused && <Form.ErrorMessage />}
+                </Form.Item>
+              );
+            }}
+          />
+          <Form.Field
+            control={form.control}
+            name={"secondary_categories" as any}
+            render={({ field }) => {
+              return (
+                <Form.Item>
+                  <Form.Label optional>辅助分类</Form.Label>
+                  <Form.Control>
+                    <CategoryCombobox
+                      {...field}
+                      value={field.value || []}
+                    />
+                  </Form.Control>
+                  <Form.ErrorMessage />
+                </Form.Item>
+              );
+            }}
+          />
+        </div>
+      )}
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <Form.Field
           control={form.control}

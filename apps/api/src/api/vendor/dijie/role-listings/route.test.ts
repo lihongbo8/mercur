@@ -137,6 +137,7 @@ describe("POST /vendor/dijie/role-listings", () => {
           packageVersion: "0.1.0",
           title: "商品图检查岗位",
           usageInstructions,
+          category: "电商美工",
           roleTokenPricing,
         },
         service: {
@@ -156,6 +157,7 @@ describe("POST /vendor/dijie/role-listings", () => {
               packageId: "pkg_product_image_qc",
               title: "商品图检查岗位",
               usageInstructions,
+              category: "电商美工",
               roleTokenPricing,
             });
             return {
@@ -174,7 +176,7 @@ describe("POST /vendor/dijie/role-listings", () => {
                   subtitle: null,
                   description: null,
                   usage_instructions: usageInstructions,
-                  category: null,
+                  category: "电商美工",
                   listing_status: "draft",
                   review_state: "draft",
                   capabilities: ["workspace.read", "image.inspect"],
@@ -213,6 +215,7 @@ describe("POST /vendor/dijie/role-listings", () => {
       listing: {
         listing_status: "draft",
         review_state: "draft",
+        category: "电商美工",
       },
     });
   });

@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import {
   Button,
   Input,
+  Select,
   StatusBadge,
   Text,
   Textarea,
@@ -33,6 +34,16 @@ const ROLE_PACKAGE_REQUIRED_MESSAGE = "请先上传岗位资料包。";
 const ROLE_PACKAGE_INVALID_MESSAGE = "岗位资料包无法用于上架，请重新上传。";
 const PLATFORM_TOKEN_PRICE_HINT =
   "开发者可自行定价；提交时后端会按平台成本和上限倍率做硬限制。";
+
+const ROLE_CATEGORIES = [
+  "电商美工",
+  "客服运营",
+  "数据分析",
+  "文档处理",
+  "图片生成",
+  "运营增长",
+  "其他",
+];
 
 const ROLE_PACKAGE_STATUS_COLOR = {
   检查中: "orange",
@@ -107,6 +118,39 @@ const centsPerMillionHint = (value: unknown, baselineCents: number) => {
     return "请输入整数分/百万 Token。";
   }
   return `${amount} 分/百万 Token = ¥${(amount / 100).toFixed(2)}/百万 Token。`;
+};
+
+const inferRoleCategory = (input: {
+  packageId?: string | null;
+  title?: string | null;
+  requiredCapabilities?: string[];
+}) => {
+  const text = [
+    input.packageId,
+    input.title,
+    ...(input.requiredCapabilities ?? []),
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+
+  if (/美工|主图|详情页|visual|design|image|图片/u.test(text)) {
+    return "电商美工";
+  }
+  if (/客服|customer|service|support/u.test(text)) {
+    return "客服运营";
+  }
+  if (/数据|分析|analytics|data/u.test(text)) {
+    return "数据分析";
+  }
+  if (/文档|document|doc|office/u.test(text)) {
+    return "文档处理";
+  }
+  if (/运营|growth|marketing/u.test(text)) {
+    return "运营增长";
+  }
+
+  return "其他";
 };
 
 const DeveloperModeStatus = ({ ready, running }: DeveloperModeStatusProps) => {
@@ -746,6 +790,20 @@ export const ProductCreateGeneralSection = () => {
           shouldValidate: true,
         });
       }
+      if (!form.getValues("role_category")?.trim()) {
+        form.setValue(
+          "role_category",
+          inferRoleCategory({
+            packageId: uploadedPackage.packageId,
+            title: manifestTitle,
+            requiredCapabilities: normalizedRequiredCapabilities,
+          }),
+          {
+            shouldDirty: true,
+            shouldValidate: true,
+          },
+        );
+      }
       form.setValue("role_listing_id", "", {
         shouldDirty: true,
         shouldValidate: false,
@@ -828,6 +886,20 @@ export const ProductCreateGeneralSection = () => {
           shouldDirty: true,
           shouldValidate: true,
         });
+      }
+      if (!form.getValues("role_category")?.trim()) {
+        form.setValue(
+          "role_category",
+          inferRoleCategory({
+            packageId: result.packageId,
+            title: manifestTitle,
+            requiredCapabilities,
+          }),
+          {
+            shouldDirty: true,
+            shouldValidate: true,
+          },
+        );
       }
       form.setValue("role_listing_id", "", {
         shouldDirty: true,
@@ -956,6 +1028,43 @@ export const ProductCreateGeneralSection = () => {
               </Text>
               <Form.ErrorMessage>
                 {form.formState.errors.role_usage_instructions?.message}
+              </Form.ErrorMessage>
+            </Form.Item>
+          );
+        }}
+      />
+      <Form.Field
+        control={form.control}
+        name="role_category"
+        render={({ field: { ref, ...field } }) => {
+          const selectedCategory = ROLE_CATEGORIES.find(
+            (category) => category === field.value,
+          );
+
+          return (
+            <Form.Item>
+              <Form.Label>岗位分类</Form.Label>
+              <Form.Control>
+                <Select {...field} onValueChange={field.onChange}>
+                  <Select.Trigger ref={ref}>
+                    <Select.Value placeholder="请选择岗位分类">
+                      {selectedCategory}
+                    </Select.Value>
+                  </Select.Trigger>
+                  <Select.Content>
+                    {ROLE_CATEGORIES.map((category) => (
+                      <Select.Item key={category} value={category}>
+                        {category}
+                      </Select.Item>
+                    ))}
+                  </Select.Content>
+                </Select>
+              </Form.Control>
+              <Text size="xsmall" className="text-ui-fg-subtle">
+                岗位分类用于审核、商城浏览和使用者中心展示，不再使用普通商品分类。
+              </Text>
+              <Form.ErrorMessage>
+                {form.formState.errors.role_category?.message}
               </Form.ErrorMessage>
             </Form.Item>
           );

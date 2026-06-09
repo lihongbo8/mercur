@@ -140,6 +140,25 @@ export const ProductCreateForm = ({
     });
 
     return extendedBaseSchema.superRefine((data, ctx) => {
+      const isAicsRoleListing = Boolean(
+        data.role_package_id && data.role_package_version,
+      );
+      if (isAicsRoleListing) {
+        if (!data.role_category?.trim()) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["role_category"],
+            message: "请选择岗位分类",
+          });
+        }
+      } else if (!data.categories || data.categories.length < 1) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["categories"],
+          message: t("products.create.errors.primaryCategoryRequired"),
+        });
+      }
+
       if (data.variants.every((v: any) => !v.should_create)) {
         return ctx.addIssue({
           code: z.ZodIssueCode.custom,
@@ -162,7 +181,7 @@ export const ProductCreateForm = ({
         }
       });
     });
-  }, [dynamicAttributeSchema]);
+  }, [dynamicAttributeSchema, t]);
 
   const dynamicDefaultValues = useMemo(() => {
     const defaults: Record<string, any> = {};
@@ -242,6 +261,7 @@ export const ProductCreateForm = ({
         subtitle: aicsValues.subtitle || undefined,
         description: aicsValues.description || undefined,
         usageInstructions: aicsValues.role_usage_instructions,
+        category: aicsValues.role_category || undefined,
         pricing: {
           kind: "one_time_authorization",
           authorizationFeeCents,
@@ -277,6 +297,7 @@ export const ProductCreateForm = ({
       secondary_categories,
       role_authorization_fee_yuan,
       role_capabilities,
+      role_category,
       role_usage_instructions,
       role_input_token_price_cents_per_million,
       role_manifest_ref,
@@ -703,6 +724,7 @@ export const ProductCreateForm = ({
             subtitle: finalPayload.subtitle || undefined,
             description: finalPayload.description || undefined,
             usageInstructions: role_usage_instructions || undefined,
+            category: role_category || undefined,
             packageId: role_package_id,
             packageVersion: role_package_version,
             listingStatus: isDraftSubmission ? "draft" : "proposed",
@@ -760,7 +782,7 @@ export const ProductCreateForm = ({
           ? additionalData
           : undefined;
       })(),
-      categories: finalPayload.categories.map((cat: any) => ({
+      categories: (finalPayload.categories ?? []).map((cat: any) => ({
         id: cat,
       })),
       variants: mappedVariants.map((variant: any) => {
@@ -812,6 +834,8 @@ export const ProductCreateForm = ({
           "role_package_id",
           "role_package_version",
           "role_authorization_fee_yuan",
+          "role_category",
+          "role_usage_instructions",
           "role_input_token_price_cents_per_million",
           "role_output_token_price_cents_per_million",
           "role_manifest_ref",
@@ -819,7 +843,9 @@ export const ProductCreateForm = ({
         ];
         break;
       case Tab.ORGANIZE:
-        fieldsToValidate = ["categories"];
+        fieldsToValidate = form.getValues("role_package_id" as any)
+          ? []
+          : ["categories"];
         break;
     }
 
