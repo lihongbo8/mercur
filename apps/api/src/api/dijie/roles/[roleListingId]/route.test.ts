@@ -52,6 +52,7 @@ function request(roleListingId: string) {
                 description: "适合电商商品审核场景。",
                 handle: "image-review-role",
                 status: "published",
+                variants: [{ id: "variant_image_review_auth" }],
                 seller: { id: "dev_001", name: "迭界开发者" },
                 metadata: {
                   dijieRole: {
@@ -80,6 +81,7 @@ function request(roleListingId: string) {
                 subtitle: "整理商品卖点并生成文案。",
                 handle: "writer-role",
                 status: "published",
+                variants: [{ id: "variant_writer_auth" }],
                 metadata: {
                   dijieRole: {
                     kind: "role_product",
@@ -135,6 +137,11 @@ describe("GET /dijie/roles/:roleListingId", () => {
           inputTokenFee: "¥1.20/百万 Token",
           outputTokenFee: "¥3.60/百万 Token",
           executionFeeNote: "消费者执行前可查看单价，执行后以账本实际用量和费用为准。",
+        },
+        checkout: {
+          requiresCheckout: true,
+          productId: "prod_image_review_role",
+          variantId: "variant_image_review_auth",
         },
         relatedRoles: [{ id: "prod_writer_role", title: "商品文案岗位" }],
       },

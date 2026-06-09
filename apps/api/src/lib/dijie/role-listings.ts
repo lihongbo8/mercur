@@ -21,6 +21,7 @@ export type DijieRoleListing = {
   subtitle: string | null;
   description: string | null;
   usageInstructions: string | null;
+  category: string | null;
   handle: string | null;
   listingStatus: string;
   reviewState: string | null;
@@ -33,6 +34,13 @@ export type DijieRoleListing = {
   pricing: DijieExecutionTokenPricing;
   roleTokenPricing: DijieRoleTokenPricing;
   scopes: string[];
+  checkout?: DijieRoleCheckoutReadModel;
+};
+
+export type DijieRoleCheckoutReadModel = {
+  requiresCheckout: boolean;
+  productId: string | null;
+  variantId: string | null;
 };
 
 export type DijiePublicRoleListingReadModel = {
@@ -41,6 +49,7 @@ export type DijiePublicRoleListingReadModel = {
   subtitle: string | null;
   description: string | null;
   usageInstructions: string | null;
+  category: string | null;
   handle: string | null;
   listingStatus: string;
   reviewState: string | null;
@@ -64,6 +73,7 @@ export type DijiePublicRoleListingReadModel = {
     outputTokenFee: string;
     executionFeeNote: string;
   };
+  checkout: DijieRoleCheckoutReadModel;
 };
 
 export type DijieRoleDetailReadModel = DijiePublicRoleListingReadModel & {
@@ -103,7 +113,19 @@ type UnknownRecord = Record<string, unknown>;
 
 const BLOCKED_ORDER_STATUSES = new Set(["canceled", "cancelled"]);
 const PAID_ORDER_STATUSES = new Set(["completed"]);
-const PAID_PAYMENT_STATUSES = new Set(["captured", "paid", "completed"]);
+const PAID_PAYMENT_STATUSES = new Set(["authorized", "captured", "paid", "completed"]);
+const ROLE_PRODUCT_FIELDS = [
+  "id",
+  "title",
+  "subtitle",
+  "description",
+  "handle",
+  "status",
+  "metadata",
+  "seller.id",
+  "seller.name",
+  "variants.id",
+];
 
 function asRecord(value: unknown): UnknownRecord {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -140,6 +162,27 @@ function sellerRecord(product: UnknownRecord): UnknownRecord {
   return asRecord(product.seller);
 }
 
+function firstVariantId(product: UnknownRecord): string | null {
+  const variants = Array.isArray(product.variants)
+    ? product.variants.map(asRecord)
+    : [];
+  return nonEmptyString(variants[0]?.id) ?? null;
+}
+
+function createCheckoutReadModel(params: {
+  authorizationFeeCents?: number;
+  productId?: string | null;
+  variantId?: string | null;
+}): DijieRoleCheckoutReadModel {
+  const authorizationFeeCents = Number(params.authorizationFeeCents ?? 0);
+  return {
+    requiresCheckout:
+      Number.isFinite(authorizationFeeCents) && authorizationFeeCents > 0,
+    productId: params.productId ?? null,
+    variantId: params.variantId ?? null,
+  };
+}
+
 export function createDijieRoleListingFromProduct(
   productInput: unknown,
 ): DijieRoleListing | undefined {
@@ -169,6 +212,7 @@ export function createDijieRoleListingFromProduct(
     description:
       nonEmptyString(role.description ?? product.description) ?? null,
     usageInstructions: nonEmptyString(role.usageInstructions) ?? null,
+    category: nonEmptyString((role as { category?: unknown }).category) ?? null,
     handle: nonEmptyString(product.handle) ?? null,
     listingStatus: role.listingStatus,
     reviewState: role.reviewState,
@@ -182,6 +226,11 @@ export function createDijieRoleListingFromProduct(
     pricing: role.pricing,
     roleTokenPricing: role.roleTokenPricing,
     scopes: role.scopes,
+    checkout: createCheckoutReadModel({
+      authorizationFeeCents: role.pricing.authorizationFeeCents,
+      productId: id,
+      variantId: firstVariantId(product),
+    }),
   };
 }
 
@@ -226,6 +275,7 @@ export function createDijieRoleListingFromStoredRecord(
     subtitle: nonEmptyString(record.subtitle) ?? null,
     description: nonEmptyString(record.description) ?? null,
     usageInstructions: nonEmptyString(record.usage_instructions) ?? null,
+    category: nonEmptyString(record.category) ?? null,
     handle: id,
     listingStatus: record.listing_status,
     reviewState: record.review_state,
@@ -240,6 +290,9 @@ export function createDijieRoleListingFromStoredRecord(
     scopes: Array.isArray(record.scopes)
       ? stringArray(record.scopes)
       : ["role.execute", "audit.write"],
+    checkout: createCheckoutReadModel({
+      authorizationFeeCents: pricing.authorizationFeeCents,
+    }),
   };
 }
 
@@ -330,6 +383,62 @@ function tokenCentsPerMillionLabel(value: number): string {
   return `¥${(value / 100).toFixed(2)}/百万 Token`;
 }
 
+function roleProductCheckoutMappings(products: unknown[]) {
+  const byRoleListingId = new Map<string, DijieRoleCheckoutReadModel>();
+  const byPackageKey = new Map<string, DijieRoleCheckoutReadModel | null>();
+
+  for (const productInput of products) {
+    const product = asRecord(productInput);
+    const productId = nonEmptyString(product.id);
+    if (!productId) {
+      continue;
+    }
+    const roleResult = normalizeDijieRoleProductMetadataFromProduct(product);
+    if (!roleResult.ok || !isPublicDijieRoleProduct(roleResult.value)) {
+      continue;
+    }
+
+    const role = roleResult.value;
+    const checkout = createCheckoutReadModel({
+      authorizationFeeCents: role.pricing.authorizationFeeCents,
+      productId,
+      variantId: firstVariantId(product),
+    });
+    if (role.roleListingId) {
+      byRoleListingId.set(role.roleListingId, checkout);
+    }
+    byRoleListingId.set(productId, checkout);
+
+    const packageKey = `${role.packageId}@${role.packageVersion}`;
+    byPackageKey.set(
+      packageKey,
+      byPackageKey.has(packageKey) ? null : checkout,
+    );
+  }
+
+  return { byRoleListingId, byPackageKey };
+}
+
+function attachCheckoutMappingsToStoredListings(
+  listings: DijieRoleListing[],
+  products: unknown[],
+): DijieRoleListing[] {
+  const mappings = roleProductCheckoutMappings(products);
+  return listings.map((listing) => {
+    const packageKey =
+      listing.packageId && listing.packageVersion
+        ? `${listing.packageId}@${listing.packageVersion}`
+        : undefined;
+    const checkout =
+      mappings.byRoleListingId.get(listing.id) ??
+      (packageKey ? mappings.byPackageKey.get(packageKey) ?? undefined : undefined);
+    return {
+      ...listing,
+      checkout: checkout ?? listing.checkout,
+    };
+  });
+}
+
 export function createDijiePublicRoleListingReadModel(
   listing: DijieRoleListing,
 ): DijiePublicRoleListingReadModel {
@@ -339,6 +448,7 @@ export function createDijiePublicRoleListingReadModel(
     subtitle: listing.subtitle,
     description: listing.description,
     usageInstructions: listing.usageInstructions,
+    category: listing.category,
     handle: listing.handle,
     listingStatus: listing.listingStatus,
     reviewState: listing.reviewState,
@@ -372,6 +482,11 @@ export function createDijiePublicRoleListingReadModel(
       executionFeeNote:
         "消费者执行前可查看单价，执行后以账本实际用量和费用为准。",
     },
+    checkout: createCheckoutReadModel({
+      authorizationFeeCents: listing.pricing.authorizationFeeCents,
+      productId: listing.checkout?.productId,
+      variantId: listing.checkout?.variantId,
+    }),
   };
 }
 
@@ -648,7 +763,15 @@ export async function listDijieRoleListings(
       .map(createDijieRoleListingFromStoredRecord)
       .filter((listing): listing is DijieRoleListing => Boolean(listing));
     if (storedListings.length > 0) {
-      return storedListings;
+      const productResult = await queryGraph({
+        entity: "product",
+        fields: ROLE_PRODUCT_FIELDS,
+        pagination: { take: 100 },
+      }).catch(() => ({ data: [] }));
+      return attachCheckoutMappingsToStoredListings(
+        storedListings,
+        productResult.data ?? [],
+      );
     }
   } catch {
     // Older local databases may not have the stored listing table yet; keep product fallback.
@@ -656,17 +779,7 @@ export async function listDijieRoleListings(
 
   const { data = [] } = await queryGraph({
     entity: "product",
-    fields: [
-      "id",
-      "title",
-      "subtitle",
-      "description",
-      "handle",
-      "status",
-      "metadata",
-      "seller.id",
-      "seller.name",
-    ],
+    fields: ROLE_PRODUCT_FIELDS,
     pagination: { take: 100 },
   });
 

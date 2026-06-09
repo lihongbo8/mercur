@@ -29,6 +29,7 @@ const roleProduct = {
   description: "适合做资料收集和结构化总结。",
   handle: "research-role",
   status: "published",
+  variants: [{ id: "variant_researcher_authorization" }],
   seller: {
     id: "dev_001",
     name: "迭界开发者",
@@ -64,6 +65,7 @@ describe("Dijie role listing projection", () => {
       subtitle: "整理资料并输出简报",
       description: "适合做资料收集和结构化总结。",
       usageInstructions,
+      category: null,
       handle: "research-role",
       listingStatus: "published",
       reviewState: "approved",
@@ -82,6 +84,11 @@ describe("Dijie role listing projection", () => {
       },
       roleTokenPricing,
       scopes: ["role.execute", "audit.write"],
+      checkout: {
+        requiresCheckout: true,
+        productId: "prod_role_researcher",
+        variantId: "variant_researcher_authorization",
+      },
     });
   });
 
@@ -128,6 +135,11 @@ describe("Dijie role listing projection", () => {
         outputTokenFee: "¥3.60/百万 Token",
         executionFeeNote:
           "消费者执行前可查看单价，执行后以账本实际用量和费用为准。",
+      },
+      checkout: {
+        requiresCheckout: true,
+        productId: "prod_role_researcher",
+        variantId: "variant_researcher_authorization",
       },
       relatedRoles: [
         {

@@ -101,6 +101,30 @@ describe("verifyDijieEntitlement", () => {
     });
   });
 
+  it("approves manually authorized checkout orders", async () => {
+    const result = await verifyDijieEntitlement(
+      input,
+      queryGraph({
+        orderGroups: [
+          {
+            id: input.entitlementId,
+            customer_id: input.actorId,
+            orders: [
+              paidOrder({
+                status: "pending",
+                payment_collections: [
+                  { status: "authorized", amount: 29900, captured_amount: 0 },
+                ],
+              }),
+            ],
+          },
+        ],
+      }),
+    );
+
+    expect(result.ok).toBe(true);
+  });
+
   it("approves zero-price authorizations against stored RoleListing records", async () => {
     const storedInput = {
       ...input,

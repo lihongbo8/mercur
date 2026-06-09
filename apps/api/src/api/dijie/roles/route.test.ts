@@ -48,6 +48,7 @@ function request() {
                 id: "prod_role_developer",
                 title: "开发岗位",
                 status: "published",
+                variants: [{ id: "variant_role_developer_auth" }],
                 metadata: {
                   dijieRole: {
                     kind: "role_product",
@@ -119,7 +120,42 @@ function storedListingRequest() {
                 ],
               };
             }
-            throw new Error("product fallback should not be used when stored listings exist");
+            if (input.entity === "product") {
+              return {
+                data: [
+                  {
+                    id: "prod_image_qc_checkout",
+                    title: "商品图检查岗位授权",
+                    status: "published",
+                    variants: [{ id: "variant_image_qc_auth" }],
+                    metadata: {
+                      dijieRole: {
+                        kind: "role_product",
+                        protocolVersion: "2026-05",
+                        roleListingId: "djrole_image_qc",
+                        packageId: "pkg_product_image_qc",
+                        packageVersion: "0.1.0",
+                        developerRef: "member_123",
+                        listingOwnerRef: "seller_123",
+                        billingBeneficiaryRef: "member_123",
+                        listingStatus: "published",
+                        reviewState: "approved",
+                        capabilities: ["workspace.read", "image.inspect"],
+                        pricing: {
+                          kind: "one_time_authorization",
+                          authorizationFeeCents: 0,
+                          currency: "CNY",
+                          platformFeeBps: 0,
+                          developerReceivableCents: 0,
+                        },
+                        roleTokenPricing,
+                      },
+                    },
+                  },
+                ],
+              };
+            }
+            return { data: [] };
           },
         };
       },
@@ -158,6 +194,11 @@ describe("GET /dijie/roles", () => {
             outputTokenFee: "¥3.60/百万 Token",
             executionFeeNote: "消费者执行前可查看单价，执行后以账本实际用量和费用为准。",
           },
+          checkout: {
+            requiresCheckout: true,
+            productId: "prod_role_developer",
+            variantId: "variant_role_developer_auth",
+          },
         },
       ],
     });
@@ -192,6 +233,11 @@ describe("GET /dijie/roles", () => {
           tokenUsageSummary: {
             inputTokenFee: "¥1.20/百万 Token",
             outputTokenFee: "¥3.60/百万 Token",
+          },
+          checkout: {
+            requiresCheckout: false,
+            productId: "prod_image_qc_checkout",
+            variantId: "variant_image_qc_auth",
           },
         },
       ],

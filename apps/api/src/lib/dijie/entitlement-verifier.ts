@@ -64,7 +64,7 @@ type UnknownRecord = Record<string, unknown>;
 
 const BLOCKED_ORDER_STATUSES = new Set(["canceled", "cancelled"]);
 const PAID_ORDER_STATUSES = new Set(["completed"]);
-const PAID_PAYMENT_STATUSES = new Set(["captured", "paid", "completed"]);
+const PAID_PAYMENT_STATUSES = new Set(["authorized", "captured", "paid", "completed"]);
 
 function asRecord(value: unknown): UnknownRecord {
   return value && typeof value === "object" && !Array.isArray(value)
