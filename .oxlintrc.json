@@ -8,7 +8,13 @@
   },
   "rules": {
     "react/react-in-jsx-scope": "off",
-    "typescript/no-non-null-asserted-optional-chain": "off"
+    "typescript/no-non-null-asserted-optional-chain": "off",
+    "eslint/no-shadow": "off",
+    "eslint/no-underscore-dangle": "off",
+    "react/no-array-index-key": "off",
+    "import/no-named-as-default-member": "off",
+    "react/jsx-no-constructed-context-values": "off",
+    "eslint/no-await-in-loop": "off"
   },
   "env": {
     "browser": true,

@@ -1,6 +1,6 @@
 import { CheckCircle, ExclamationCircle, InformationCircle } from "@medusajs/icons"
 import { Button, Container, Heading, StatusBadge, Text, Textarea, Tooltip } from "@medusajs/ui"
-import { useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { Link, useParams } from "react-router-dom"
 
 import {
@@ -72,7 +72,7 @@ export const ProductDetailPage = () => {
   const [note, setNote] = useState("")
   const [saving, setSaving] = useState(false)
 
-  const refresh = async () => {
+  const refresh = useCallback(async () => {
     setLoading(true)
     setError("")
     try {
@@ -89,11 +89,11 @@ export const ProductDetailPage = () => {
     } finally {
       setLoading(false)
     }
-  }
+  }, [id])
 
   useEffect(() => {
     void refresh()
-  }, [id])
+  }, [refresh])
 
   const canApprove = useMemo(
     () =>

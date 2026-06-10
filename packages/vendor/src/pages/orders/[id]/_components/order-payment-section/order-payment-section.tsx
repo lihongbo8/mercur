@@ -47,8 +47,6 @@ const Header = ({ order }: { order: HttpTypes.AdminOrder }) => {
 }
 
 const Total = ({ order }: { order: HttpTypes.AdminOrder }) => {
-  const { t } = useTranslation()
-
   if (!order.payment_collections?.length) {
     return null
   }
