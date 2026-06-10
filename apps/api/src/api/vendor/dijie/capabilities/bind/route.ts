@@ -4,7 +4,7 @@ import {
   createDijieRoleCapabilityBinding,
   type DijieCapabilityMatchReport,
 } from "../../../../../lib/dijie/capability-bridge";
-import { actorIdFromRequest, asRecord } from "../route-utils";
+import { actorIdFromRequest, asRecord, resolveCatalogReader } from "../route-utils";
 
 function hasMatchReport(value: unknown): value is DijieCapabilityMatchReport {
   const record = asRecord(value);
@@ -26,9 +26,13 @@ export async function POST(req: MedusaRequest, res: MedusaResponse) {
   }
 
   const body = asRecord(req.body);
+  const catalogReader = resolveCatalogReader(req);
+  const catalogItems = catalogReader
+    ? await catalogReader.listDijieEffectiveCatalogItems()
+    : undefined;
   const report = hasMatchReport(body.report)
     ? body.report
-    : createDijieCapabilityMatchReport(req.body);
+    : createDijieCapabilityMatchReport(req.body, { catalogItems });
   const binding = createDijieRoleCapabilityBinding({
     rolePackageId: stringField(body, "rolePackageId"),
     roleListingId: stringField(body, "roleListingId"),
@@ -40,4 +44,3 @@ export async function POST(req: MedusaRequest, res: MedusaResponse) {
     binding,
   });
 }
-

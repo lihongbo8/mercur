@@ -243,6 +243,29 @@ function modelReplyText(
   }
 }
 
+function createDeveloperCenterReply(
+  message: string,
+  actions: DijieDialogAction[],
+): string {
+  const text = normalizedText(message);
+  if (
+    actions.some((action) => action.action === "navigate_listing") &&
+    /(下架|下线|撤下|停用|delist|unpublish)/u.test(text)
+  ) {
+    return "下架岗位请进入岗位商品列表，找到已上架岗位后执行“下架岗位”。我已为你定位到岗位商品页；下架属于状态变更，最终点击前仍需要人工确认。";
+  }
+
+  if (actions.some((action) => action.action === "navigate_listing")) {
+    return "已定位到岗位商品列表，可以查看草稿、审核状态、上架状态和可用操作。";
+  }
+
+  if (actions.some((action) => action.action === "navigate_upload")) {
+    return "已定位到上传岗位页，可以承接 ready 岗位包草稿并提交审核。";
+  }
+
+  return "开发者中心 AI 开发助手可以根据自然语言生成岗位包、匹配能力、校验安全边界并引导上传；明确说“销售记录、结算、资料”等入口时才走快捷导航。";
+}
+
 export function createDijieDialogMessageResponse(input: {
   context: DijieDialogContext;
   message: string;
@@ -324,8 +347,7 @@ export function createDijieDialogMessageResponse(input: {
 
   if (input.context.surface === "developer_center") {
     return withModelResult({
-      reply:
-        "开发者中心 AI 开发助手可以根据自然语言生成岗位包、匹配能力、校验安全边界并引导上传；明确说“销售记录、结算、资料”等入口时才走快捷导航。",
+      reply: createDeveloperCenterReply(input.message, actions),
       grounding: { roles: [], source: "dialog_context" },
     });
   }

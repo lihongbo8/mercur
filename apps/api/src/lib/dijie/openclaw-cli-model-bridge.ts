@@ -13,6 +13,7 @@ type OpenClawCliBridgeOptions = {
   cliPath?: string;
   mode?: "local" | "gateway";
   model?: string;
+  fastModel?: string;
   timeoutMs?: number;
   maxBufferBytes?: number;
 };
@@ -149,7 +150,8 @@ function sanitizeCliError(error: unknown): string {
     return "OpenClaw CLI 输出超过系统可接收大小，请拆小当前阶段或提高输出上限。";
   }
   const raw = stderr ?? message ?? "OpenClaw CLI 调用失败";
-  const withoutAnsi = raw.replace(/\u001b\[[0-9;:]*m/gu, "");
+  const ansiEscapePattern = new RegExp(`${String.fromCharCode(27)}\\[[0-9;:]*m`, "gu");
+  const withoutAnsi = raw.replace(ansiEscapePattern, "");
   const withoutNodeWarnings = withoutAnsi
     .split(/\r?\n/u)
     .filter((line) => !/^\(node:\d+\) Warning:/u.test(line) && !/Use `node --trace-warnings/u.test(line))
@@ -180,6 +182,10 @@ export function createDijieOpenClawCliModelBridge(
 
   return {
     async completeDijieDialogMessage(input): Promise<DijieOpenClawDialogModelResult> {
+      const selectedModel =
+        input.latencyClass === "fast_interaction"
+          ? options.fastModel ?? options.model
+          : options.model;
       const args = [
         "capability",
         "model",
@@ -189,8 +195,8 @@ export function createDijieOpenClawCliModelBridge(
         "--prompt",
         input.message,
       ];
-      if (options.model) {
-        args.push("--model", options.model);
+      if (selectedModel) {
+        args.push("--model", selectedModel);
       }
 
       try {
@@ -200,10 +206,12 @@ export function createDijieOpenClawCliModelBridge(
         });
         return {
           reply: replyFromOpenClawOutput(stdout),
-          usage: usageFromOpenClawOutput(stdout, options.model),
+          usage: usageFromOpenClawOutput(stdout, selectedModel),
         };
       } catch (error) {
-        throw new Error(`OpenClaw 模型桥调用失败：${sanitizeCliError(error)}`);
+        const bridgeError = new Error(`OpenClaw 模型桥调用失败：${sanitizeCliError(error)}`);
+        (bridgeError as Error & { cause?: unknown }).cause = error;
+        throw bridgeError;
       }
     },
   };
@@ -221,6 +229,7 @@ export function createDijieOpenClawCliModelBridgeFromEnv(
     cliPath: env.DIJIE_OPENCLAW_CLI_PATH,
     mode: env.DIJIE_OPENCLAW_MODEL_BRIDGE_EXECUTION === "gateway" ? "gateway" : "local",
     model: env.DIJIE_OPENCLAW_MODEL,
+    fastModel: env.DIJIE_OPENCLAW_FAST_MODEL,
     timeoutMs: env.DIJIE_OPENCLAW_MODEL_TIMEOUT_MS
       ? Number.parseInt(env.DIJIE_OPENCLAW_MODEL_TIMEOUT_MS, 10)
       : undefined,

@@ -1,3 +1,13 @@
+import {
+  createDijieRoleCapabilityPlan,
+  createDijieRoleRequirementSpec,
+  type DijieCatalogItem,
+  type DijieCatalogBinding,
+  type DijieCapabilityGap,
+  type DijieRoleCapabilityPlan,
+  type DijieRoleRequirementSpec,
+} from "./role-skill-tool-planner";
+
 type UnknownRecord = Record<string, unknown>;
 
 export type DijieCapabilityNeedType =
@@ -55,6 +65,11 @@ export type DijieCapabilityMatchReport = {
   ok: boolean;
   requiredSkills: DijieCapabilityNeed[];
   requiredCapabilities: DijieCapabilityNeed[];
+  requirementSpec?: DijieRoleRequirementSpec;
+  capabilityPlan?: DijieRoleCapabilityPlan;
+  catalogBindings?: DijieCatalogBinding[];
+  capabilityGaps?: DijieCapabilityGap[];
+  reviewBlockers?: string[];
   results: DijieCapabilitySearchResult[];
   matchedSkills: DijieCapabilitySearchResult[];
   matchedTools: DijieCapabilitySearchResult[];
@@ -379,6 +394,16 @@ const DEFAULT_SOURCES: DijieCapabilitySource[] = [
     reason: "OpenClaw 已有 firecrawl/web 读取类 extension，实际可用性取决于配置。",
   },
   {
+    key: "browser.review",
+    type: "tool",
+    title: "Dijie Browser Review Tool",
+    matchedFrom: "plugin_tool",
+    ref: "tool.platform.browser_review",
+    status: "available",
+    maturity: "built_in",
+    reason: "平台 catalog 已有审核通过的浏览器预览工具。",
+  },
+  {
     key: "image.inspect",
     type: "provider",
     title: "OpenClaw Media Understanding Provider",
@@ -418,6 +443,47 @@ const DEFAULT_SOURCES: DijieCapabilitySource[] = [
     status: "available",
     maturity: "built_in",
     reason: "AICS-293 已有执行审计写入和安全回读。",
+  },
+  {
+    key: "audit.write",
+    type: "audit",
+    title: "Dijie Audit Write",
+    matchedFrom: "aics_adapter",
+    ref: "tool.platform.audit-record",
+    status: "available",
+    maturity: "built_in",
+    reason: "平台 catalog 已有审核通过的审计写入能力。",
+  },
+  {
+    key: "template.render",
+    type: "tool",
+    title: "Dijie Template Renderer",
+    matchedFrom: "plugin_tool",
+    ref: "tool.platform.template_renderer",
+    status: "available",
+    maturity: "built_in",
+    reason: "平台 catalog 已有审核通过的模板渲染能力。",
+  },
+  {
+    key: "copy.review",
+    type: "tool",
+    title: "Dijie Copy Review",
+    matchedFrom: "plugin_tool",
+    ref: "tool.platform.template_renderer",
+    status: "available",
+    maturity: "built_in",
+    reason: "平台 catalog 已有审核通过的文案检查和模板输出能力。",
+  },
+  {
+    key: "design.standard.write",
+    type: "tool",
+    title: "Dijie Design Standard Adapter",
+    matchedFrom: "aics_adapter",
+    ref: "adapter.platform.aics_design_standard",
+    status: "available",
+    maturity: "built_in",
+    reason: "平台 catalog 已有审核通过的设计标准 adapter，写入仍需人工确认。",
+    humanConfirmRequired: true,
   },
   {
     key: "aics_product_db.query_products",
@@ -794,17 +860,34 @@ function resultFromNeed(need: DijieCapabilityNeed): DijieCapabilitySearchResult 
   };
 }
 
-export function createDijieCapabilityMatchReport(input: unknown): DijieCapabilityMatchReport {
+export function createDijieCapabilityMatchReport(
+  input: unknown,
+  options: { catalogItems?: DijieCatalogItem[] } = {},
+): DijieCapabilityMatchReport {
   const { requiredSkills, requiredCapabilities } = extractDijieCapabilityNeeds(input);
+  const requirementSpec = createDijieRoleRequirementSpec(input);
+  const capabilityPlan = createDijieRoleCapabilityPlan(input, {
+    catalogItems: options.catalogItems,
+  });
   const results = [...requiredSkills, ...requiredCapabilities].map(resultFromNeed);
   const blockedReasons = results
     .filter((result) => result.status === "missing" || result.status === "blocked")
     .map((result) => `${result.key}: ${result.reason}`);
+  const reviewBlockers = [
+    ...blockedReasons,
+    ...capabilityPlan.reviewBlockers,
+    ...capabilityPlan.gaps.map((gap) => `${gap.need}: ${gap.reason}`),
+  ];
 
   return {
-    ok: blockedReasons.length === 0,
+    ok: reviewBlockers.length === 0,
     requiredSkills,
     requiredCapabilities,
+    requirementSpec,
+    capabilityPlan,
+    catalogBindings: capabilityPlan.catalogBindings,
+    capabilityGaps: capabilityPlan.gaps,
+    reviewBlockers: [...new Set(reviewBlockers)],
     results,
     matchedSkills: results.filter((result) => result.type === "skill"),
     matchedTools: results.filter((result) =>
@@ -814,7 +897,7 @@ export function createDijieCapabilityMatchReport(input: unknown): DijieCapabilit
     missing: results.filter(
       (result) => result.status === "missing" || result.status === "blocked",
     ),
-    blockedReasons,
+    blockedReasons: [...new Set(reviewBlockers)],
   };
 }
 

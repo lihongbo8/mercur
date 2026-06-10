@@ -1,7 +1,9 @@
 import type { MedusaRequest, MedusaResponse } from "@medusajs/framework/http";
+import { createDijieCapabilityMatchReport } from "../../../../../../../lib/dijie/capability-bridge";
 import { createDijieRolePackageDraftReadModel } from "../../../../../../../lib/dijie/role-package-draft-store";
 import {
   actorIdFromRequest,
+  resolveCatalogReader,
   resolveRolePackageDraftStore,
   resolveRolePackageStore,
 } from "../../../route-utils";
@@ -47,6 +49,30 @@ export async function POST(req: MedusaRequest, res: MedusaResponse) {
       ok: false,
       error: "岗位包草稿未通过验收，不能提交。",
       draft: createDijieRolePackageDraftReadModel(draft),
+    });
+  }
+  const catalogReader = resolveCatalogReader(req);
+  const catalogItems = catalogReader
+    ? await catalogReader.listDijieEffectiveCatalogItems()
+    : undefined;
+  const capabilityReport = createDijieCapabilityMatchReport(
+    {
+      files: draft.package_files,
+      message: draft.source_message,
+    },
+    { catalogItems },
+  );
+  const capabilityPlan = capabilityReport.capabilityPlan;
+  if (!capabilityReport.ok || !capabilityPlan || capabilityPlan.status !== "platform_ready") {
+    return res.status(409).json({
+      ok: false,
+      error: "岗位包草稿存在未通过审核的 Skill/Tool 绑定，不能提交。",
+      draft: createDijieRolePackageDraftReadModel({
+        ...draft,
+        capability_report: capabilityReport,
+      }),
+      roleCapabilityPlan: capabilityPlan,
+      blockedReasons: capabilityReport.reviewBlockers ?? capabilityReport.blockedReasons,
     });
   }
 

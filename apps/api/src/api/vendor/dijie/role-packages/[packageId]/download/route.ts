@@ -9,6 +9,10 @@ import {
   createDijieRolePackageDownloadReadModel,
   type DijieRolePackageReader,
 } from "../../../../../../lib/dijie/role-package-store";
+import {
+  resolveDijieAccountAccessProfileReader as resolveDijieAccountAccessProfileReaderAdapter,
+  resolveDijieRolePackageReader as resolveDijieRolePackageReaderAdapter,
+} from "../../../../../../lib/dijie/service-reader-adapters";
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -30,30 +34,10 @@ function queryVersion(req: MedusaRequest): string | undefined {
   return stringField(query, "version");
 }
 
-function isRolePackageReader(value: unknown): value is DijieRolePackageReader {
-  return (
-    value !== null &&
-    typeof value === "object" &&
-    typeof (value as { retrieveDijieRolePackage?: unknown }).retrieveDijieRolePackage ===
-      "function"
-  );
-}
-
-function isAccountAccessProfileReader(
-  value: unknown,
-): value is DijieAccountAccessProfileReader {
-  return (
-    value !== null &&
-    typeof value === "object" &&
-    typeof (value as { retrieveDijieAccountAccessProfile?: unknown })
-      .retrieveDijieAccountAccessProfile === "function"
-  );
-}
-
 function resolveRolePackageReader(req: MedusaRequest): DijieRolePackageReader | undefined {
   try {
     const store = req.scope.resolve(DIJIE_AUDIT_MODULE) as unknown;
-    return isRolePackageReader(store) ? store : undefined;
+    return resolveDijieRolePackageReaderAdapter(store);
   } catch {
     return undefined;
   }
@@ -64,7 +48,7 @@ function resolveAccountAccessProfileReader(
 ): DijieAccountAccessProfileReader | undefined {
   try {
     const store = req.scope.resolve(DIJIE_AUDIT_MODULE) as unknown;
-    return isAccountAccessProfileReader(store) ? store : undefined;
+    return resolveDijieAccountAccessProfileReaderAdapter(store);
   } catch {
     return undefined;
   }

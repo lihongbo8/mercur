@@ -1,4 +1,5 @@
 import { createDijieCapabilityMatchReport } from "./capability-bridge";
+import type { DijieCatalogItem } from "./role-skill-tool-planner";
 import type { DijieDialogModelUsage } from "./dialog-model-bridge";
 import {
   missingGeneratedPaths,
@@ -34,6 +35,7 @@ export async function persistDijieRolePackageBuildStage(input: {
   files: DijieRolePackageUploadFile[];
   stage: RolePackageGenerationStage;
   modelUsage: DijieDialogModelUsage | null;
+  catalogItems?: DijieCatalogItem[];
 }): Promise<RoleBuildArtifact> {
   const missingPaths = missingGeneratedPaths(input.files);
   const uploadBody = { files: input.files };
@@ -41,12 +43,19 @@ export async function persistDijieRolePackageBuildStage(input: {
   const uploadValidation = complete
     ? validateDijieRolePackageUpload(uploadBody)
     : ({ ok: false, issues: [] } as const);
-  const uploadValidationIssues = uploadValidation.ok ? [] : uploadValidation.issues;
+  const uploadValidationIssues: string[] = uploadValidation.ok
+    ? []
+    : [...uploadValidation.issues];
   const qualityReport = evaluateDijieRolePackageQuality(input.files);
-  const capabilityReport = createDijieCapabilityMatchReport({
-    files: readDijieRolePackageUploadFilesForStorage(uploadBody),
-    message: input.sourceMessage,
-  });
+  const capabilityReport = createDijieCapabilityMatchReport(
+    {
+      files: readDijieRolePackageUploadFilesForStorage(uploadBody),
+      message: input.sourceMessage,
+    },
+    {
+      catalogItems: input.catalogItems,
+    },
+  );
   const blockingIssues = [
     ...missingPaths.map((path) => `missing ${path}`),
     ...uploadValidationIssues,
@@ -81,7 +90,7 @@ export async function persistDijieRolePackageBuildStage(input: {
       status,
       draftId: stored.draftId,
       fileCount: input.files.length,
-      outputPaths: input.stage.outputPaths,
+      outputPaths: [...input.stage.outputPaths],
       missingPaths,
       blockingIssues: [...new Set(blockingIssues)],
     };
@@ -109,7 +118,7 @@ export async function persistDijieRolePackageBuildStage(input: {
     status,
     draftId: input.draftId,
     fileCount: input.files.length,
-    outputPaths: input.stage.outputPaths,
+    outputPaths: [...input.stage.outputPaths],
     missingPaths,
     blockingIssues: [...new Set(blockingIssues)],
   };

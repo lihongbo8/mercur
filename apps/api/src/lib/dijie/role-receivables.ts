@@ -79,6 +79,7 @@ type ReceivableRole = {
   id: string;
   title: string;
   pricing: {
+    authorizationFeeCents: number;
     developerReceivableCents: number;
   };
 };
@@ -189,6 +190,7 @@ function receivableRoleFromProduct(
       nonEmptyString(product.title) ??
       "未命名岗位",
     pricing: {
+      authorizationFeeCents: normalized.pricing.authorizationFeeCents,
       developerReceivableCents: normalized.pricing.developerReceivableCents,
     },
   };
@@ -199,6 +201,7 @@ function receivableRoleFromListing(listing: DijieRoleListing): ReceivableRole {
     id: listing.id,
     title: listing.title,
     pricing: {
+      authorizationFeeCents: listing.pricing.authorizationFeeCents,
       developerReceivableCents: listing.pricing.developerReceivableCents,
     },
   };

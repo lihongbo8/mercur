@@ -1,6 +1,6 @@
 import type { MedusaRequest, MedusaResponse } from "@medusajs/framework/http";
 import { createDijieCapabilityMatchReport } from "../../../../../lib/dijie/capability-bridge";
-import { actorIdFromRequest } from "../route-utils";
+import { actorIdFromRequest, resolveCatalogReader } from "../route-utils";
 
 export async function POST(req: MedusaRequest, res: MedusaResponse) {
   const actorId = actorIdFromRequest(req);
@@ -11,10 +11,13 @@ export async function POST(req: MedusaRequest, res: MedusaResponse) {
     });
   }
 
-  const report = createDijieCapabilityMatchReport(req.body);
+  const catalogReader = resolveCatalogReader(req);
+  const catalogItems = catalogReader
+    ? await catalogReader.listDijieEffectiveCatalogItems()
+    : undefined;
+  const report = createDijieCapabilityMatchReport(req.body, { catalogItems });
   return res.status(200).json({
     ok: true,
     report,
   });
 }
-

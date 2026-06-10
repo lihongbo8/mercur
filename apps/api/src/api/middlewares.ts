@@ -123,6 +123,10 @@ export default defineMiddlewares({
             middlewares: [dijieVendorCorsMiddleware],
         },
         {
+            matcher: "/dijie/dialog/messages/stream",
+            middlewares: [dijieVendorCorsMiddleware],
+        },
+        {
             matcher: "/dijie/dialog/sessions",
             middlewares: [dijieVendorCorsMiddleware],
         },
@@ -132,6 +136,13 @@ export default defineMiddlewares({
         },
         {
             matcher: "/dijie/dialog/messages",
+            method: ["POST"],
+            middlewares: [
+                authenticate(["customer", "member", "user"], ["session", "bearer"]),
+            ],
+        },
+        {
+            matcher: "/dijie/dialog/messages/stream",
             method: ["POST"],
             middlewares: [
                 authenticate(["customer", "member", "user"], ["session", "bearer"]),

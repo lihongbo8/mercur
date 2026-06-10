@@ -84,7 +84,7 @@ function developerNavigationActions(message: string): DijieDialogAction[] {
     );
   }
 
-  if (/(岗位商品|商品).*(审核|状态|上架|管理|列表|查看)|审核.*(岗位|商品|状态)|上架状态|\b(products?|listings?)\b.*\b(status|review|manage|list|open|view)?\b|\b(status|review)\b.*\b(products?|listings?)\b/u.test(text)) {
+  if (/(岗位商品|商品|岗位).*(审核|状态|上架|下架|下线|撤下|停用|管理|列表|查看|按钮)|(?:审核|下架|下线|撤下|停用).*(岗位|商品|状态)|上架状态|下架岗位|\b(products?|listings?)\b.*\b(status|review|manage|list|open|view|delist|unpublish)?\b|\b(status|review|delist|unpublish)\b.*\b(products?|listings?)\b/u.test(text)) {
     actions.push(
       action({
         id: "developer.navigate.listings",

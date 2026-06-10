@@ -632,6 +632,7 @@ export function createDijieInstalledRolesFromMarketplaceFacts(params: {
   entitlements?: unknown[];
   orderGroups: unknown[];
   orders: unknown[];
+  includeLegacyOrderFacts?: boolean;
 }): DijieInstalledRole[] {
   const listings = new Map<string, DijieRoleListing>();
   const storedListings = (params.roleListings ?? [])
@@ -670,58 +671,60 @@ export function createDijieInstalledRolesFromMarketplaceFacts(params: {
     });
   }
 
-  const orderGroupsByOrderId = new Map<string, string>();
-  for (const orderGroupInput of params.orderGroups) {
-    const orderGroup = asRecord(orderGroupInput);
-    const orderGroupId = nonEmptyString(orderGroup.id);
-    if (!orderGroupId || !Array.isArray(orderGroup.orders)) {
-      continue;
-    }
-    for (const order of orderGroup.orders.map(asRecord)) {
-      const orderId = nonEmptyString(order.id);
-      if (orderId) {
-        orderGroupsByOrderId.set(orderId, orderGroupId);
+  if (params.includeLegacyOrderFacts === true) {
+    const orderGroupsByOrderId = new Map<string, string>();
+    for (const orderGroupInput of params.orderGroups) {
+      const orderGroup = asRecord(orderGroupInput);
+      const orderGroupId = nonEmptyString(orderGroup.id);
+      if (!orderGroupId || !Array.isArray(orderGroup.orders)) {
+        continue;
+      }
+      for (const order of orderGroup.orders.map(asRecord)) {
+        const orderId = nonEmptyString(order.id);
+        if (orderId) {
+          orderGroupsByOrderId.set(orderId, orderGroupId);
+        }
       }
     }
-  }
 
-  for (const order of [
-    ...ordersFromOrderGroups(params.orderGroups),
-    ...params.orders.map(asRecord),
-  ]) {
-    if (orderIsBlocked(order) || !orderIsPaid(order)) {
-      continue;
-    }
-    const orderId = nonEmptyString(order.id);
-    const entitlementId =
-      (orderId ? orderGroupsByOrderId.get(orderId) : undefined) ??
-      nonEmptyString(order.order_group_id) ??
-      orderId;
-    if (!entitlementId) {
-      continue;
-    }
-    const authorizedAt =
-      nonEmptyString(order.created_at) ??
-      nonEmptyString(order.updated_at) ??
-      nonEmptyString(order.completed_at) ??
-      null;
-    const items = Array.isArray(order.items) ? order.items : [];
-    for (const item of items) {
-      for (const productId of itemProductIds(item)) {
-        const role = listings.get(productId);
-        if (!role) {
-          continue;
+    for (const order of [
+      ...ordersFromOrderGroups(params.orderGroups),
+      ...params.orders.map(asRecord),
+    ]) {
+      if (orderIsBlocked(order) || !orderIsPaid(order)) {
+        continue;
+      }
+      const orderId = nonEmptyString(order.id);
+      const entitlementId =
+        (orderId ? orderGroupsByOrderId.get(orderId) : undefined) ??
+        nonEmptyString(order.order_group_id) ??
+        orderId;
+      if (!entitlementId) {
+        continue;
+      }
+      const authorizedAt =
+        nonEmptyString(order.created_at) ??
+        nonEmptyString(order.updated_at) ??
+        nonEmptyString(order.completed_at) ??
+        null;
+      const items = Array.isArray(order.items) ? order.items : [];
+      for (const item of items) {
+        for (const productId of itemProductIds(item)) {
+          const role = listings.get(productId);
+          if (!role) {
+            continue;
+          }
+          installed.push({
+            entitlementId,
+            entitlementSource:
+              orderId && orderGroupsByOrderId.has(orderId)
+                ? "order_group"
+                : "order",
+            orderId: orderId ?? null,
+            authorizedAt,
+            role: createInstalledRoleReadModel(role),
+          });
         }
-        installed.push({
-          entitlementId,
-          entitlementSource:
-            orderId && orderGroupsByOrderId.has(orderId)
-              ? "order_group"
-              : "order",
-          orderId: orderId ?? null,
-          authorizedAt,
-          role: createInstalledRoleReadModel(role),
-        });
       }
     }
   }
@@ -858,75 +861,27 @@ export async function listDijieInstalledRoles(params: {
     })
     .catch(() => ({ data: [] }));
 
-  const [productResult, orderGroupResult, orderResult] = await Promise.all([
-    params.queryGraph({
-      entity: "product",
-      fields: [
-        "id",
-        "title",
-        "subtitle",
-        "description",
-        "handle",
-        "status",
-        "metadata",
-        "seller.id",
-        "seller.name",
-      ],
-      pagination: { take: 100 },
-    }),
-    params.queryGraph({
-      entity: "order_group",
-      fields: [
-        "id",
-        "customer_id",
-        "orders.id",
-        "orders.status",
-        "orders.payment_status",
-        "orders.created_at",
-        "orders.updated_at",
-        "orders.completed_at",
-        "orders.payment_collections.status",
-        "orders.payment_collections.amount",
-        "orders.payment_collections.captured_amount",
-        "orders.items.product_id",
-        "orders.items.variant.product_id",
-        "orders.items.variant.product.id",
-        "orders.items.product.id",
-        "orders.items.metadata",
-      ],
-      filters: { customer_id: params.actorId },
-      pagination: { take: 100 },
-    }),
-    params.queryGraph({
-      entity: "order",
-      fields: [
-        "id",
-        "order_group_id",
-        "customer_id",
-        "status",
-        "payment_status",
-        "created_at",
-        "updated_at",
-        "completed_at",
-        "payment_collections.status",
-        "payment_collections.amount",
-        "payment_collections.captured_amount",
-        "items.product_id",
-        "items.variant.product_id",
-        "items.variant.product.id",
-        "items.product.id",
-        "items.metadata",
-      ],
-      filters: { customer_id: params.actorId },
-      pagination: { take: 100 },
-    }),
-  ]);
+  const productResult = await params.queryGraph({
+    entity: "product",
+    fields: [
+      "id",
+      "title",
+      "subtitle",
+      "description",
+      "handle",
+      "status",
+      "metadata",
+      "seller.id",
+      "seller.name",
+    ],
+    pagination: { take: 100 },
+  });
 
   return createDijieInstalledRolesFromMarketplaceFacts({
     products: productResult.data ?? [],
     roleListings: storedListingResult.data ?? [],
     entitlements: entitlementResult.data ?? [],
-    orderGroups: orderGroupResult.data ?? [],
-    orders: orderResult.data ?? [],
+    orderGroups: [],
+    orders: [],
   });
 }

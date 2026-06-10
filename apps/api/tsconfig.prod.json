@@ -1,0 +1,19 @@
+{
+  "extends": "./tsconfig.json",
+  "include": [
+    "instrumentation.ts",
+    "medusa-config.ts",
+    "src/**/*.ts",
+    ".medusa/types/**/*.d.ts",
+    ".mercur/**/*.d.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    ".medusa/server",
+    ".medusa/admin",
+    ".cache",
+    "**/*.test.ts",
+    "**/*.test.tsx",
+    "integration-tests"
+  ]
+}

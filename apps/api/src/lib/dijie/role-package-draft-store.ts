@@ -1,3 +1,4 @@
+import type { DijieCatalogReviewRequestSummary } from "./catalog-store";
 import type { DijieCapabilityMatchReport } from "./capability-bridge";
 import type { DijieDialogModelUsage } from "./dialog-model-bridge";
 import type { DijieRolePackageQualityReport } from "./role-package-quality";
@@ -202,6 +203,7 @@ export async function markDijieRolePackageDraftSubmittedWithRepository(
 
 export function createDijieRolePackageDraftReadModel(
   record: DijieRolePackageDraftStorageRecord & { id?: string },
+  options: { catalogReviewRequests?: DijieCatalogReviewRequestSummary[] } = {},
 ) {
   return {
     draftId: record.id,
@@ -216,6 +218,11 @@ export function createDijieRolePackageDraftReadModel(
     fileCount: record.file_manifest.length,
     files: record.file_manifest,
     capabilityReport: record.capability_report,
+    roleRequirementSpec: record.capability_report.requirementSpec,
+    roleCapabilityPlan: record.capability_report.capabilityPlan,
+    catalogBindings: record.capability_report.catalogBindings ?? [],
+    catalogReviewRequests: options.catalogReviewRequests ?? [],
+    reviewBlockers: record.capability_report.reviewBlockers ?? [],
     qualityReport: record.quality_report,
     uploadValidationIssues: record.upload_validation_issues,
     blockingIssues: record.blocking_issues,

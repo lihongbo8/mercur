@@ -11,6 +11,7 @@ import {
 import {
   canAccessDijieExecutionData,
 } from "../../../../lib/dijie/data-permissions";
+import { resolveDijieAccountAccessProfileReader as resolveDijieAccountAccessProfileReaderAdapter } from "../../../../lib/dijie/service-reader-adapters";
 import {
   createDijieRoleCapabilityProfileReadModel,
   createDijieRoleFeedbackPacketReadModel,
@@ -61,23 +62,12 @@ function authContextFromRequest(req: MedusaRequest): UnknownRecord | undefined {
   return (req as MedusaRequest & { auth_context?: UnknownRecord }).auth_context;
 }
 
-function isAccountAccessProfileReader(
-  value: unknown,
-): value is DijieAccountAccessProfileReader {
-  return (
-    value !== null &&
-    typeof value === "object" &&
-    typeof (value as { retrieveDijieAccountAccessProfile?: unknown })
-      .retrieveDijieAccountAccessProfile === "function"
-  );
-}
-
 function resolveAccountAccessProfileReader(
   req: MedusaRequest,
 ): DijieAccountAccessProfileReader | undefined {
   try {
     const service = req.scope.resolve(DIJIE_AUDIT_MODULE) as unknown;
-    return isAccountAccessProfileReader(service) ? service : undefined;
+    return resolveDijieAccountAccessProfileReaderAdapter(service);
   } catch {
     return undefined;
   }

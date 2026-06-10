@@ -6,6 +6,7 @@ import {
   type DijieAccountAccessProfileStore,
 } from "../../../../../../lib/dijie/account-access-store";
 import { DIJIE_AUDIT_MODULE } from "../../../../../../lib/dijie/audit-store";
+import { resolveDijieAccountAccessProfileStore as resolveDijieAccountAccessProfileStoreAdapter } from "../../../../../../lib/dijie/service-reader-adapters";
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -28,23 +29,12 @@ function actorIdFromAuthContext(authContext: UnknownRecord | undefined): string 
   return authContext ? stringField(authContext, "actor_id") : undefined;
 }
 
-function isAccountAccessProfileStore(value: unknown): value is DijieAccountAccessProfileStore {
-  return (
-    value !== null &&
-    typeof value === "object" &&
-    typeof (value as { retrieveDijieAccountAccessProfile?: unknown })
-      .retrieveDijieAccountAccessProfile === "function" &&
-    typeof (value as { upsertDijieAccountAccessProfile?: unknown })
-      .upsertDijieAccountAccessProfile === "function"
-  );
-}
-
 function resolveAccountAccessProfileStore(
   req: MedusaRequest,
 ): DijieAccountAccessProfileStore | undefined {
   try {
     const service = req.scope.resolve(DIJIE_AUDIT_MODULE) as unknown;
-    return isAccountAccessProfileStore(service) ? service : undefined;
+    return resolveDijieAccountAccessProfileStoreAdapter(service);
   } catch {
     return undefined;
   }

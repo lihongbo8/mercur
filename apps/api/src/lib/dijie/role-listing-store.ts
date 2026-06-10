@@ -95,6 +95,16 @@ export type DijieRoleListingStore = {
     ownerId?: string;
     sellerId?: string;
   }) => Promise<DijieRoleListingMutationResult>;
+  publishDijieRoleListing: (input: {
+    roleListingId: string;
+    ownerId?: string;
+    sellerId?: string;
+  }) => Promise<DijieRoleListingMutationResult>;
+  delistDijieRoleListing: (input: {
+    roleListingId: string;
+    ownerId?: string;
+    sellerId?: string;
+  }) => Promise<DijieRoleListingMutationResult>;
 };
 
 export type DijieRoleListingReader = {
@@ -434,12 +444,33 @@ function allowedActionsForListing(
     record.listing_status === "published" &&
     record.review_state === "approved"
   ) {
-    actions.push("open_storefront");
+    actions.push("open_storefront", "delist");
+  }
+  if (
+    record.listing_status !== "published" &&
+    record.review_state === "approved"
+  ) {
+    actions.push("publish");
   }
   return actions;
 }
 
 function statusReasonForListing(record: DijieRoleListingStorageRecord): string {
+  if (
+    record.review_state === "approved" &&
+    record.listing_status === "published"
+  ) {
+    return "岗位已审核通过并上架，商城可见且可购买/授权。";
+  }
+  if (
+    record.review_state === "approved" &&
+    record.listing_status !== "published"
+  ) {
+    return "岗位已审核通过，点击上架后才会进入商城。";
+  }
+  if (record.review_state === "rejected") {
+    return reviewSummaryForListing(record).message;
+  }
   const editable = assertDraftEditable(record);
   return editable.ok ? reviewSummaryForListing(record).message : editable.error;
 }
@@ -648,6 +679,109 @@ export async function submitDijieRoleListingForReviewWithRepository(
     listing_status: "proposed",
     review_state: "submitted",
     submitted_at: new Date(),
+  });
+
+  return {
+    ok: true as const,
+    value: {
+      roleListingId: updated.id,
+      listing: updated,
+    },
+  };
+}
+
+export async function publishDijieRoleListingWithRepository(
+  repository: DijieRoleListingLookupRepository &
+    DijieRoleListingUpdateRepository,
+  input: { roleListingId: string; ownerId?: string; sellerId?: string },
+) {
+  const listing = await retrieveDijieRoleListingWithRepository(repository, {
+    roleListingId: input.roleListingId,
+  });
+  if (!listing) {
+    return { ok: false as const, status: 404, error: "未找到岗位商品。" };
+  }
+
+  const access = assertListingAccess(listing, {
+    ownerId: input.ownerId,
+    sellerId: input.sellerId,
+  });
+  if (!access.ok) {
+    return access;
+  }
+  if (listing.review_state !== "approved") {
+    return {
+      ok: false as const,
+      status: 409,
+      error: "只有审核通过的岗位商品可以上架。",
+    };
+  }
+  if (listing.listing_status === "published") {
+    return {
+      ok: true as const,
+      value: {
+        roleListingId: listing.id,
+        listing,
+      },
+    };
+  }
+  if (listing.listing_status === "archived") {
+    return {
+      ok: false as const,
+      status: 409,
+      error: "已归档的岗位商品不能上架。",
+    };
+  }
+
+  const updated = await repository.updateDijieRoleListings({
+    id: input.roleListingId,
+    listing_status: "published",
+    published_at: new Date(),
+  });
+
+  return {
+    ok: true as const,
+    value: {
+      roleListingId: updated.id,
+      listing: updated,
+    },
+  };
+}
+
+export async function delistDijieRoleListingWithRepository(
+  repository: DijieRoleListingLookupRepository &
+    DijieRoleListingUpdateRepository,
+  input: { roleListingId: string; ownerId?: string; sellerId?: string },
+) {
+  const listing = await retrieveDijieRoleListingWithRepository(repository, {
+    roleListingId: input.roleListingId,
+  });
+  if (!listing) {
+    return { ok: false as const, status: 404, error: "未找到岗位商品。" };
+  }
+
+  const access = assertListingAccess(listing, {
+    ownerId: input.ownerId,
+    sellerId: input.sellerId,
+  });
+  if (!access.ok) {
+    return access;
+  }
+  if (
+    listing.review_state !== "approved" ||
+    listing.listing_status !== "published"
+  ) {
+    return {
+      ok: false as const,
+      status: 409,
+      error: "只有已上架且审核通过的岗位商品可以下架。",
+    };
+  }
+
+  const updated = await repository.updateDijieRoleListings({
+    id: input.roleListingId,
+    listing_status: "delisted",
+    published_at: null,
   });
 
   return {

@@ -104,12 +104,93 @@ export type ReviewCenterResponse = {
   reviewCenter?: ReviewCenterReadModel;
 };
 
+export type CatalogReviewStatus =
+  | "pending_review"
+  | "approved"
+  | "rejected"
+  | "request_changes";
+export type CatalogReviewFilter = CatalogReviewStatus | "all";
+
+export type CatalogReviewRequest = {
+  id?: string;
+  reviewId?: string;
+  review_key?: string;
+  reviewKey?: string;
+  catalog_ref?: string | null;
+  catalogRef?: string | null;
+  need: string;
+  kind: "skill" | "tool" | "mcp" | "adapter" | "capability";
+  source: string;
+  review_status: CatalogReviewStatus;
+  status?: CatalogReviewStatus;
+  role_package_id?: string | null;
+  rolePackageId?: string | null;
+  role_listing_id?: string | null;
+  roleListingId?: string | null;
+  requested_by?: string | null;
+  requestedBy?: string | null;
+  submitted_at?: string;
+  submittedAt?: string;
+  review_note?: string | null;
+  reviewNote?: string | null;
+  candidate?: Record<string, unknown>;
+  risk_summary?: Record<string, unknown>;
+  riskSummary?: Record<string, unknown>;
+};
+
+export type CatalogItem = {
+  id: string;
+  kind: string;
+  name: string;
+  version: string;
+  source: string;
+  status: string;
+  riskLevel?: string;
+  provides?: string[];
+};
+
+export type CatalogReviewResponse = {
+  ok?: boolean;
+  catalogItems?: CatalogItem[];
+  reviewRequests?: CatalogReviewRequest[];
+};
+
 export const fetchReviewCenter = async () => {
   const result = (await fetchQuery("/admin/dijie/review-center", {
     method: "GET",
   })) as ReviewCenterResponse | undefined;
 
   return result?.reviewCenter;
+};
+
+export const fetchCatalogReview = async (
+  status: CatalogReviewFilter = "pending_review",
+) => {
+  const result = (await fetchQuery("/admin/dijie/catalog-review", {
+    method: "GET",
+    ...(status === "all" ? {} : { query: { status } }),
+  })) as CatalogReviewResponse | undefined;
+
+  return {
+    catalogItems: result?.catalogItems ?? [],
+    reviewRequests: result?.reviewRequests ?? [],
+  };
+};
+
+export const finalizeCatalogReview = async (
+  reviewId: string,
+  body: {
+    result: "approved" | "rejected" | "request_changes";
+    reviewNote?: string;
+  },
+) => {
+  return fetchQuery(
+    `/admin/dijie/catalog-review/${encodeURIComponent(reviewId)}/finalize`,
+    {
+      method: "POST",
+      body,
+    },
+  );
 };
 
 export const saveReviewEvaluations = async (

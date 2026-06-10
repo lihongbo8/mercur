@@ -18,6 +18,8 @@ export type DijieRolePackageUploadSummary = {
     name: string;
     permissions: string[];
     requiredCapabilities: string[];
+    requiredSkills?: unknown[];
+    requiredTools?: unknown[];
     fileCount: number;
   };
   files: Array<{
@@ -307,6 +309,12 @@ export function validateDijieRolePackageUpload(input: unknown): DijieRolePackage
     "role package manifest requiredCapabilities",
     issues,
   );
+  const requiredSkills = Array.isArray(manifest.requiredSkills)
+    ? manifest.requiredSkills
+    : undefined;
+  const requiredTools = Array.isArray(manifest.requiredTools)
+    ? manifest.requiredTools
+    : undefined;
 
   if (!packageId) {
     issues.push("role package manifest rolePackageId is required.");
@@ -388,6 +396,8 @@ export function validateDijieRolePackageUpload(input: unknown): DijieRolePackage
         name,
         permissions,
         requiredCapabilities,
+        ...(requiredSkills ? { requiredSkills } : {}),
+        ...(requiredTools ? { requiredTools } : {}),
         fileCount: files.length,
       },
       files: files.map((file) => ({

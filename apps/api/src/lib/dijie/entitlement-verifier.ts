@@ -404,20 +404,16 @@ export async function verifyDijieEntitlement(
       return verifiedRole;
     }
   } catch {
-    // Older local databases may not have local entitlements yet; keep paid order fallback.
+    return {
+      ok: false,
+      status: 502,
+      error: "Dijie entitlement verifier could not read local entitlement facts.",
+    };
   }
 
-  const paidCheckout = await verifyPaidDijieRoleCheckoutFacts(
-    {
-      actorId: input.actorId,
-      roleListingId: input.roleListingId,
-      orderId: input.entitlementId,
-    },
-    queryGraph,
-  );
-  if (!paidCheckout.ok) {
-    return paidCheckout;
-  }
-
-  return verifiedRole;
+  return {
+    ok: false,
+    status: 403,
+    error: "No materialized Dijie role entitlement was found for this customer.",
+  };
 }

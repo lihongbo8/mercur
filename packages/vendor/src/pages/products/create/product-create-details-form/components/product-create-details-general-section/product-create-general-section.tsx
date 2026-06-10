@@ -68,8 +68,52 @@ type RolePackageDraftSummary = {
     score?: number;
     ok?: boolean;
   };
+  roleCapabilityPlan?: {
+    status?: string;
+    catalogBindings?: Array<{
+      need?: string;
+      catalogRef?: string;
+      kind?: string;
+      status?: string;
+    }>;
+    gaps?: Array<{ need?: string; reason?: string }>;
+    reviewBlockers?: string[];
+  };
+  catalogReviewRequests?: Array<{
+    reviewId?: string;
+    reviewKey?: string;
+    need?: string;
+    kind?: string;
+    source?: string;
+    status?: string;
+    rolePackageId?: string | null;
+  }>;
+  reviewBlockers?: string[];
   blockingIssues?: string[];
 };
+
+const uniqueText = (items: Array<string | null | undefined>) => [
+  ...new Set(items.map((item) => item?.trim()).filter((item): item is string => Boolean(item))),
+];
+
+const draftBlockerMessages = (draft: RolePackageDraftSummary) =>
+  uniqueText([
+    ...(draft.reviewBlockers ?? []),
+    ...(draft.roleCapabilityPlan?.reviewBlockers ?? []),
+    ...(draft.blockingIssues ?? []),
+  ]);
+
+const draftReviewNeeds = (draft: RolePackageDraftSummary) =>
+  uniqueText([
+    ...(draft.roleCapabilityPlan?.gaps ?? []).map((gap) =>
+      gap.need && gap.reason ? `${gap.need}：${gap.reason}` : gap.need,
+    ),
+    ...(draft.catalogReviewRequests ?? []).map((request) =>
+      request.need
+        ? `${request.need}${request.status ? `（${request.status}）` : ""}`
+        : undefined,
+    ),
+  ]);
 
 const centsPerMillionHint = (value: unknown, baselineCents: number) => {
   if (value === undefined || value === null || String(value).trim() === "") {
@@ -123,9 +167,14 @@ const LatestRolePackageDraftPanel = ({
   }
 
   const blockingCount = draft.blockingIssues?.length ?? 0;
-  const ready = draft.status === "ready" && blockingCount === 0;
+  const capabilityStatus = draft.roleCapabilityPlan?.status;
+  const blockerMessages = draftBlockerMessages(draft);
+  const reviewNeeds = draftReviewNeeds(draft);
+  const capabilityBlocked =
+    capabilityStatus !== undefined && capabilityStatus !== "platform_ready";
+  const ready = draft.status === "ready" && blockingCount === 0 && !capabilityBlocked;
   const submitted = draft.status === "submitted";
-  const blocked = draft.status === "blocked" || blockingCount > 0;
+  const blocked = draft.status === "blocked" || blockingCount > 0 || capabilityBlocked;
   const statusLabel = ready
     ? "可承接"
     : submitted
@@ -154,6 +203,29 @@ const LatestRolePackageDraftPanel = ({
           {draft.packageId ?? draft.draftId} · {draft.fileCount ?? 0} 个文件 ·
           质量评分 {draft.qualityReport?.score ?? 0}
         </Text>
+        {capabilityBlocked ? (
+          <Text size="xsmall" className="text-orange-600">
+            能力状态：{capabilityStatus}，需等待平台 Skill/Tool 审核通过后承接。
+          </Text>
+        ) : null}
+        {reviewNeeds.length > 0 ? (
+          <div className="grid gap-1">
+            {reviewNeeds.slice(0, 3).map((need) => (
+              <Text key={need} size="xsmall" className="text-orange-600">
+                待审核：{need}
+              </Text>
+            ))}
+          </div>
+        ) : null}
+        {blockerMessages.length > 0 ? (
+          <div className="grid gap-1">
+            {blockerMessages.slice(0, 3).map((message) => (
+              <Text key={message} size="xsmall" className="text-red-600">
+                {message}
+              </Text>
+            ))}
+          </div>
+        ) : null}
       </div>
       <Button
         size="small"
@@ -491,10 +563,22 @@ export const ProductCreateGeneralSection = () => {
             : "AI 草稿已承接。请继续确认商品信息后手动提交审核。",
       });
       setLatestDraft({ ...latestDraft, status: "submitted" });
-    } catch {
+    } catch (error) {
+      const data = (error as Error & {
+        data?: { blockedReasons?: string[]; draft?: RolePackageDraftSummary };
+      })?.data;
+      const blockedReasons = uniqueText([
+        ...(data?.blockedReasons ?? []),
+        ...(data?.draft ? draftBlockerMessages(data.draft) : []),
+      ]);
+      if (data?.draft) {
+        setLatestDraft(data.draft);
+      }
       setRolePackageUpload({
         running: false,
-        error: "AI 草稿承接失败，请重新生成或手动上传岗位资料包。",
+        error: blockedReasons.length > 0
+          ? `AI 草稿承接失败：${blockedReasons.slice(0, 3).join("；")}`
+          : "AI 草稿承接失败，请重新生成或手动上传岗位资料包。",
       });
     } finally {
       setDraftSubmitRunning(false);

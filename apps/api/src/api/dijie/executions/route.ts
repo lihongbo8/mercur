@@ -26,6 +26,7 @@ import type {
   DijieRolePackageReader,
   DijieRolePackageStorageRecord,
 } from "../../../lib/dijie/role-package-store";
+import { resolveDijieRolePackageReader } from "../../../lib/dijie/service-reader-adapters";
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -67,15 +68,6 @@ function isCloudExecutionStore(value: unknown): value is CloudExecutionStore {
       .listDijieRoleEntitlements === "function" &&
     typeof (value as { recordDijieAuditSummary?: unknown })
       .recordDijieAuditSummary === "function"
-  );
-}
-
-function isRolePackageReader(value: unknown): value is DijieRolePackageReader {
-  return (
-    value !== null &&
-    typeof value === "object" &&
-    typeof (value as { retrieveDijieRolePackage?: unknown }).retrieveDijieRolePackage ===
-      "function"
   );
 }
 
@@ -143,7 +135,8 @@ async function retrievePackageContext(input: {
   | { ok: true; digest: string }
   | { ok: false; status: number; code: string; error: string }
 > {
-  if (!isRolePackageReader(input.store)) {
+  const packageReader = resolveDijieRolePackageReader(input.store);
+  if (!packageReader) {
     return {
       ok: false,
       status: 503,
@@ -154,7 +147,7 @@ async function retrievePackageContext(input: {
 
   let record: (DijieRolePackageStorageRecord & { id?: string }) | undefined;
   try {
-    record = await input.store.retrieveDijieRolePackage({
+    record = await packageReader.retrieveDijieRolePackage({
       packageId: input.entitlement.package_id,
       packageVersion: input.entitlement.package_version,
     });

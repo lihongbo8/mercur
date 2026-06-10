@@ -5,6 +5,8 @@
     "build": "turbo run build",
     "dev": "turbo run dev",
     "lint": "oxlint --quiet",
+    "typecheck:api:prod": "tsc -p apps/api/tsconfig.prod.json --noEmit",
+    "typecheck:api:test": "tsc -p apps/api/tsconfig.test.json --noEmit",
     "test:integration:http": "cd integration-tests && bun run test:integration:http"
   },
   "dependencies": {

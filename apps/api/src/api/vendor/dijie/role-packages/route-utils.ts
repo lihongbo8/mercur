@@ -1,9 +1,18 @@
 import type { MedusaRequest } from "@medusajs/framework/http";
 import { DIJIE_AUDIT_MODULE } from "../../../../lib/dijie/audit-store";
+import type {
+  DijieCatalogReader,
+  DijieCatalogReviewStore,
+} from "../../../../lib/dijie/catalog-store";
 import type { DijieOpenClawDialogModelBridge } from "../../../../lib/dijie/dialog-model-bridge";
 import { resolveDijieOpenClawDialogModelBridge } from "../../../../lib/dijie/openclaw-model-bridge-resolver";
 import type { DijieRolePackageDraftReader, DijieRolePackageDraftStore } from "../../../../lib/dijie/role-package-draft-store";
 import type { DijieRolePackageStore } from "../../../../lib/dijie/role-package-store";
+import {
+  resolveDijieCatalogReader,
+  resolveDijieCatalogReviewRequestReader,
+  resolveDijieRolePackageDraftStore as resolveDijieRolePackageDraftStoreAdapter,
+} from "../../../../lib/dijie/service-reader-adapters";
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -35,13 +44,7 @@ export function resolveRolePackageDraftStore(
   req: MedusaRequest,
 ): (DijieRolePackageDraftStore & DijieRolePackageDraftReader) | undefined {
   const service = resolveAuditModule(req);
-  return service &&
-    typeof (service as { createDijieRolePackageDraft?: unknown }).createDijieRolePackageDraft === "function" &&
-    typeof (service as { updateDijieRolePackageDraft?: unknown }).updateDijieRolePackageDraft === "function" &&
-    typeof (service as { retrieveLatestDijieRolePackageDraft?: unknown }).retrieveLatestDijieRolePackageDraft === "function" &&
-    typeof (service as { retrieveDijieRolePackageDraft?: unknown }).retrieveDijieRolePackageDraft === "function"
-    ? (service as DijieRolePackageDraftStore & DijieRolePackageDraftReader)
-    : undefined;
+  return resolveDijieRolePackageDraftStoreAdapter(service);
 }
 
 export function resolveRolePackageStore(req: MedusaRequest): DijieRolePackageStore | undefined {
@@ -49,6 +52,29 @@ export function resolveRolePackageStore(req: MedusaRequest): DijieRolePackageSto
   return service &&
     typeof (service as { storeDijieRolePackage?: unknown }).storeDijieRolePackage === "function"
     ? (service as DijieRolePackageStore)
+    : undefined;
+}
+
+export function resolveCatalogReader(req: MedusaRequest): DijieCatalogReader | undefined {
+  const service = resolveAuditModule(req);
+  return resolveDijieCatalogReader(service);
+}
+
+export function resolveCatalogReviewReader(
+  req: MedusaRequest,
+): Pick<DijieCatalogReader, "listDijieCatalogReviewRequests"> | undefined {
+  const service = resolveAuditModule(req);
+  return resolveDijieCatalogReviewRequestReader(service);
+}
+
+export function resolveCatalogReviewStore(
+  req: MedusaRequest,
+): DijieCatalogReviewStore | undefined {
+  const service = resolveAuditModule(req);
+  return service &&
+    typeof (service as { createDijieCatalogReviewRequestsForPlan?: unknown })
+      .createDijieCatalogReviewRequestsForPlan === "function"
+    ? (service as DijieCatalogReviewStore)
     : undefined;
 }
 

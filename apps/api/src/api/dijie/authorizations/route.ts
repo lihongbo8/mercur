@@ -5,6 +5,12 @@ import {
   verifyPaidDijieRoleCheckoutFacts,
 } from "../../../lib/dijie/entitlement-verifier";
 import { DIJIE_AUDIT_MODULE } from "../../../lib/dijie/audit-store";
+import {
+  createDijieLedgerEntryReadModel,
+  type DijieLedgerEntryReader,
+  type DijieLedgerEntryStore,
+  type DijieLedgerEntryStorageRecord,
+} from "../../../lib/dijie/ledger-store";
 import type {
   DijieRoleEntitlementStorageRecord,
   DijieRoleEntitlementStore,
@@ -34,6 +40,23 @@ function isRoleEntitlementStore(value: unknown): value is DijieRoleEntitlementSt
     typeof value === "object" &&
     typeof (value as { authorizeDijieRoleListing?: unknown }).authorizeDijieRoleListing ===
       "function"
+  );
+}
+
+function isLedgerEntryStore(value: unknown): value is DijieLedgerEntryStore {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    typeof (value as { createDijieLedgerEntry?: unknown }).createDijieLedgerEntry === "function"
+  );
+}
+
+function isLedgerEntryReader(value: unknown): value is DijieLedgerEntryReader {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    typeof (value as { listDijieLedgerEntriesForAccount?: unknown })
+      .listDijieLedgerEntriesForAccount === "function"
   );
 }
 
@@ -80,6 +103,70 @@ function safeEntitlement(entitlement: DijieRoleEntitlementStorageRecord & { id: 
     authorizedAt: entitlement.authorized_at.toISOString(),
     pricing: entitlement.pricing,
   };
+}
+
+function hasAuthorizationLedgerEntry(
+  entries: Array<DijieLedgerEntryStorageRecord & { id: string }>,
+  entitlement: DijieRoleEntitlementStorageRecord & { id: string },
+) {
+  return entries.some(
+    (entry) =>
+      entry.source === "role_marketplace" &&
+      entry.usage_kind === "install" &&
+      entry.entitlement_id === entitlement.id &&
+      entry.role_listing_id === entitlement.role_listing_id,
+  );
+}
+
+async function ensurePaidAuthorizationLedgerEntry(
+  store: DijieLedgerEntryStore,
+  entitlement: DijieRoleEntitlementStorageRecord & { id: string },
+) {
+  if (
+    entitlement.source !== "checkout" ||
+    entitlement.entitlement_status !== "authorized" ||
+    entitlement.pricing.authorizationFeeCents <= 0
+  ) {
+    return undefined;
+  }
+
+  if (isLedgerEntryReader(store)) {
+    const entries = await store.listDijieLedgerEntriesForAccount({
+      accountId: entitlement.actor_id,
+      take: 200,
+    });
+    if (hasAuthorizationLedgerEntry(entries, entitlement)) {
+      return undefined;
+    }
+  }
+
+  const ledgerResult = await store.createDijieLedgerEntry({
+    accountId: entitlement.actor_id,
+    billingAccountId: entitlement.actor_id,
+    source: "role_marketplace",
+    usageKind: "install",
+    surface: "buyer_storefront",
+    mode: "user",
+    subject: {
+      eventKind: "role_authorization",
+      orderId: entitlement.order_id ?? undefined,
+      roleListingId: entitlement.role_listing_id,
+      packageId: entitlement.package_id,
+      entitlementId: entitlement.id,
+    },
+    meters: [{ name: "role_authorization", quantity: 1, unit: "authorization" }],
+    currency: "CNY",
+    grossAmountCents: entitlement.pricing.authorizationFeeCents,
+    platformReceivableCents: 0,
+    developerReceivableCents: entitlement.pricing.developerReceivableCents,
+    roleListingId: entitlement.role_listing_id,
+    packageId: entitlement.package_id,
+    entitlementId: entitlement.id,
+    developerRef: entitlement.developer_ref,
+    occurredAt: entitlement.authorized_at,
+  });
+
+  return ledgerResult.ok ? ledgerResult.value.ledgerEntry : ledgerResult;
 }
 
 export async function POST(req: MedusaRequest, res: MedusaResponse) {
@@ -152,16 +239,37 @@ export async function POST(req: MedusaRequest, res: MedusaResponse) {
         roleListingId,
       });
   if (!result.ok) {
+    const errorCode = "code" in result ? result.code : undefined;
     return res.status(result.status).json({
       ok: false,
-      code: result.code,
+      ...(errorCode ? { code: errorCode } : {}),
       error: result.error,
     });
+  }
+
+  let ledgerEntry:
+    | ReturnType<typeof createDijieLedgerEntryReadModel>
+    | undefined;
+  if (result.value.entitlement.source === "checkout" && isLedgerEntryStore(entitlementStore)) {
+    const ledgerResult = await ensurePaidAuthorizationLedgerEntry(
+      entitlementStore,
+      result.value.entitlement,
+    );
+    if (ledgerResult) {
+      if ("ok" in ledgerResult) {
+        return res.status(ledgerResult.status).json({
+          ok: false,
+          error: ledgerResult.error,
+        });
+      }
+      ledgerEntry = createDijieLedgerEntryReadModel(ledgerResult);
+    }
   }
 
   return res.status(200).json({
     ok: true,
     entitlementId: result.value.entitlementId,
     entitlement: safeEntitlement(result.value.entitlement),
+    ledgerEntry,
   });
 }

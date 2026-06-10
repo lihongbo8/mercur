@@ -2,10 +2,12 @@ import type { MedusaRequest, MedusaResponse } from "@medusajs/framework/http";
 import { DIJIE_AUDIT_MODULE } from "../../../../lib/dijie/audit-store";
 import {
   createDijieRoleListingManagementReadModel,
-  type DijieRoleListingReader,
   type DijieRoleListingStore,
 } from "../../../../lib/dijie/role-listing-store";
-import type { DijieRolePackageReader } from "../../../../lib/dijie/role-package-store";
+import {
+  resolveDijieRoleListingReader,
+  resolveDijieRolePackageReader,
+} from "../../../../lib/dijie/service-reader-adapters";
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -49,31 +51,13 @@ function isRoleListingStore(value: unknown): value is DijieRoleListingStore {
   );
 }
 
-function isRoleListingReader(value: unknown): value is DijieRoleListingReader {
-  return (
-    value !== null &&
-    typeof value === "object" &&
-    typeof (value as { listDijieStoredRoleListings?: unknown })
-      .listDijieStoredRoleListings === "function"
-  );
-}
-
-function isRolePackageReader(value: unknown): value is DijieRolePackageReader {
-  return (
-    value !== null &&
-    typeof value === "object" &&
-    typeof (value as { retrieveDijieRolePackage?: unknown })
-      .retrieveDijieRolePackage === "function"
-  );
-}
-
 function resolveDijieRoleSystem(req: MedusaRequest) {
   try {
     const service = req.scope.resolve(DIJIE_AUDIT_MODULE) as unknown;
     return {
       listingStore: isRoleListingStore(service) ? service : undefined,
-      listingReader: isRoleListingReader(service) ? service : undefined,
-      packageReader: isRolePackageReader(service) ? service : undefined,
+      listingReader: resolveDijieRoleListingReader(service),
+      packageReader: resolveDijieRolePackageReader(service),
     };
   } catch {
     return {};

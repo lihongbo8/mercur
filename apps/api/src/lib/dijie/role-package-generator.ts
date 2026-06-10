@@ -16,6 +16,13 @@ import {
   evaluateDijieRolePackageQuality,
   type DijieRolePackageQualityReport,
 } from "./role-package-quality";
+import {
+  createDijieRoleCapabilityPlan,
+  createDijieRoleRequirementSpec,
+  renderDijieRoleToolRequirementsMarkdown,
+  type DijieCatalogItem,
+  type DijieRoleCapabilityPlan,
+} from "./role-skill-tool-planner";
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -43,6 +50,7 @@ export type DijieRolePackageGenerationResult =
       error: string;
       issues: string[];
       modelUsage?: DijieDialogModelUsage | null;
+      capabilityReport?: ReturnType<typeof createDijieCapabilityMatchReport>;
       diagnostics?: DijieRolePackageGenerationDiagnostics;
     };
 
@@ -244,7 +252,8 @@ export function extractDijieRolePackageJsonText(text: string): string {
 
   const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/u);
   const start = trimmed.indexOf("{");
-  if (fenced?.[1] && (start === -1 || fenced.index < start)) {
+  const fencedIndex = fenced?.index;
+  if (fenced?.[1] && fencedIndex !== undefined && (start === -1 || fencedIndex < start)) {
     return extractDijieRolePackageJsonText(fenced[1].trim());
   }
 
@@ -401,6 +410,21 @@ function createRolePackageUploadFile(path: string, content: string): DijieRolePa
   };
 }
 
+function catalogBindingsForManifest(plan: DijieRoleCapabilityPlan, kind: "skill" | "tool") {
+  return plan.catalogBindings
+    .filter((binding) =>
+      kind === "skill"
+        ? binding.kind === "skill"
+        : ["tool", "mcp", "adapter", "capability"].includes(binding.kind),
+    )
+    .map((binding) => ({
+      need: binding.need,
+      catalogRef: binding.catalogRef,
+      versionRange: binding.versionRange,
+      status: binding.status,
+    }));
+}
+
 function sanitizeGeneratedRolePackageText(content: string): string {
   return content
     .replace(/api[_-]?key/giu, "接口密钥字段")
@@ -445,6 +469,7 @@ function stableCapabilities(value: unknown): string[] {
 function repairGeneratedManifest(
   manifestFile: DijieRolePackageUploadFile | undefined,
   files: DijieRolePackageUploadFile[],
+  plan?: DijieRoleCapabilityPlan,
 ): DijieRolePackageUploadFile | undefined {
   if (!manifestFile?.content) {
     return manifestFile;
@@ -460,6 +485,7 @@ function repairGeneratedManifest(
   const packagePaths = files.map((file) => file.path);
   const capabilities = [
     ...stableCapabilities(manifest.requiredCapabilities ?? manifest.required_capabilities),
+    ...stableCapabilities(plan?.requiredCapabilities),
     ...DEFAULT_REQUIRED_CAPABILITIES,
   ];
   const entrypoint = stringField(manifest, "entrypoint");
@@ -474,9 +500,18 @@ function repairGeneratedManifest(
     name: stringField(manifest, "name") ?? "智能门锁电商美工岗位",
     entrypoint: entrypoint?.startsWith("role_package/") ? entrypoint : "role_package/README.md",
     permissions: Array.isArray(manifest.permissions)
-      ? manifest.permissions.filter((item): item is string => typeof item === "string" && item.trim())
+      ? manifest.permissions.filter(
+          (item): item is string => typeof item === "string" && item.trim().length > 0,
+        )
       : ["role.execute", "audit.record", "human.confirm"],
     requiredCapabilities: [...new Set(capabilities)],
+    ...(plan
+      ? {
+          requiredSkills: catalogBindingsForManifest(plan, "skill"),
+          requiredTools: catalogBindingsForManifest(plan, "tool"),
+          capabilityPlanStatus: plan.status,
+        }
+      : {}),
     files: packagePaths,
   };
 
@@ -485,6 +520,7 @@ function repairGeneratedManifest(
 
 function repairGeneratedFilesForUpload(
   files: DijieRolePackageUploadFile[],
+  plan?: DijieRoleCapabilityPlan,
 ): DijieRolePackageUploadFile[] {
   const sanitizedFiles = files.map((file) => {
     if (!file.content || file.path.endsWith(".json")) {
@@ -496,6 +532,7 @@ function repairGeneratedFilesForUpload(
   const manifestFile = repairGeneratedManifest(
     sanitizedFiles.find((file) => file.path === "role_package/manifest.json"),
     sanitizedFiles,
+    plan,
   );
   if (!manifestFile) {
     return sanitizedFiles;
@@ -503,6 +540,41 @@ function repairGeneratedFilesForUpload(
   return sanitizedFiles.map((file) =>
     file.path === "role_package/manifest.json" ? manifestFile : file,
   );
+}
+
+function applySkillToolPlanToGeneratedFiles(input: {
+  files: DijieRolePackageUploadFile[];
+  message: string;
+  catalogItems?: DijieCatalogItem[];
+}) {
+  const requirementSpec = createDijieRoleRequirementSpec({
+    files: input.files,
+    message: input.message,
+  });
+  const capabilityPlan = createDijieRoleCapabilityPlan(
+    {
+      files: input.files,
+      message: input.message,
+    },
+    {
+      catalogItems: input.catalogItems,
+    },
+  );
+  const toolRequirements = createRolePackageUploadFile(
+    "role_package/tool_requirements.md",
+    renderDijieRoleToolRequirementsMarkdown({ requirementSpec, capabilityPlan }),
+  );
+  const withToolRequirements = input.files.map((file) =>
+    file.path === "role_package/tool_requirements.md" ? toolRequirements : file,
+  );
+  const hasToolRequirements = withToolRequirements.some(
+    (file) => file.path === "role_package/tool_requirements.md",
+  );
+  const plannedFiles = hasToolRequirements
+    ? withToolRequirements
+    : [...withToolRequirements, toolRequirements];
+
+  return repairGeneratedFilesForUpload(plannedFiles, capabilityPlan);
 }
 
 function createDijieRolePackageJsonRepairInstruction(input: {
@@ -600,6 +672,7 @@ export async function generateDijieRolePackageDraftWithModel(input: {
   context: DijieDialogContext;
   billingPolicy: DijieDialogBillingPolicy;
   message: string;
+  catalogItems?: DijieCatalogItem[];
   initialFiles?: DijieRolePackageUploadFile[];
   maxStages?: number;
   previousDraftSummary?: string;
@@ -636,6 +709,7 @@ export async function generateDijieRolePackageDraftWithModel(input: {
     });
     let modelResult;
     try {
+      // oxlint-disable-next-line no-await-in-loop -- Each generation stage depends on the previous staged draft.
       modelResult = await input.bridge.completeDijieDialogMessage({
         context: input.context,
         billingPolicy: input.billingPolicy,
@@ -665,6 +739,7 @@ export async function generateDijieRolePackageDraftWithModel(input: {
     } catch {
       let repairResult;
       try {
+        // oxlint-disable-next-line no-await-in-loop -- JSON repair is scoped to the current staged model reply.
         repairResult = await input.bridge.completeDijieDialogMessage({
           context: input.context,
           billingPolicy: input.billingPolicy,
@@ -721,6 +796,7 @@ export async function generateDijieRolePackageDraftWithModel(input: {
     processedStages += 1;
     if (input.onStageFiles) {
       try {
+        // oxlint-disable-next-line no-await-in-loop -- Draft persistence must follow staged generation order.
         await input.onStageFiles({
           stage,
           files: stageFiles,
@@ -756,7 +832,13 @@ export async function generateDijieRolePackageDraftWithModel(input: {
   }
 
   const files =
-    missingPaths.length === 0 ? repairGeneratedFilesForUpload(mergedFiles) : mergedFiles;
+    missingPaths.length === 0
+      ? applySkillToolPlanToGeneratedFiles({
+          files: mergedFiles,
+          message: input.message,
+          catalogItems: input.catalogItems,
+        })
+      : mergedFiles;
   const uploadBody = { files };
   if (missingPaths.length > 0 && stoppedAfterMaxStages) {
     return {
@@ -766,10 +848,15 @@ export async function generateDijieRolePackageDraftWithModel(input: {
         files,
         uploadValidationIssues: [],
         qualityReport: evaluateDijieRolePackageQuality(files),
-        capabilityReport: createDijieCapabilityMatchReport({
-          files: readDijieRolePackageUploadFilesForStorage(uploadBody),
-          message: input.message,
-        }),
+        capabilityReport: createDijieCapabilityMatchReport(
+          {
+            files: readDijieRolePackageUploadFilesForStorage(uploadBody),
+            message: input.message,
+          },
+          {
+            catalogItems: input.catalogItems,
+          },
+        ),
         modelUsage,
       },
     };
@@ -778,11 +865,21 @@ export async function generateDijieRolePackageDraftWithModel(input: {
   const uploadValidation = validateDijieRolePackageUpload(uploadBody);
   const uploadValidationIssues = uploadValidation.ok ? [] : uploadValidation.issues;
   const qualityReport = evaluateDijieRolePackageQuality(files);
-  const capabilityReport = createDijieCapabilityMatchReport({
-    files: readDijieRolePackageUploadFilesForStorage(uploadBody),
-    message: input.message,
-  });
-  const issues = [...missingPaths.map((path) => `missing ${path}`), ...uploadValidationIssues, ...qualityReport.blockingIssues];
+  const capabilityReport = createDijieCapabilityMatchReport(
+    {
+      files: readDijieRolePackageUploadFilesForStorage(uploadBody),
+      message: input.message,
+    },
+    {
+      catalogItems: input.catalogItems,
+    },
+  );
+  const issues = [
+    ...missingPaths.map((path) => `missing ${path}`),
+    ...uploadValidationIssues,
+    ...qualityReport.blockingIssues,
+    ...(capabilityReport.reviewBlockers ?? []),
+  ];
 
   if (issues.length > 0 || !uploadValidation.ok || !qualityReport.ok) {
     return {
@@ -791,6 +888,7 @@ export async function generateDijieRolePackageDraftWithModel(input: {
       error: "AI开发助手生成的岗位包未通过质量验收。",
       issues: [...new Set(issues)],
       modelUsage,
+      capabilityReport,
     };
   }
 

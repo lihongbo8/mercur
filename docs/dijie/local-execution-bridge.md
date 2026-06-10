@@ -173,6 +173,10 @@ Mercur/Medusa 侧原则：
 
 岗位包可以声明 `requiredCapabilities`，例如 `workspace.read`、`image.inspect`、`document.write`、`human.confirm`。这些是抽象本地能力需求，不是岗位自带工具清单，也不是新工具协议。包内不能包含浏览器工具、文件工具、命令工具、API client、MCP server、工具 schema、provider auth、secret 或本地工具实现；缺少 OpenClaw 工具协议 bridge 或 `tools.effective` 不支持时，OpenClaw 必须失败提示并记录审计，而不是伪装执行成功。
 
+Skill、Tool、MCP 和 Adapter 归平台统一安装、审核、版本管理、禁用和审计。岗位包只能保存 `requiredSkills`、`requiredTools`、`requiredCapabilities` 和平台 `catalogRef` 引用；不能把 skill/tool 实现、MCP server、adapter 源码、连接串、密钥或平台内部数据库访问能力打进包里。平台统一安装也不等于全岗位无条件调用：岗位必须有审核通过的绑定，运行时还必须通过用户授权、workspace 范围、风险策略和人工确认。
+
+平台业务数据库不是岗位可调用工具。岗位不能直接查平台订单、用户、钱包、审核、授权、结算等业务表，也不能执行任意数据库查询。确实需要数据能力时，只能通过独立且已审核的 adapter/tool，访问独立授权的数据源或安全投影，并记录调用岗位、用户、参数摘要、结果状态和失败原因。
+
 第一版本地能力目录覆盖 `workspace`、`code`、`browser`、`document`、`spreadsheet`、`presentation`、`image`、`network`、`audit`、`human`。这个目录只是 `requiredCapabilities -> OpenClaw 工具协议` 的解释层；后续新增工具优先接入 OpenClaw 社区工具、插件或 MCP bundle，让工具进入 `tools.catalog` / `tools.effective` 后，再由本地 OpenClaw 的权限确认、风险策略、`tools.invoke` 和审计链路决定是否可执行。
 
 开发者中心的表单只承接“已有岗位包”的上架资料：岗位包 ID、版本、清单入口、授权价、岗位 Token 单价、审核资料和发布状态。它不能反过来成为主系统里的岗位生成入口。
@@ -333,12 +337,23 @@ execution token 必须固化以下业务快照，后续审计、结算、争议�
 API 进程启动时配置一次模型桥即可覆盖这些入口：
 
 ```bash
+# 推荐：通过迭界AI/OpenClaw 本地端桥接模型
 DIJIE_OPENCLAW_MODEL_BRIDGE=cli
 DIJIE_OPENCLAW_CLI_PATH=openclaw
 DIJIE_OPENCLAW_MODEL_BRIDGE_EXECUTION=local
 DIJIE_OPENCLAW_MODEL=<provider/model>
 DIJIE_OPENCLAW_FAST_MODEL=<provider/fast-model>
 DIJIE_OPENCLAW_MODEL_TIMEOUT_MS=1800000
+
+# 可选：直接调用 Codex CLI
+DIJIE_DIALOG_MODEL_BRIDGE=codex-cli
+DIJIE_CODEX_CLI_PATH=codex
+DIJIE_CODEX_MODEL=gpt-5.5
+DIJIE_CODEX_FAST_MODEL=gpt-5.5
+DIJIE_CODEX_SANDBOX=read-only
+DIJIE_CODEX_TIMEOUT_MS=300000
+
+# 可选：仅用于真 token delta 的 OpenAI Responses API 桥
 DIJIE_OPENAI_STREAMING_ENABLED=true
 DIJIE_OPENAI_API_KEY=<openai-api-key>
 DIJIE_OPENAI_MODEL=<provider/model>
@@ -347,7 +362,7 @@ DIJIE_OPENAI_FAST_MODEL=<provider/fast-model>
 
 也可以通过依赖注入注册 `DIJIE_OPENCLAW_MODEL_BRIDGE`，只要对象暴露 `completeDijieDialogMessage()` 方法。环境变量方式和依赖注入方式必须返回同一类安全响应：只回传 assistant reply 和脱敏后的 usage；不能把 provider key、raw model request/response、cloud bearer、execution token、本地绝对路径或 OpenClaw raw stdout/stderr 写入对话、草稿、审核记录或审计记录。
 
-开发者中心普通对话会向模型桥传入 `latencyClass=fast_interaction`。CLI 桥在配置了 `DIJIE_OPENCLAW_FAST_MODEL` 时优先使用快模型；未配置时保持 `DIJIE_OPENCLAW_MODEL` 原行为。真 token 流式不走当前 OpenClaw CLI 的完整 JSON 输出路径，而是在 `DIJIE_OPENAI_STREAMING_ENABLED=true` 且配置 OpenAI API key 时使用 Responses API streaming；收到 `response.output_text.delta` 后转成 SSE `delta`。岗位包生成仍走强模型/默认模型路径和完整 JSON 校验。
+开发者中心普通对话会向模型桥传入 `latencyClass=fast_interaction`。OpenClaw CLI 桥在配置了 `DIJIE_OPENCLAW_FAST_MODEL` 时优先使用快模型；未配置时保持 `DIJIE_OPENCLAW_MODEL` 或 OpenClaw 本地默认模型原行为。Codex CLI 桥会运行 `codex exec --json --skip-git-repo-check --ephemeral --ignore-rules --sandbox <DIJIE_CODEX_SANDBOX>`，解析 `item.completed` 作为 assistant 回复，并解析 `turn.completed.usage` 作为 token usage；它是完整回复桥，不声明真 token delta。真 token 流式不走当前 OpenClaw CLI 或 Codex CLI 的完整 JSON/JSONL 输出路径，而是在 `DIJIE_OPENAI_STREAMING_ENABLED=true` 且配置 OpenAI API key 时使用 Responses API streaming；收到 `response.output_text.delta` 后转成 SSE `delta`。岗位包生成仍走强模型/默认模型路径和完整 JSON 校验。
 
 岗位包生成不是一次性等待完整 JSON。`generateDijieRolePackageDraftWithModel()` 默认每次只推进一个 role_package 文件阶段，并在阶段完成后保存 `partial` 草稿；调用方只有显式传入 `maxStages` 时才会在同一请求内推进多个阶段。`partial` 草稿只能继续生成，不能进入上传承接；全部文件生成并通过上传校验、质量校验后才变为 `ready`。
 

@@ -1,5 +1,7 @@
 export { default as DijieAccountAccessProfile } from "./dijie-account-access-profile";
 export { default as DijieAuditRecord } from "./dijie-audit-record";
+export { default as DijieCatalogItem } from "./dijie-catalog-item";
+export { default as DijieCatalogReviewRequest } from "./dijie-catalog-review-request";
 export { default as DijieDialogMessage } from "./dijie-dialog-message";
 export { default as DijieDialogSession } from "./dijie-dialog-session";
 export { default as DijieEvolutionCandidate } from "./dijie-evolution-candidate";

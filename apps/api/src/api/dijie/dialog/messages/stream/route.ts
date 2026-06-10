@@ -126,6 +126,10 @@ function requestWithModelBridge(
   bridge: DijieOpenClawDialogModelBridge,
 ): MedusaRequest {
   const originalScope = req.scope;
+  const resolveFromOriginalScope = originalScope.resolve.bind(originalScope) as (
+    name: string,
+    ...args: unknown[]
+  ) => unknown;
   return {
     ...req,
     scope: {
@@ -134,7 +138,7 @@ function requestWithModelBridge(
         if (name === DIJIE_OPENCLAW_MODEL_BRIDGE) {
           return bridge;
         }
-        return originalScope.resolve(name, ...args);
+        return resolveFromOriginalScope(name, ...args);
       },
     },
   } as MedusaRequest;

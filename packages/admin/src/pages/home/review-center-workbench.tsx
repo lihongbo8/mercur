@@ -1,9 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { fetchQuery } from "../../lib/client";
 import {
+  fetchCatalogReview,
   fetchReviewCenter,
+  finalizeCatalogReview as finalizeCatalogReviewRequest,
   finalizeReview as finalizeReviewRequest,
   saveReviewEvaluations,
+  type CatalogItem,
+  type CatalogReviewFilter,
+  type CatalogReviewRequest,
   type EvaluationDecision,
   type EvaluationKey,
   type ReviewCheckItem,
@@ -13,7 +18,7 @@ import {
   type RoleStatus,
 } from "../../lib/dijie/review-center";
 
-type WorkbenchTab = "review" | "records" | "settings";
+type WorkbenchTab = "review" | "catalog" | "records" | "settings";
 type FinalReviewStatus = Exclude<RoleStatus, "pending">;
 type AssistantAuthor = "审核人员" | "AI助手";
 
@@ -149,6 +154,7 @@ const mapReviewQueueItem = (item: ReviewCenterQueueItem): RoleReviewItem => {
 
 const navigationItems: Array<{ id: WorkbenchTab; label: string }> = [
   { id: "review", label: "岗位审核" },
+  { id: "catalog", label: "Skill/Tool 入库" },
   { id: "records", label: "审核记录" },
   { id: "settings", label: "审核设置" },
 ];
@@ -325,21 +331,21 @@ export const ReviewCenterWorkbench = () => {
   const [queueSearch, setQueueSearch] = useState("");
   const [reviewCenterLoading, setReviewCenterLoading] = useState(true);
   const [reviewCenterError, setReviewCenterError] = useState("");
-  const [assistantMessages, setAssistantMessages] = useState<
-    AssistantMessage[]
-  >([
-    {
-      id: 1,
-      author: "AI助手",
-      body: "我可以帮你总结岗位、查缺失、评估安全和定价，并起草补充或驳回意见。",
-    },
-  ]);
+  const [catalogItems, setCatalogItems] = useState<CatalogItem[]>([]);
+  const [catalogRequests, setCatalogRequests] = useState<CatalogReviewRequest[]>([]);
+  const [catalogStatusFilter, setCatalogStatusFilter] =
+    useState<CatalogReviewFilter>("pending_review");
+  const [catalogLoading, setCatalogLoading] = useState(false);
+  const [catalogError, setCatalogError] = useState("");
+  const [catalogFinalizingId, setCatalogFinalizingId] = useState("");
+  const [assistantMessagesByRole, setAssistantMessagesByRole] = useState<
+    Record<string, AssistantMessage[]>
+  >({});
   const [assistantDraft, setAssistantDraft] = useState("");
   const [assistantRunning, setAssistantRunning] = useState(false);
   const [finalNoteDraft, setFinalNoteDraft] = useState("");
 
-  const selectedRole =
-    roles.find((role) => role.id === selectedRoleId) ?? roles[0];
+  const selectedRole = roles.find((role) => role.id === selectedRoleId);
 
   const refreshReviewCenter = async () => {
     setReviewCenterLoading(true);
@@ -365,9 +371,31 @@ export const ReviewCenterWorkbench = () => {
     }
   };
 
+  const refreshCatalogReview = async (status: CatalogReviewFilter = catalogStatusFilter) => {
+    setCatalogLoading(true);
+    setCatalogError("");
+    try {
+      const result = await fetchCatalogReview(status);
+      setCatalogItems(result.catalogItems);
+      setCatalogRequests(result.reviewRequests);
+    } catch (error) {
+      setCatalogError(
+        error instanceof Error ? error.message : "Skill/Tool 入库审核暂时无法读取。",
+      );
+      setCatalogItems([]);
+      setCatalogRequests([]);
+    } finally {
+      setCatalogLoading(false);
+    }
+  };
+
   useEffect(() => {
     void refreshReviewCenter();
   }, []);
+
+  useEffect(() => {
+    void refreshCatalogReview(catalogStatusFilter);
+  }, [catalogStatusFilter]);
 
   const filteredRoles = useMemo(() => {
     const normalizedSearch = queueSearch.trim().toLowerCase();
@@ -392,6 +420,30 @@ export const ReviewCenterWorkbench = () => {
         .includes(normalizedSearch);
     });
   }, [queueSearch, roles, statusFilter]);
+
+  useEffect(() => {
+    setSelectedRoleId((current) => {
+      if (filteredRoles.some((role) => role.id === current)) {
+        return current;
+      }
+      return filteredRoles[0]?.id ?? "";
+    });
+  }, [filteredRoles]);
+
+  const assistantKey = selectedRole
+    ? `${selectedRole.id}:${selectedRole.reviewId}`
+    : "__empty__";
+  const assistantMessages =
+    assistantMessagesByRole[assistantKey] ??
+    (selectedRole
+      ? [
+          {
+            id: 1,
+            author: "AI助手",
+            body: `当前绑定岗位：${selectedRole.title}。我可以帮你总结岗位、查缺失、评估安全和定价，并起草补充或驳回意见。`,
+          },
+        ]
+      : []);
 
   const statusSummary = useMemo(
     () => ({
@@ -465,7 +517,10 @@ export const ReviewCenterWorkbench = () => {
   };
 
   const appendAssistantMessage = (message: AssistantMessage) => {
-    setAssistantMessages((current) => [...current, message]);
+    setAssistantMessagesByRole((current) => ({
+      ...current,
+      [assistantKey]: [...(current[assistantKey] ?? assistantMessages), message],
+    }));
   };
 
   const callReviewAssistant = async (message: string) => {
@@ -530,10 +585,7 @@ export const ReviewCenterWorkbench = () => {
       return;
     }
     const baseId = Date.now();
-    setAssistantMessages((current) => [
-      ...current,
-      { id: baseId, author: "审核人员", body },
-    ]);
+    appendAssistantMessage({ id: baseId, author: "审核人员", body });
     updateSelectedRole((role) =>
       appendRecord(role, `审核人员向AI提问：${body}`),
     );
@@ -581,7 +633,50 @@ export const ReviewCenterWorkbench = () => {
     }
   };
 
+  const finalizeCatalogReview = async (
+    request: CatalogReviewRequest,
+    result: "approved" | "rejected" | "request_changes",
+  ) => {
+    const reviewId = catalogRequestId(request);
+    if (!reviewId || catalogFinalizingId) {
+      return;
+    }
+    setCatalogFinalizingId(reviewId);
+    try {
+      await finalizeCatalogReviewRequest(reviewId, {
+        result,
+        reviewNote:
+          result === "approved"
+            ? "平台审核通过，允许进入 Skill/Tool 目录。"
+            : result === "request_changes"
+              ? "需要补充能力说明、风险边界或候选来源。"
+              : "平台审核拒绝，暂不允许进入 Skill/Tool 目录。",
+      });
+      await refreshCatalogReview();
+    } catch (error) {
+      setCatalogError(
+        error instanceof Error ? error.message : "Skill/Tool 入库审核保存失败。",
+      );
+    } finally {
+      setCatalogFinalizingId("");
+    }
+  };
+
   const renderMainPanel = () => {
+    if (activeTab === "catalog") {
+      return (
+        <CatalogReviewPanel
+          catalogItems={catalogItems}
+          requests={catalogRequests}
+          statusFilter={catalogStatusFilter}
+          loading={catalogLoading}
+          error={catalogError}
+          finalizingId={catalogFinalizingId}
+          onStatusFilterChange={setCatalogStatusFilter}
+          onFinalize={finalizeCatalogReview}
+        />
+      );
+    }
     if (reviewCenterLoading) {
       return <ReviewCenterState message="正在读取云端审核队列..." />;
     }
@@ -609,6 +704,7 @@ export const ReviewCenterWorkbench = () => {
           onSelectRole={(roleId) => {
             setSelectedRoleId(roleId);
             setFinalNoteDraft("");
+            setAssistantDraft("");
           }}
         />
         <section
@@ -723,6 +819,231 @@ const ReviewCenterState = ({
     >
       {message}
     </p>
+  </section>
+);
+
+const catalogStatusColor: Record<string, string> = {
+  pending_review: "text-orange-600",
+  approved: "text-green-600",
+  rejected: "text-red-600",
+  request_changes: "text-orange-600",
+  disabled: "text-red-600",
+};
+
+const catalogStatusLabels: Record<CatalogReviewFilter, string> = {
+  all: "全部",
+  pending_review: "待审",
+  approved: "已通过",
+  request_changes: "需修改",
+  rejected: "已拒绝",
+};
+
+const catalogStatusOptions: Array<{ value: CatalogReviewFilter; label: string }> = [
+  { value: "pending_review", label: "待审" },
+  { value: "request_changes", label: "需修改" },
+  { value: "approved", label: "已通过" },
+  { value: "rejected", label: "已拒绝" },
+  { value: "all", label: "全部" },
+];
+
+const catalogActionLabel = {
+  approved: "批准入库",
+  request_changes: "要求补充",
+  rejected: "拒绝",
+} as const;
+
+const catalogRequestId = (request: CatalogReviewRequest) =>
+  request.reviewId ?? request.id ?? request.reviewKey ?? request.review_key ?? request.need;
+
+const catalogRequestStatus = (request: CatalogReviewRequest) =>
+  request.status ?? request.review_status;
+
+const catalogRequestRolePackageId = (request: CatalogReviewRequest) =>
+  request.rolePackageId ?? request.role_package_id;
+
+const catalogRequestReviewKey = (request: CatalogReviewRequest) =>
+  request.reviewKey ?? request.review_key;
+
+const catalogRequestNote = (request: CatalogReviewRequest) =>
+  request.reviewNote ?? request.review_note;
+
+const catalogRequestCandidateText = (
+  request: CatalogReviewRequest,
+  field: string,
+) => {
+  const value = request.candidate?.[field];
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+};
+
+const catalogRequestRiskText = (request: CatalogReviewRequest, field: string) => {
+  const value = (request.riskSummary ?? request.risk_summary)?.[field];
+  if (typeof value === "string" && value.trim()) {
+    return value.trim();
+  }
+  if (typeof value === "boolean") {
+    return value ? "是" : "否";
+  }
+  return undefined;
+};
+
+const CatalogReviewPanel = ({
+  catalogItems,
+  requests,
+  statusFilter,
+  loading,
+  error,
+  finalizingId,
+  onStatusFilterChange,
+  onFinalize,
+}: {
+  catalogItems: CatalogItem[];
+  requests: CatalogReviewRequest[];
+  statusFilter: CatalogReviewFilter;
+  loading: boolean;
+  error: string;
+  finalizingId: string;
+  onStatusFilterChange: (status: CatalogReviewFilter) => void;
+  onFinalize: (
+    request: CatalogReviewRequest,
+    result: "approved" | "rejected" | "request_changes",
+  ) => void;
+}) => (
+  <section className="col-span-full grid gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
+    <div className="overflow-hidden rounded-lg border bg-ui-bg-base shadow-borders-base">
+      <div className="border-b px-5 py-5">
+        <h2 className="txt-large-plus text-ui-fg-base">Skill/Tool 入库审核</h2>
+        <p className="mt-2 txt-compact-small text-ui-fg-subtle">
+          处理岗位生成时发现的能力缺口；审核通过后进入平台目录，供岗位复用。
+        </p>
+        <div className="mt-4 flex flex-wrap gap-2">
+          {catalogStatusOptions.map((option) => (
+            <button
+              key={option.value}
+              className={`h-8 rounded-md border px-3 txt-compact-small-plus ${
+                statusFilter === option.value
+                  ? "bg-ui-fg-base text-ui-bg-base"
+                  : "bg-ui-bg-base text-ui-fg-base hover:bg-ui-bg-subtle"
+              }`}
+              type="button"
+              onClick={() => onStatusFilterChange(option.value)}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+      </div>
+      {loading ? (
+        <div className="px-5 py-10 txt-compact-small text-ui-fg-muted">
+          正在读取 Skill/Tool 审核队列...
+        </div>
+      ) : error ? (
+        <div className="px-5 py-10 txt-compact-small text-red-600">{error}</div>
+      ) : requests.length === 0 ? (
+        <div className="px-5 py-10 txt-compact-small text-ui-fg-muted">
+          暂无{catalogStatusLabels[statusFilter]} Skill/Tool 请求。
+        </div>
+      ) : (
+        <div className="divide-y">
+          {requests.map((request) => {
+            const reviewId = catalogRequestId(request);
+            const status = catalogRequestStatus(request);
+            const rolePackageId = catalogRequestRolePackageId(request);
+            const reviewKey = catalogRequestReviewKey(request);
+            const candidateReason = catalogRequestCandidateText(request, "reason");
+            const nextAction = catalogRequestCandidateText(request, "nextAction");
+            const riskLevel = catalogRequestRiskText(request, "riskLevel");
+            const requiresHumanReview = catalogRequestRiskText(request, "requiresHumanReview");
+            const finalizing = finalizingId === reviewId;
+            const canFinalize =
+              status === "pending_review" || status === "request_changes";
+            return (
+              <div key={reviewId} className="grid gap-4 px-5 py-4">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="min-w-0">
+                    <div className="break-words txt-compact-small-plus text-ui-fg-base">
+                      {request.need}
+                    </div>
+                    <div className="mt-1 flex flex-wrap gap-2 txt-compact-small text-ui-fg-muted">
+                      <span>{request.kind}</span>
+                      <span>{request.source}</span>
+                      {rolePackageId ? <span>{rolePackageId}</span> : null}
+                    </div>
+                  </div>
+                  <span
+                    className={`shrink-0 txt-compact-small-plus ${
+                      catalogStatusColor[status] ?? "text-ui-fg-muted"
+                    }`}
+                  >
+                    {status}
+                  </span>
+                </div>
+                <div className="txt-compact-small text-ui-fg-subtle">
+                  {candidateReason
+                    ? candidateReason
+                    : "等待审核人员确认是否进入平台 Skill/Tool 目录。"}
+                </div>
+                <div className="grid gap-2 rounded-md border bg-ui-bg-subtle px-3 py-3 txt-compact-small text-ui-fg-subtle md:grid-cols-2">
+                  {reviewKey ? <span>审核键：{reviewKey}</span> : null}
+                  {nextAction ? <span>下一步：{nextAction}</span> : null}
+                  {riskLevel ? <span>风险等级：{riskLevel}</span> : null}
+                  {requiresHumanReview ? <span>人工复核：{requiresHumanReview}</span> : null}
+                  {catalogRequestNote(request) ? (
+                    <span className="md:col-span-2">审核意见：{catalogRequestNote(request)}</span>
+                  ) : null}
+                </div>
+                {canFinalize ? (
+                  <div className="flex flex-wrap gap-2">
+                    {(["approved", "request_changes", "rejected"] as const).map((result) => (
+                      <button
+                        key={result}
+                        className={`h-8 rounded-md border px-3 txt-compact-small-plus ${
+                          result === "approved"
+                            ? "bg-ui-fg-base text-ui-bg-base"
+                            : "bg-ui-bg-base text-ui-fg-base hover:bg-ui-bg-subtle"
+                        }`}
+                        type="button"
+                        disabled={finalizing}
+                        onClick={() => onFinalize(request, result)}
+                      >
+                        {finalizing ? "保存中" : catalogActionLabel[result]}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+    <aside className="rounded-lg border bg-ui-bg-base px-5 py-5 shadow-borders-base">
+      <h3 className="txt-medium-plus text-ui-fg-base">平台目录概览</h3>
+      <div className="mt-4 grid gap-3">
+        {[
+          ["目录项", catalogItems.length],
+          ["已批准", catalogItems.filter((item) => item.status === "approved").length],
+          ["禁用/拒绝", catalogItems.filter((item) => item.status === "disabled" || item.status === "rejected").length],
+        ].map(([label, value]) => (
+          <div key={label} className="rounded-md border px-3 py-3">
+            <div className="txt-compact-small text-ui-fg-muted">{label}</div>
+            <div className="mt-1 txt-compact-large-plus text-ui-fg-base">{value}</div>
+          </div>
+        ))}
+      </div>
+      <div className="mt-5 grid gap-2">
+        {catalogItems.slice(0, 8).map((item) => (
+          <div key={item.id} className="rounded-md border px-3 py-2">
+            <div className="truncate txt-compact-small-plus text-ui-fg-base">{item.name}</div>
+            <div className="mt-1 flex justify-between gap-2 txt-compact-small text-ui-fg-muted">
+              <span>{item.kind}</span>
+              <span className={catalogStatusColor[item.status] ?? "text-ui-fg-muted"}>
+                {item.status}
+              </span>
+            </div>
+          </div>
+        ))}
+      </div>
+    </aside>
   </section>
 );
 
@@ -844,9 +1165,9 @@ const RoleHeader = ({ role }: { role: RoleReviewItem }) => (
         ["授权费", role.price],
         ["上线状态", `${role.statusNote} / ${role.listingStatus}`],
       ].map(([label, value]) => (
-        <div key={label} className="rounded-lg border px-3 py-3">
+        <div key={label} className="min-w-0 rounded-lg border px-3 py-3">
           <div className="txt-compact-small text-ui-fg-muted">{label}</div>
-          <div className="mt-1 txt-compact-small-plus text-ui-fg-base">
+          <div className="mt-1 break-words txt-compact-small-plus leading-5 text-ui-fg-base">
             {value}
           </div>
         </div>
@@ -1256,12 +1577,9 @@ const FinalActionBar = ({
   onNoteChange: (value: string) => void;
   onFinalize: (status: FinalReviewStatus) => void;
 }) => (
-  <div
-    className="grid gap-3 border-t bg-ui-bg-base px-5 py-4"
-    style={{ gridTemplateColumns: "minmax(0, 1fr) auto auto auto" }}
-  >
+  <div className="flex flex-wrap items-center gap-3 border-t bg-ui-bg-base px-5 py-4">
     <input
-      className="h-10 rounded-lg border bg-ui-bg-base px-3 txt-compact-small outline-none placeholder:text-ui-fg-muted"
+      className="h-10 min-w-[220px] flex-1 rounded-lg border bg-ui-bg-base px-3 txt-compact-small outline-none placeholder:text-ui-fg-muted"
       placeholder="审核意见摘要"
       type="text"
       value={note}
@@ -1363,7 +1681,10 @@ const SettingsPanel = () => {
     {
       title: "人工动作",
       rows: [
-        ["通过 approved", "三项评估均通过且无阻断检查后，才允许发布到商城。"],
+        [
+          "通过 approved",
+          "三项评估均通过且无阻断检查后，标记为审核通过；开发者上架后才进入商城。",
+        ],
         ["要求补充 needs_changes", "退回开发者修改，商城不可见，不能授权。"],
         ["驳回 rejected", "保留审核记录，商城不可见，不能授权。"],
         ["记录要求", "最终动作必须写 review/listing 状态，不能只 toast。"],
@@ -1386,15 +1707,15 @@ const SettingsPanel = () => {
       rows: [
         [
           "开发者中心",
-          "不展示也不填写平台执行费用明细，只展示授权费、销售和开发者应收。",
+          "开发者可配置授权费和输入/输出 Token 使用费；Token 单价必须通过平台硬限制校验。",
         ],
         [
           "审核中心",
-          "核对授权费、平台执行费用口径、开发者收益和隐藏收费风险。",
+          "审核授权费、Token 使用费倍率、开发者收益、过高/过低定价和隐藏收费风险。",
         ],
         [
           "使用者费用",
-          "正式执行后从 ledger/readback 读取，不能由商城或开发者页伪造。",
+          "商城和使用者中心明码标价；正式执行后从 ledger/readback 回读实际用量和费用。",
         ],
         [
           "role_usage",

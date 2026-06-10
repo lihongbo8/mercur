@@ -9,6 +9,7 @@ import {
   type DijieRolePackageReader,
   type DijieRolePackageStore,
 } from "../../../../lib/dijie/role-package-store";
+import { resolveDijieRolePackageReader } from "../../../../lib/dijie/service-reader-adapters";
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -31,15 +32,6 @@ function isRolePackageStore(value: unknown): value is DijieRolePackageStore {
   );
 }
 
-function isRolePackageReader(value: unknown): value is DijieRolePackageReader {
-  return (
-    value !== null &&
-    typeof value === "object" &&
-    typeof (value as { listDijieRolePackages?: unknown }).listDijieRolePackages ===
-      "function"
-  );
-}
-
 function resolveRolePackageStore(req: MedusaRequest): DijieRolePackageStore | undefined {
   try {
     const store = req.scope.resolve(DIJIE_AUDIT_MODULE) as unknown;
@@ -52,7 +44,7 @@ function resolveRolePackageStore(req: MedusaRequest): DijieRolePackageStore | un
 function resolveRolePackageReader(req: MedusaRequest): DijieRolePackageReader | undefined {
   try {
     const store = req.scope.resolve(DIJIE_AUDIT_MODULE) as unknown;
-    return isRolePackageReader(store) ? store : undefined;
+    return resolveDijieRolePackageReader(store);
   } catch {
     return undefined;
   }

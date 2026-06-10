@@ -1,12 +1,16 @@
-import { StatusBadge } from "@medusajs/ui";
+import { Button, StatusBadge, toast } from "@medusajs/ui";
 import { keepPreviousData } from "@tanstack/react-query";
 import { createColumnHelper } from "@tanstack/react-table";
 import { useMemo } from "react";
+import { Link } from "react-router-dom";
 
 import { _DataTable } from "@components/table/data-table";
 import {
   type DijieRoleListing,
+  useDelistDijieRoleListing,
   useDijieRoleListings,
+  usePublishDijieRoleListing,
+  useSubmitDijieRoleListingReview,
 } from "@hooks/api/dijie-role-listings";
 import { useDataTable } from "@hooks/use-data-table";
 
@@ -191,7 +195,89 @@ const useColumns = () => {
           </span>
         ),
       }),
+      columnHelper.display({
+        id: "actions",
+        header: () => (
+          <div className="flex h-full w-full items-center justify-end">
+            <span className="truncate">操作</span>
+          </div>
+        ),
+        cell: ({ row }) => <RoleListingActions role={row.original} />,
+      }),
     ],
     [],
+  );
+};
+
+const RoleListingActions = ({ role }: { role: DijieRoleListing }) => {
+  const roleListingId = role.roleListingId || role.id;
+  const allowedActions = new Set(role.allowedActions ?? []);
+  const submitReview = useSubmitDijieRoleListingReview({
+    onSuccess: () => toast.success("岗位商品已提交审核。"),
+    onError: (error) => toast.error(error.message),
+  });
+  const publish = usePublishDijieRoleListing({
+    onSuccess: () => toast.success("岗位商品已上架，商城可见。"),
+    onError: (error) => toast.error(error.message),
+  });
+  const delist = useDelistDijieRoleListing({
+    onSuccess: () => toast.success("岗位商品已下架，商城不可见。"),
+    onError: (error) => toast.error(error.message),
+  });
+  const isMutating =
+    submitReview.isPending || publish.isPending || delist.isPending;
+
+  return (
+    <div className="flex flex-wrap justify-end gap-1">
+      <Button size="small" variant="secondary" asChild>
+        <Link to={`/products/${encodeURIComponent(roleListingId)}`}>
+          查看
+        </Link>
+      </Button>
+      <Button
+        size="small"
+        variant="secondary"
+        disabled={!allowedActions.has("edit_draft")}
+        title={
+          allowedActions.has("edit_draft")
+            ? "草稿可编辑；专用编辑页后续接入"
+            : "当前状态不可编辑"
+        }
+      >
+        编辑
+      </Button>
+      {allowedActions.has("submit_review") && (
+        <Button
+          size="small"
+          variant="secondary"
+          disabled={isMutating}
+          isLoading={submitReview.isPending}
+          onClick={() => submitReview.mutate(roleListingId)}
+        >
+          提交审核
+        </Button>
+      )}
+      {allowedActions.has("publish") && (
+        <Button
+          size="small"
+          disabled={isMutating}
+          isLoading={publish.isPending}
+          onClick={() => publish.mutate(roleListingId)}
+        >
+          上架
+        </Button>
+      )}
+      {allowedActions.has("delist") && (
+        <Button
+          size="small"
+          variant="secondary"
+          disabled={isMutating}
+          isLoading={delist.isPending}
+          onClick={() => delist.mutate(roleListingId)}
+        >
+          下架
+        </Button>
+      )}
+    </div>
   );
 };

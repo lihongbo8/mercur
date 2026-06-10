@@ -2,6 +2,10 @@ import type { MedusaRequest, MedusaResponse } from "@medusajs/framework/http";
 import { resolveDijieAccessContext } from "../../../../lib/dijie/access-context";
 import type { DijieAccountAccessProfileReader } from "../../../../lib/dijie/account-access-store";
 import { DIJIE_AUDIT_MODULE } from "../../../../lib/dijie/audit-store";
+import type {
+  DijieCatalogReader,
+  DijieCatalogReviewStore,
+} from "../../../../lib/dijie/catalog-store";
 import {
   canReviewDijieRoles,
   canUseDijieLocalSystem,
@@ -50,6 +54,11 @@ import {
   getDijieReviewCenterReadModel,
   type DijieReviewQueueItem,
 } from "../../../../lib/dijie/role-review-center";
+import {
+  resolveDijieAccountAccessProfileReader as resolveDijieAccountAccessProfileReaderAdapter,
+  resolveDijieCatalogReader as resolveDijieCatalogReaderAdapter,
+  resolveDijieRolePackageDraftStore as resolveDijieRolePackageDraftStoreAdapter,
+} from "../../../../lib/dijie/service-reader-adapters";
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -73,23 +82,12 @@ function authContextFromRequest(req: MedusaRequest): UnknownRecord | undefined {
   return (req as MedusaRequest & { auth_context?: UnknownRecord }).auth_context;
 }
 
-function isAccountAccessProfileReader(
-  value: unknown,
-): value is DijieAccountAccessProfileReader {
-  return (
-    value !== null &&
-    typeof value === "object" &&
-    typeof (value as { retrieveDijieAccountAccessProfile?: unknown })
-      .retrieveDijieAccountAccessProfile === "function"
-  );
-}
-
 function resolveAccountAccessProfileReader(
   req: MedusaRequest,
 ): DijieAccountAccessProfileReader | undefined {
   try {
     const service = req.scope.resolve(DIJIE_AUDIT_MODULE) as unknown;
-    return isAccountAccessProfileReader(service) ? service : undefined;
+    return resolveDijieAccountAccessProfileReaderAdapter(service);
   } catch {
     return undefined;
   }
@@ -104,16 +102,12 @@ function isDialogSessionStore(value: unknown): value is DijieDialogSessionStore 
   );
 }
 
-function isRolePackageDraftStore(
-  value: unknown,
-): value is DijieRolePackageDraftStore & DijieRolePackageDraftReader {
+function isCatalogReviewStore(value: unknown): value is DijieCatalogReviewStore {
   return (
     value !== null &&
     typeof value === "object" &&
-    typeof (value as { createDijieRolePackageDraft?: unknown }).createDijieRolePackageDraft ===
-      "function" &&
-    typeof (value as { retrieveLatestDijieRolePackageDraft?: unknown })
-      .retrieveLatestDijieRolePackageDraft === "function"
+    typeof (value as { createDijieCatalogReviewRequestsForPlan?: unknown })
+      .createDijieCatalogReviewRequestsForPlan === "function"
   );
 }
 
@@ -131,7 +125,25 @@ function resolveRolePackageDraftStore(
 ): (DijieRolePackageDraftStore & DijieRolePackageDraftReader) | undefined {
   try {
     const service = req.scope.resolve(DIJIE_AUDIT_MODULE) as unknown;
-    return isRolePackageDraftStore(service) ? service : undefined;
+    return resolveDijieRolePackageDraftStoreAdapter(service);
+  } catch {
+    return undefined;
+  }
+}
+
+function resolveCatalogReader(req: MedusaRequest): DijieCatalogReader | undefined {
+  try {
+    const service = req.scope.resolve(DIJIE_AUDIT_MODULE) as unknown;
+    return resolveDijieCatalogReaderAdapter(service);
+  } catch {
+    return undefined;
+  }
+}
+
+function resolveCatalogReviewStore(req: MedusaRequest): DijieCatalogReviewStore | undefined {
+  try {
+    const service = req.scope.resolve(DIJIE_AUDIT_MODULE) as unknown;
+    return isCatalogReviewStore(service) ? service : undefined;
   } catch {
     return undefined;
   }
@@ -394,6 +406,11 @@ export async function POST(req: MedusaRequest, res: MedusaResponse) {
       const latestDraft = await draftStore.retrieveLatestDijieRolePackageDraft({
         ownerId: context.accountId,
       });
+      const catalogReader = resolveCatalogReader(req);
+      const catalogReviewStore = resolveCatalogReviewStore(req);
+      const catalogItems = catalogReader
+        ? await catalogReader.listDijieEffectiveCatalogItems()
+        : undefined;
       const existingDraft = latestDraft?.draft_status === "submitted" ? undefined : latestDraft;
       let generatedDraftId: string | undefined = existingDraft?.id;
       const buildArtifacts: RoleBuildArtifact[] = [];
@@ -402,6 +419,7 @@ export async function POST(req: MedusaRequest, res: MedusaResponse) {
         context,
         billingPolicy: fallbackReply.billingPolicy,
         message,
+        catalogItems,
         initialFiles: existingDraft?.package_files ?? [],
         previousDraftSummary: existingDraft
           ? `draftId=${existingDraft.id}; package=${existingDraft.package_id ?? "unknown"}; status=${existingDraft.draft_status}; files=${existingDraft.file_manifest.map((file) => file.path).join(",")}`
@@ -415,6 +433,7 @@ export async function POST(req: MedusaRequest, res: MedusaResponse) {
             files: allFiles,
             stage,
             modelUsage,
+            catalogItems,
           });
           generatedDraftId = artifact.draftId;
           buildArtifacts.push(artifact);
@@ -427,6 +446,14 @@ export async function POST(req: MedusaRequest, res: MedusaResponse) {
               ownerId: context.accountId,
             })
           : undefined;
+        const catalogReviewRequests =
+          generation.capabilityReport?.capabilityPlan && catalogReviewStore
+            ? await catalogReviewStore.createDijieCatalogReviewRequestsForPlan({
+                plan: generation.capabilityReport.capabilityPlan,
+                rolePackageId: partialDraftRecord?.package_id ?? generatedDraftId ?? null,
+                requestedBy: context.accountId,
+              })
+            : [];
         return res.status(generation.status).json({
           ok: false,
           error: generation.error,
@@ -434,8 +461,15 @@ export async function POST(req: MedusaRequest, res: MedusaResponse) {
           diagnostics: generation.diagnostics,
           artifacts: roleBuildArtifactsForDialog(buildArtifacts),
           rolePackageDraft: partialDraftRecord
-            ? createDijieRolePackageDraftReadModel(partialDraftRecord)
+            ? createDijieRolePackageDraftReadModel(partialDraftRecord, { catalogReviewRequests })
             : undefined,
+          roleRequirementSpec: generation.capabilityReport?.requirementSpec,
+          roleCapabilityPlan: generation.capabilityReport?.capabilityPlan,
+          skillToolReviewRequests: generation.capabilityReport?.capabilityGaps ?? [],
+          catalogReviewRequests,
+          blockedReasons:
+            generation.capabilityReport?.reviewBlockers ??
+            generation.capabilityReport?.blockedReasons,
           modelUsage: generation.modelUsage ?? null,
           modelCalled: true,
         });
@@ -461,8 +495,19 @@ export async function POST(req: MedusaRequest, res: MedusaResponse) {
             ownerId: context.accountId,
           })
         : undefined;
+      const catalogReviewRequests = catalogReviewStore && generation.value.capabilityReport.capabilityPlan
+        ? await catalogReviewStore.createDijieCatalogReviewRequestsForPlan({
+            plan: generation.value.capabilityReport.capabilityPlan,
+            rolePackageId:
+              generation.value.uploadSummary?.packageId ??
+              draftRecord?.package_id ??
+              generatedDraftId ??
+              null,
+            requestedBy: context.accountId,
+          })
+        : [];
       const draftReadModel = draftRecord
-        ? createDijieRolePackageDraftReadModel(draftRecord)
+        ? createDijieRolePackageDraftReadModel(draftRecord, { catalogReviewRequests })
         : undefined;
       const draftReady = draftReadModel?.status === "ready";
       const actions = [
@@ -548,6 +593,7 @@ export async function POST(req: MedusaRequest, res: MedusaResponse) {
                 item.action !== "submit_role_package_draft",
             ),
           };
+      const capabilityReport = generation.value.capabilityReport;
       const assistantReply = {
         reply: draftReadModel
           ? draftReady
@@ -604,6 +650,11 @@ export async function POST(req: MedusaRequest, res: MedusaResponse) {
         modelUsage: assistantReply.modelUsage,
         modelCalled: assistantReply.modelCalled,
         rolePackageDraft: draftReadModel,
+        roleRequirementSpec: capabilityReport.requirementSpec,
+        roleCapabilityPlan: capabilityReport.capabilityPlan,
+        skillToolReviewRequests: capabilityReport.capabilityGaps ?? [],
+        catalogReviewRequests,
+        blockedReasons: capabilityReport.reviewBlockers ?? capabilityReport.blockedReasons,
       });
     }
     const modelResult =

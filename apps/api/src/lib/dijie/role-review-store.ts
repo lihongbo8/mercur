@@ -204,9 +204,9 @@ function listingPatchForFinalResult(
   switch (finalResult) {
     case "approved":
       return {
-        listing_status: "published",
+        listing_status: "delisted",
         review_state: "approved",
-        published_at: new Date(),
+        published_at: null,
       };
     case "needs_changes":
       return {

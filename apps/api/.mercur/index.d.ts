@@ -716,6 +716,8 @@ export type Routes = {
             receivables: typeof import("../../src/api/vendor/dijie/receivables/route");
             roleListings: typeof import("../../src/api/vendor/dijie/role-listings/route") & {
                 $roleListingId: typeof import("../../src/api/vendor/dijie/role-listings/[roleListingId]/route") & {
+                    delist: typeof import("../../src/api/vendor/dijie/role-listings/[roleListingId]/delist/route");
+                    publish: typeof import("../../src/api/vendor/dijie/role-listings/[roleListingId]/publish/route");
                     submitReview: typeof import("../../src/api/vendor/dijie/role-listings/[roleListingId]/submit-review/route");
                 };
             };
@@ -740,7 +742,9 @@ export type Routes = {
         audit: typeof import("../../src/api/dijie/audit/route");
         authorizations: typeof import("../../src/api/dijie/authorizations/route");
         dialog: {
-            messages: typeof import("../../src/api/dijie/dialog/messages/route");
+            messages: typeof import("../../src/api/dijie/dialog/messages/route") & {
+                stream: typeof import("../../src/api/dijie/dialog/messages/stream/route");
+            };
             sessions: typeof import("../../src/api/dijie/dialog/sessions/route") & {
                 $sessionId: typeof import("../../src/api/dijie/dialog/sessions/[sessionId]/route");
             };

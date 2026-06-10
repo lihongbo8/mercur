@@ -11,6 +11,8 @@ import { persistDijieRolePackageBuildStage } from "../../../../../lib/dijie/role
 import {
   actorIdFromRequest,
   asRecord,
+  resolveCatalogReader,
+  resolveCatalogReviewStore,
   resolveOpenClawDialogModelBridge,
   resolveRolePackageDraftStore,
   stringField,
@@ -75,6 +77,11 @@ export async function POST(req: MedusaRequest, res: MedusaResponse) {
       error: "岗位包草稿存储暂未配置。",
     });
   }
+  const catalogReader = resolveCatalogReader(req);
+  const catalogReviewStore = resolveCatalogReviewStore(req);
+  const catalogItems = catalogReader
+    ? await catalogReader.listDijieEffectiveCatalogItems()
+    : undefined;
 
   const context = createDijieDeveloperDialogContext({ developerAccountId: actorId });
   const billingPolicy = getDijieDialogBillingPolicy(context);
@@ -102,6 +109,7 @@ export async function POST(req: MedusaRequest, res: MedusaResponse) {
     context,
     billingPolicy,
     message,
+    catalogItems,
     initialFiles: existingDraft?.package_files ?? [],
     maxStages,
     previousDraftSummary: existingDraft
@@ -119,6 +127,7 @@ export async function POST(req: MedusaRequest, res: MedusaResponse) {
         files: allFiles,
         stage,
         modelUsage,
+        catalogItems,
       });
       generatedDraftId = artifact.draftId;
     },
@@ -131,12 +140,30 @@ export async function POST(req: MedusaRequest, res: MedusaResponse) {
           ownerId: actorId,
         })
       : undefined;
+    const catalogReviewRequests =
+      generation.capabilityReport?.capabilityPlan && catalogReviewStore
+        ? await catalogReviewStore.createDijieCatalogReviewRequestsForPlan({
+            plan: generation.capabilityReport.capabilityPlan,
+            rolePackageId: partialDraftRecord?.package_id ?? generatedDraftId ?? null,
+            requestedBy: actorId,
+          })
+        : [];
     return res.status(generation.status).json({
       ok: false,
       error: generation.error,
       issues: generation.issues,
       diagnostics: generation.diagnostics,
-      draft: partialDraftRecord ? createDijieRolePackageDraftReadModel(partialDraftRecord) : undefined,
+      draft: partialDraftRecord
+        ? createDijieRolePackageDraftReadModel(partialDraftRecord, { catalogReviewRequests })
+        : undefined,
+      roleRequirementSpec: generation.capabilityReport?.requirementSpec,
+      roleCapabilityPlan: generation.capabilityReport?.capabilityPlan,
+      skillToolReviewRequests:
+        generation.capabilityReport?.capabilityGaps ?? catalogReviewRequests,
+      catalogReviewRequests,
+      blockedReasons:
+        generation.capabilityReport?.reviewBlockers ??
+        generation.capabilityReport?.blockedReasons,
       modelUsage: generation.modelUsage ?? null,
       modelCalled: true,
     });
@@ -185,13 +212,31 @@ export async function POST(req: MedusaRequest, res: MedusaResponse) {
         ownerId: actorId,
       })
     : undefined;
+  const catalogReviewRequests = catalogReviewStore && generation.value.capabilityReport.capabilityPlan
+    ? await catalogReviewStore.createDijieCatalogReviewRequestsForPlan({
+        plan: generation.value.capabilityReport.capabilityPlan,
+        rolePackageId:
+          generation.value.uploadSummary?.packageId ??
+          record?.package_id ??
+          generatedDraftId ??
+          null,
+        requestedBy: actorId,
+      })
+    : [];
 
   return res.status(200).json({
     ok: true,
-    draft: record ? createDijieRolePackageDraftReadModel(record) : undefined,
+    draft: record ? createDijieRolePackageDraftReadModel(record, { catalogReviewRequests }) : undefined,
     files: generation.value.files,
     manifestSummary: generation.value.uploadSummary?.manifestSummary,
     capabilityReport: generation.value.capabilityReport,
+    roleRequirementSpec: generation.value.capabilityReport.requirementSpec,
+    roleCapabilityPlan: generation.value.capabilityReport.capabilityPlan,
+    skillToolReviewRequests: generation.value.capabilityReport.capabilityGaps ?? [],
+    catalogReviewRequests,
+    blockedReasons:
+      generation.value.capabilityReport.reviewBlockers ??
+      generation.value.capabilityReport.blockedReasons,
     qualityReport: generation.value.qualityReport,
     uploadValidationIssues: generation.value.uploadValidationIssues,
     modelUsage: generation.value.modelUsage,

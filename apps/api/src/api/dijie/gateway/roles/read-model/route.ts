@@ -1,6 +1,5 @@
 import type { MedusaRequest, MedusaResponse } from "@medusajs/framework/http";
 import { resolveDijieAccessContext } from "../../../../../lib/dijie/access-context";
-import type { DijieAccountAccessProfileReader } from "../../../../../lib/dijie/account-access-store";
 import { DIJIE_AUDIT_MODULE } from "../../../../../lib/dijie/audit-store";
 import { canUseDijieLocalSystem } from "../../../../../lib/dijie/data-permissions";
 import { buildDijieDispatcherGatewayRoleReadModel } from "../../../../../lib/dijie/gateway-role-read-model";
@@ -13,6 +12,11 @@ import type {
   DijieRolePackageStorageRecord,
 } from "../../../../../lib/dijie/role-package-store";
 import { listDijieRoleListings } from "../../../../../lib/dijie/role-listings";
+import {
+  resolveDijieAccountAccessProfileReader,
+  resolveDijieCatalogReader,
+  resolveDijieRolePackageReader,
+} from "../../../../../lib/dijie/service-reader-adapters";
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -58,17 +62,6 @@ function workspaceRefFromQuery(req: MedusaRequest): string | undefined {
   return stringField(query, "workspaceRef") ?? stringField(query, "workspace_ref");
 }
 
-function isAccountAccessProfileReader(
-  value: unknown,
-): value is DijieAccountAccessProfileReader {
-  return (
-    value !== null &&
-    typeof value === "object" &&
-    typeof (value as { retrieveDijieAccountAccessProfile?: unknown })
-      .retrieveDijieAccountAccessProfile === "function"
-  );
-}
-
 function isRoleEntitlementLookupRepository(
   value: unknown,
 ): value is DijieRoleEntitlementLookupRepository {
@@ -76,15 +69,6 @@ function isRoleEntitlementLookupRepository(
     value !== null &&
     typeof value === "object" &&
     typeof (value as { listDijieRoleEntitlements?: unknown }).listDijieRoleEntitlements ===
-      "function"
-  );
-}
-
-function isRolePackageReader(value: unknown): value is DijieRolePackageReader {
-  return (
-    value !== null &&
-    typeof value === "object" &&
-    typeof (value as { retrieveDijieRolePackage?: unknown }).retrieveDijieRolePackage ===
       "function"
   );
 }
@@ -157,7 +141,7 @@ export async function GET(req: MedusaRequest, res: MedusaResponse) {
   const auditService = resolveDijieAuditService(req);
   const access = await resolveDijieAccessContext({
     authContext,
-    profileReader: isAccountAccessProfileReader(auditService) ? auditService : undefined,
+    profileReader: resolveDijieAccountAccessProfileReader(auditService),
   });
   if (!access || !canUseDijieLocalSystem(access)) {
     return res.status(403).json({
@@ -173,9 +157,13 @@ export async function GET(req: MedusaRequest, res: MedusaResponse) {
       listActorEntitlements({ service: auditService, actorId }),
     ]);
     const packages = await retrieveRolePackages({
-      reader: isRolePackageReader(auditService) ? auditService : undefined,
+      reader: resolveDijieRolePackageReader(auditService),
       roles,
     });
+    const catalogReader = resolveDijieCatalogReader(auditService);
+    const catalogItems = catalogReader
+      ? await catalogReader.listDijieEffectiveCatalogItems()
+      : undefined;
 
     return res.status(200).json({
       ok: true,
@@ -186,6 +174,7 @@ export async function GET(req: MedusaRequest, res: MedusaResponse) {
         roles,
         entitlements,
         packages,
+        catalogItems,
       }),
     });
   } catch {

@@ -49,6 +49,13 @@ export type DijieRoleListing = {
     available: boolean;
     url: string;
   };
+  reviewSummary?: {
+    state: string;
+    label: string;
+    message: string;
+  };
+  allowedActions?: string[];
+  statusReason?: string;
 };
 
 export type DijieRoleListingListResponse = {
@@ -116,6 +123,26 @@ export const submitDijieRoleListingReviewQuery = async (
   ) as Promise<DijieRoleListingMutationResponse>;
 };
 
+export const publishDijieRoleListingQuery = async (roleListingId: string) => {
+  return fetchQuery(
+    `/vendor/dijie/role-listings/${encodeURIComponent(roleListingId)}/publish`,
+    {
+      method: "POST",
+      sellerScoped: true,
+    },
+  ) as Promise<DijieRoleListingMutationResponse>;
+};
+
+export const delistDijieRoleListingQuery = async (roleListingId: string) => {
+  return fetchQuery(
+    `/vendor/dijie/role-listings/${encodeURIComponent(roleListingId)}/delist`,
+    {
+      method: "POST",
+      sellerScoped: true,
+    },
+  ) as Promise<DijieRoleListingMutationResponse>;
+};
+
 export const useDijieRoleListings = (
   options?: UseQueryOptions<DijieRoleListingListResponse>,
 ) => {
@@ -156,6 +183,36 @@ export const useSubmitDijieRoleListingReview = (
 ) => {
   return useMutation({
     mutationFn: submitDijieRoleListingReviewQuery,
+    onSuccess: (data, variables, context) => {
+      queryClient.invalidateQueries({
+        queryKey: dijieRoleListingsQueryKeys.lists(),
+      });
+      options?.onSuccess?.(data, variables, context);
+    },
+    ...options,
+  });
+};
+
+export const usePublishDijieRoleListing = (
+  options?: UseMutationOptions<DijieRoleListingMutationResponse, Error, string>,
+) => {
+  return useMutation({
+    mutationFn: publishDijieRoleListingQuery,
+    onSuccess: (data, variables, context) => {
+      queryClient.invalidateQueries({
+        queryKey: dijieRoleListingsQueryKeys.lists(),
+      });
+      options?.onSuccess?.(data, variables, context);
+    },
+    ...options,
+  });
+};
+
+export const useDelistDijieRoleListing = (
+  options?: UseMutationOptions<DijieRoleListingMutationResponse, Error, string>,
+) => {
+  return useMutation({
+    mutationFn: delistDijieRoleListingQuery,
     onSuccess: (data, variables, context) => {
       queryClient.invalidateQueries({
         queryKey: dijieRoleListingsQueryKeys.lists(),

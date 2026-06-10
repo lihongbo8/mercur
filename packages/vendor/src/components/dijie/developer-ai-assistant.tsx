@@ -23,6 +23,10 @@ type RolePackageDraftSummary = {
     blockingIssues?: string[];
   };
   blockingIssues?: string[];
+  roleRequirementSpec?: RoleRequirementSpec;
+  roleCapabilityPlan?: RoleCapabilityPlan;
+  catalogReviewRequests?: CatalogReviewRequest[];
+  reviewBlockers?: string[];
 };
 
 type DeveloperMessage = {
@@ -36,6 +40,10 @@ type DialogResponse = {
     content?: string;
   };
   actions?: DialogAction[];
+  roleRequirementSpec?: RoleRequirementSpec;
+  roleCapabilityPlan?: RoleCapabilityPlan;
+  catalogReviewRequests?: CatalogReviewRequest[];
+  blockedReasons?: string[];
 };
 
 type DialogStreamStatus = {
@@ -58,12 +66,67 @@ type DijieRolePackageGenerationErrorData = {
   error?: string;
   issues?: string[];
   draft?: RolePackageDraftSummary;
+  roleRequirementSpec?: RoleRequirementSpec;
+  roleCapabilityPlan?: RoleCapabilityPlan;
+  catalogReviewRequests?: CatalogReviewRequest[];
+  blockedReasons?: string[];
   diagnostics?: {
     stageId?: string;
     stageLabel?: string;
     replyPreview?: string;
     repairReplyPreview?: string;
   };
+};
+
+type RoleRequirementSpec = {
+  roleName?: string;
+  businessScenario?: string;
+  serviceStandards?: string[];
+  acceptanceStandards?: string[];
+  dailyTasks?: string[];
+  weeklyTasks?: string[];
+  monthlyTasks?: string[];
+  risks?: string[];
+  missingInformation?: string[];
+};
+
+type RoleCapabilityPlan = {
+  status?: string;
+  requiredSkills?: string[];
+  requiredTools?: string[];
+  requiredCapabilities?: string[];
+  catalogBindings?: Array<{
+    need?: string;
+    catalogRef?: string;
+    kind?: string;
+    status?: string;
+  }>;
+  gaps?: Array<{
+    need?: string;
+    kind?: string;
+    reason?: string;
+    nextAction?: string;
+  }>;
+  reviewBlockers?: string[];
+};
+
+type CatalogReviewRequest = {
+  reviewId?: string;
+  reviewKey?: string;
+  id?: string;
+  need?: string;
+  kind?: string;
+  source?: string;
+  status?: string;
+  review_status?: string;
+  rolePackageId?: string | null;
+};
+
+type RoleGenerationInsight = {
+  roleRequirementSpec?: RoleRequirementSpec;
+  roleCapabilityPlan?: RoleCapabilityPlan;
+  catalogReviewRequests?: CatalogReviewRequest[];
+  blockedReasons?: string[];
 };
 
 const ROLE_PACKAGE_REQUIRED_FILE_COUNT = 16;
@@ -283,10 +346,12 @@ const getNavigationTarget = (text: string): NavigationTarget | null => {
     };
   }
 
-  if (/(岗位商品|商品).*(审核|状态|上架|管理|列表|查看)|审核.*(岗位|商品|状态)|上架状态|\b(products?|listings?)\b.*\b(status|review|manage|list|open|view)?\b|\b(status|review)\b.*\b(products?|listings?)\b/u.test(text)) {
+  if (/(岗位商品|商品|岗位).*(审核|状态|上架|下架|下线|撤下|停用|管理|列表|查看|按钮)|(?:审核|下架|下线|撤下|停用).*(岗位|商品|状态)|上架状态|下架岗位|\b(products?|listings?)\b.*\b(status|review|manage|list|open|view|delist|unpublish)?\b|\b(status|review|delist|unpublish)\b.*\b(products?|listings?)\b/u.test(text)) {
     return {
       path: "/products",
-      message: "已进入岗位商品，查看草稿、审核和上架状态。",
+      message: /(下架|下线|撤下|停用|delist|unpublish)/u.test(text)
+        ? "已进入岗位商品。找到已上架岗位后，可以在该岗位的操作里执行下架。"
+        : "已进入岗位商品，查看草稿、审核和上架状态。",
     };
   }
 
@@ -350,6 +415,173 @@ const RolePackageDraftPanel = ({ draft }: { draft: RolePackageDraftSummary }) =>
   </div>
 );
 
+const capabilityStatusColor = (status?: string) => {
+  if (status === "bindable" || status === "platform_ready" || status === "approved") {
+    return "green" as const;
+  }
+  if (status === "blocked" || status === "rejected" || status === "disabled") {
+    return "red" as const;
+  }
+  if (status === "waiting_review" || status === "pending_review" || status === "waiting_skill_tool_review") {
+    return "orange" as const;
+  }
+  return "grey" as const;
+};
+
+const planStatusLabel = (status?: string) => {
+  if (status === "platform_ready") {
+    return "平台能力就绪";
+  }
+  if (status === "waiting_skill_tool_review") {
+    return "等待能力审核";
+  }
+  if (status === "waiting_internal_build") {
+    return "等待平台自造";
+  }
+  if (status === "needs_more_input") {
+    return "需要补充信息";
+  }
+  if (status === "blocked") {
+    return "存在阻断";
+  }
+  return "能力计划";
+};
+
+const compactList = (items?: string[], fallback = "-") =>
+  items && items.length > 0 ? items.slice(0, 4).join("、") : fallback;
+
+const requestStatus = (request: CatalogReviewRequest) =>
+  request.status ?? request.review_status ?? "pending_review";
+
+const insightFromDraft = (draft?: RolePackageDraftSummary | null): RoleGenerationInsight | null => {
+  if (!draft) {
+    return null;
+  }
+  const blockedReasons = draft.reviewBlockers ?? draft.blockingIssues ?? [];
+  if (!draft.roleRequirementSpec && !draft.roleCapabilityPlan && blockedReasons.length === 0) {
+    return null;
+  }
+  return {
+    roleRequirementSpec: draft.roleRequirementSpec,
+    roleCapabilityPlan: draft.roleCapabilityPlan,
+    catalogReviewRequests: draft.catalogReviewRequests,
+    blockedReasons,
+  };
+};
+
+const insightFromResponse = (response?: RoleGenerationInsight | null): RoleGenerationInsight | null => {
+  if (
+    !response?.roleRequirementSpec &&
+    !response?.roleCapabilityPlan &&
+    !(response?.catalogReviewRequests?.length) &&
+    !(response?.blockedReasons?.length)
+  ) {
+    return null;
+  }
+  return response;
+};
+
+const RoleGenerationInsightPanel = ({ insight }: { insight: RoleGenerationInsight }) => {
+  const spec = insight.roleRequirementSpec;
+  const plan = insight.roleCapabilityPlan;
+  const bindings = plan?.catalogBindings ?? [];
+  const gaps = plan?.gaps ?? [];
+  const reviewRequests = insight.catalogReviewRequests ?? [];
+  const blockedReasons = insight.blockedReasons ?? plan?.reviewBlockers ?? [];
+
+  return (
+    <div className="rounded-md border bg-ui-bg-base p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <Text className="txt-compact-medium-plus text-ui-fg-base">岗位生成闭环</Text>
+          <Text className="mt-1 txt-compact-small text-ui-fg-subtle">
+            {spec?.roleName ?? "未命名岗位"} · {spec?.businessScenario ?? "业务场景待补全"}
+          </Text>
+        </div>
+        <StatusBadge color={capabilityStatusColor(plan?.status)}>
+          {planStatusLabel(plan?.status)}
+        </StatusBadge>
+      </div>
+
+      <div className="mt-4 grid gap-3 md:grid-cols-2">
+        <div className="rounded-md border px-3 py-3">
+          <Text className="txt-compact-small-plus text-ui-fg-base">工作标准</Text>
+          <Text className="mt-2 txt-compact-small text-ui-fg-subtle">
+            每日：{compactList(spec?.dailyTasks)}
+          </Text>
+          <Text className="mt-1 txt-compact-small text-ui-fg-subtle">
+            验收：{compactList(spec?.acceptanceStandards)}
+          </Text>
+        </div>
+        <div className="rounded-md border px-3 py-3">
+          <Text className="txt-compact-small-plus text-ui-fg-base">能力需求</Text>
+          <Text className="mt-2 txt-compact-small text-ui-fg-subtle">
+            Skill：{compactList(plan?.requiredSkills)}
+          </Text>
+          <Text className="mt-1 txt-compact-small text-ui-fg-subtle">
+            Tool：{compactList(plan?.requiredTools)}
+          </Text>
+        </div>
+      </div>
+
+      {bindings.length > 0 ? (
+        <div className="mt-4">
+          <Text className="txt-compact-small-plus text-ui-fg-base">平台能力匹配</Text>
+          <div className="mt-2 grid gap-2">
+            {bindings.slice(0, 5).map((binding) => (
+              <div
+                key={`${binding.catalogRef ?? binding.need}-${binding.kind ?? "catalog"}`}
+                className="flex items-center justify-between gap-3 rounded-md border px-3 py-2"
+              >
+                <Text className="min-w-0 truncate txt-compact-small text-ui-fg-base">
+                  {binding.need ?? binding.catalogRef ?? "未命名能力"}
+                </Text>
+                <StatusBadge color={capabilityStatusColor(binding.status)}>
+                  {binding.status ?? "unknown"}
+                </StatusBadge>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      {gaps.length > 0 || reviewRequests.length > 0 ? (
+        <div className="mt-4 rounded-md border border-ui-border-warning bg-ui-bg-subtle px-3 py-3">
+          <Text className="txt-compact-small-plus text-ui-fg-base">待审核能力</Text>
+          {[...gaps.map((gap) => gap.need), ...reviewRequests.map((request) => request.need)]
+            .filter(Boolean)
+            .slice(0, 6)
+            .map((need) => (
+              <Text key={need} className="mt-1 txt-compact-small text-ui-fg-subtle">
+                {need}
+              </Text>
+            ))}
+          {reviewRequests.slice(0, 4).map((request) => (
+            <Text
+              key={request.reviewId ?? request.reviewKey ?? request.need}
+              className="mt-1 txt-compact-small text-ui-fg-muted"
+            >
+              {request.kind ?? "capability"} · {requestStatus(request)}
+              {request.source ? ` · ${request.source}` : ""}
+            </Text>
+          ))}
+        </div>
+      ) : null}
+
+      {blockedReasons.length > 0 ? (
+        <div className="mt-4 rounded-md border border-ui-border-error bg-ui-bg-subtle px-3 py-3">
+          <Text className="txt-compact-small-plus text-red-600">阻断原因</Text>
+          {blockedReasons.slice(0, 4).map((reason) => (
+            <Text key={reason} className="mt-1 txt-compact-small text-ui-fg-subtle">
+              {reason}
+            </Text>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+};
+
 const formatGenerationErrorMessage = (error: unknown) => {
   if (isAbortError(error)) {
     return "AI开发助手已停止当前生成请求，已保存的 partial 草稿会保留。";
@@ -398,6 +630,8 @@ export const DeveloperAiPanel = ({ compact = false }: { compact?: boolean }) => 
   const [startedAt, setStartedAt] = useState<number | null>(null);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [rolePackageDraft, setRolePackageDraft] = useState<RolePackageDraftSummary | null>(null);
+  const [roleGenerationInsight, setRoleGenerationInsight] =
+    useState<RoleGenerationInsight | null>(null);
   const [requirementNotes, setRequirementNotes] = useState<string[]>([]);
   const [skippedRequirementFields, setSkippedRequirementFields] = useState<string[]>([]);
   const [activeController, setActiveController] = useState<AbortController | null>(null);
@@ -410,6 +644,7 @@ export const DeveloperAiPanel = ({ compact = false }: { compact?: boolean }) => 
         const latestDraft = (result as { draft?: RolePackageDraftSummary | null })?.draft ?? null;
         if (active && latestDraft) {
           setRolePackageDraft(latestDraft);
+          setRoleGenerationInsight(insightFromDraft(latestDraft));
           setMessages((current) => [
             ...current,
             {
@@ -457,6 +692,7 @@ export const DeveloperAiPanel = ({ compact = false }: { compact?: boolean }) => 
           setRolePackageDraft((current) =>
             (latestDraft.fileCount ?? 0) >= (current?.fileCount ?? 0) ? latestDraft : current,
           );
+          setRoleGenerationInsight((current) => insightFromDraft(latestDraft) ?? current);
         })
         .catch(() => {
           // Generation can keep running even if a progress poll misses once.
@@ -601,7 +837,6 @@ export const DeveloperAiPanel = ({ compact = false }: { compact?: boolean }) => 
       setRunning(true);
       setRunningMode("generation");
       setStartedAt(Date.now());
-      setShowCapabilities(false);
       const startingFileCount = shouldStartNewDraft ? 0 : (rolePackageDraft?.fileCount ?? 0);
       const estimatedRemainingFiles = Math.max(ROLE_PACKAGE_REQUIRED_FILE_COUNT - startingFileCount, 1);
       appendMessage({
@@ -631,7 +866,14 @@ export const DeveloperAiPanel = ({ compact = false }: { compact?: boolean }) => 
           }) as {
           draft?: RolePackageDraftSummary;
             complete?: boolean;
+            roleRequirementSpec?: RoleRequirementSpec;
+            roleCapabilityPlan?: RoleCapabilityPlan;
+            catalogReviewRequests?: CatalogReviewRequest[];
+            blockedReasons?: string[];
           };
+          setRoleGenerationInsight(
+            (current) => insightFromResponse(result) ?? insightFromDraft(result.draft) ?? current,
+          );
           startNewConsumed = true;
           const generatedDraft = result.draft ?? currentDraft;
           if (generatedDraft) {
@@ -659,6 +901,7 @@ export const DeveloperAiPanel = ({ compact = false }: { compact?: boolean }) => 
 
         const generatedDraft = completedDraft ?? currentDraft;
         setRolePackageDraft(generatedDraft ?? null);
+        setRoleGenerationInsight((current) => current ?? insightFromDraft(generatedDraft));
         appendMessage({
           role: "assistant",
           text:
@@ -670,9 +913,13 @@ export const DeveloperAiPanel = ({ compact = false }: { compact?: boolean }) => 
         });
       } catch (error) {
         const partialDraft = (error as Error & { data?: DijieRolePackageGenerationErrorData })?.data?.draft;
+        const errorInsight = insightFromResponse(
+          (error as Error & { data?: DijieRolePackageGenerationErrorData })?.data,
+        );
         if (partialDraft) {
           setRolePackageDraft(partialDraft);
         }
+        setRoleGenerationInsight(errorInsight ?? insightFromDraft(partialDraft));
         const abortReason = abortReasonRef.current;
         appendMessage({
           role: "assistant",
@@ -775,6 +1022,7 @@ export const DeveloperAiPanel = ({ compact = false }: { compact?: boolean }) => 
       } else if (navigationTarget) {
         runLowRiskAction(navigationTarget.path, navigationTarget.message);
       }
+      setRoleGenerationInsight(insightFromResponse(result) ?? roleGenerationInsight);
     } catch (error) {
       if (navigationTarget) {
         updateMessageText(assistantMessageId, navigationTarget.message);
@@ -830,6 +1078,9 @@ export const DeveloperAiPanel = ({ compact = false }: { compact?: boolean }) => 
           </div>
         ))}
         {rolePackageDraft ? <RolePackageDraftPanel draft={rolePackageDraft} /> : null}
+        {roleGenerationInsight ? (
+          <RoleGenerationInsightPanel insight={roleGenerationInsight} />
+        ) : null}
       </div>
       <div className="grid gap-y-3 border-t p-4">
         <div className="flex items-center justify-between rounded-md border bg-ui-bg-subtle px-4 py-3">

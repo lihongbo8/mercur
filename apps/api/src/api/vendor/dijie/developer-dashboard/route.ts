@@ -1,5 +1,9 @@
 import type { MedusaRequest, MedusaResponse } from "@medusajs/framework/http";
 import { DIJIE_AUDIT_MODULE } from "../../../../lib/dijie/audit-store";
+import {
+  createDijieCatalogReviewRequestReadModel,
+  type DijieCatalogReader,
+} from "../../../../lib/dijie/catalog-store";
 import { getDijieVendorReceivablesReadModel } from "../../../../lib/dijie/role-receivables";
 import {
   createDijieRoleListingManagementReadModel,
@@ -9,6 +13,12 @@ import {
   createDijieRolePackageDraftReadModel,
   type DijieRolePackageDraftReader,
 } from "../../../../lib/dijie/role-package-draft-store";
+import {
+  resolveDijieCatalogReader,
+  resolveDijieCatalogReviewRequestReader,
+  resolveDijieRoleListingReader,
+  resolveDijieRolePackageDraftReader,
+} from "../../../../lib/dijie/service-reader-adapters";
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -39,9 +49,13 @@ function sellerIdFromRequest(req: MedusaRequest): string | undefined {
 
 function resolveService(req: MedusaRequest) {
   try {
-    return req.scope.resolve(DIJIE_AUDIT_MODULE) as Partial<
-      DijieRoleListingReader & DijieRolePackageDraftReader
-    >;
+    const service = req.scope.resolve(DIJIE_AUDIT_MODULE) as unknown;
+    return {
+      ...(resolveDijieRoleListingReader(service) ?? {}),
+      ...(resolveDijieRolePackageDraftReader(service) ?? {}),
+      ...(resolveDijieCatalogReader(service) ?? {}),
+      ...(resolveDijieCatalogReviewRequestReader(service) ?? {}),
+    } as Partial<DijieRoleListingReader & DijieRolePackageDraftReader & DijieCatalogReader>;
   } catch {
     return {};
   }
@@ -53,6 +67,28 @@ function countBy<T extends Record<string, unknown>>(records: T[], field: keyof T
     counts[value] = (counts[value] ?? 0) + 1;
     return counts;
   }, {});
+}
+
+async function catalogReviewRequestsForDraft(
+  service: Partial<DijieCatalogReader>,
+  draft: Awaited<ReturnType<DijieRolePackageDraftReader["retrieveLatestDijieRolePackageDraft"]>>,
+) {
+  const draftRefs = new Set(
+    [draft?.package_id, draft?.id].filter(
+      (value): value is string => typeof value === "string" && value.trim().length > 0,
+    ),
+  );
+  if (
+    !draftRefs.size ||
+    typeof service.listDijieCatalogReviewRequests !== "function"
+  ) {
+    return [];
+  }
+
+  const requests = await service.listDijieCatalogReviewRequests();
+  return requests
+    .filter((request) => request.role_package_id && draftRefs.has(request.role_package_id))
+    .map(createDijieCatalogReviewRequestReadModel);
 }
 
 export async function GET(req: MedusaRequest, res: MedusaResponse) {
@@ -94,6 +130,9 @@ export async function GET(req: MedusaRequest, res: MedusaResponse) {
 
   const listingReadModels = listings.map(createDijieRoleListingManagementReadModel);
   const latestDraft = latestDraftResult?.ok ? latestDraftResult.draft : null;
+  const catalogReviewRequests = latestDraft
+    ? await catalogReviewRequestsForDraft(service, latestDraft)
+    : [];
   const receivables = receivablesResult.ok ? receivablesResult.receivables : null;
 
   return res.status(200).json({
@@ -118,7 +157,9 @@ export async function GET(req: MedusaRequest, res: MedusaResponse) {
         ),
         recent: listingReadModels.slice(0, 5),
       },
-      latestDraft: latestDraft ? createDijieRolePackageDraftReadModel(latestDraft) : null,
+      latestDraft: latestDraft
+        ? createDijieRolePackageDraftReadModel(latestDraft, { catalogReviewRequests })
+        : null,
       receivables: receivables
         ? {
             summary: receivables.summary,

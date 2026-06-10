@@ -1,6 +1,5 @@
 import type { MedusaRequest, MedusaResponse } from "@medusajs/framework/http";
 import { resolveDijieAccessContext } from "../../../../../lib/dijie/access-context";
-import type { DijieAccountAccessProfileReader } from "../../../../../lib/dijie/account-access-store";
 import { DIJIE_AUDIT_MODULE } from "../../../../../lib/dijie/audit-store";
 import {
   canAccessDijieDialogSessionData,
@@ -12,22 +11,12 @@ import {
   createDijieDialogSessionReadModel,
   type DijieDialogSessionReader,
 } from "../../../../../lib/dijie/dialog-session-store";
+import { resolveDijieAccountAccessProfileReader } from "../../../../../lib/dijie/service-reader-adapters";
 
 type UnknownRecord = Record<string, unknown>;
 
 function authContextFromRequest(req: MedusaRequest): UnknownRecord | undefined {
   return (req as MedusaRequest & { auth_context?: UnknownRecord }).auth_context;
-}
-
-function isAccountAccessProfileReader(
-  value: unknown,
-): value is DijieAccountAccessProfileReader {
-  return (
-    value !== null &&
-    typeof value === "object" &&
-    typeof (value as { retrieveDijieAccountAccessProfile?: unknown })
-      .retrieveDijieAccountAccessProfile === "function"
-  );
 }
 
 function isDialogSessionReader(value: unknown): value is DijieDialogSessionReader {
@@ -59,7 +48,7 @@ export async function GET(req: MedusaRequest, res: MedusaResponse) {
   const service = resolveDijieService(req);
   const access = await resolveDijieAccessContext({
     authContext: authContextFromRequest(req),
-    profileReader: isAccountAccessProfileReader(service) ? service : undefined,
+    profileReader: resolveDijieAccountAccessProfileReader(service),
   });
   if (!access) {
     return res.status(401).json({

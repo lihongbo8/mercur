@@ -3,6 +3,7 @@ import {
   DIJIE_OPENCLAW_MODEL_BRIDGE,
   type DijieOpenClawDialogModelBridge,
 } from "./dialog-model-bridge";
+import { createDijieCodexCliModelBridgeFromEnv } from "./codex-cli-model-bridge";
 import { createDijieOpenClawCliModelBridgeFromEnv } from "./openclaw-cli-model-bridge";
 
 export function isDijieOpenClawDialogModelBridge(
@@ -28,5 +29,8 @@ export function resolveDijieOpenClawDialogModelBridge(
     // Fall through to the cloud-configured CLI bridge.
   }
 
-  return createDijieOpenClawCliModelBridgeFromEnv();
+  return (
+    createDijieCodexCliModelBridgeFromEnv() ??
+    createDijieOpenClawCliModelBridgeFromEnv()
+  );
 }

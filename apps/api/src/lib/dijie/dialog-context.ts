@@ -9,6 +9,8 @@ export type DijieDialogSurface =
 export type DijieDialogMode = "user" | "developer" | "review";
 
 export type DijieDialogSubject = {
+  eventKind?: string;
+  orderId?: string;
   roleListingId?: string;
   packageId?: string;
   entitlementId?: string;
@@ -77,6 +79,12 @@ function nonEmptyString(value: unknown): string | undefined {
 function subjectFromInput(value: unknown): DijieDialogSubject {
   const input = asRecord(value);
   return {
+    ...(nonEmptyString(input.eventKind ?? input.event_kind)
+      ? { eventKind: nonEmptyString(input.eventKind ?? input.event_kind) }
+      : {}),
+    ...(nonEmptyString(input.orderId ?? input.order_id)
+      ? { orderId: nonEmptyString(input.orderId ?? input.order_id) }
+      : {}),
     ...(nonEmptyString(input.roleListingId ?? input.role_listing_id)
       ? { roleListingId: nonEmptyString(input.roleListingId ?? input.role_listing_id) }
       : {}),
