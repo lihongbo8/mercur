@@ -13,6 +13,7 @@ import {
   type DijieDialogSessionStorageRecord,
 } from "./dialog-session-store";
 import type { DijieLedgerEntryStorageRecord } from "./ledger-store";
+import { testDijieDialogMessageResponse } from "./test-fixtures.test";
 
 function repository() {
   const sessions: Array<DijieDialogSessionStorageRecord & { id: string }> = [];
@@ -75,7 +76,8 @@ describe("Dijie dialog session store", () => {
       capabilityPolicy: getDijieDialogCapabilityPolicy(context),
       userMessage:
         "帮我上传岗位包，Authorization: Bearer abc.def.ghi，路径 /Users/test/secret.txt",
-      assistantReply: {
+      assistantReply: testDijieDialogMessageResponse({
+        context,
         reply: "可以引导上传，provider_auth=secret-value",
         grounding: { roles: [], source: "dialog_context" },
         billingPolicy: {
@@ -91,7 +93,7 @@ describe("Dijie dialog session store", () => {
         },
         modelCalled: false,
         modelUsage: null,
-      },
+      }),
     });
 
     expect(result).toMatchObject({
@@ -124,13 +126,14 @@ describe("Dijie dialog session store", () => {
       context,
       capabilityPolicy: getDijieDialogCapabilityPolicy(context),
       userMessage: "第一条",
-      assistantReply: {
+      assistantReply: testDijieDialogMessageResponse({
+        context,
         reply: "第一条回复",
         grounding: { roles: [], source: "dialog_context" },
         billingPolicy: getDijieDialogBillingPolicy(context),
         modelCalled: false,
         modelUsage: null,
-      },
+      }),
     });
     expect(first.ok).toBe(true);
 
@@ -139,13 +142,14 @@ describe("Dijie dialog session store", () => {
       context,
       capabilityPolicy: getDijieDialogCapabilityPolicy(context),
       userMessage: "第二条",
-      assistantReply: {
+      assistantReply: testDijieDialogMessageResponse({
+        context,
         reply: "第二条回复",
         grounding: { roles: [], source: "dialog_context" },
         billingPolicy: getDijieDialogBillingPolicy(context),
         modelCalled: false,
         modelUsage: null,
-      },
+      }),
     });
 
     expect(second).toMatchObject({
@@ -169,7 +173,8 @@ describe("Dijie dialog session store", () => {
       context,
       capabilityPolicy: getDijieDialogCapabilityPolicy(context),
       userMessage: "有没有美工岗位？",
-      assistantReply: {
+      assistantReply: testDijieDialogMessageResponse({
+        context,
         reply: "模型根据真实岗位库补充：商品图检查岗位适合美工初审。",
         grounding: { roles: [], source: "role_listings" },
         billingPolicy: getDijieDialogBillingPolicy(context),
@@ -193,7 +198,7 @@ describe("Dijie dialog session store", () => {
             developerReceivableCents: 0,
           },
         },
-      },
+      }),
     });
 
     expect(result).toMatchObject({

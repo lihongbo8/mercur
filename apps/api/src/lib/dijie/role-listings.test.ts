@@ -209,7 +209,7 @@ describe("Dijie role listing projection", () => {
     ).toBeUndefined();
   });
 
-  it("derives installed roles from paid orders only", () => {
+  it("does not derive installed roles from paid order facts before entitlement materializes", () => {
     const installed = createDijieInstalledRolesFromMarketplaceFacts({
       products: [roleProduct],
       orderGroups: [
@@ -237,17 +237,7 @@ describe("Dijie role listing projection", () => {
       orders: [],
     });
 
-    expect(installed).toHaveLength(1);
-    expect(installed[0]).toMatchObject({
-      entitlementId: "ordgrp_paid",
-      entitlementSource: "order_group",
-      orderId: "order_paid",
-      authorizedAt: "2026-05-31T00:00:00.000Z",
-      role: {
-        id: "prod_role_researcher",
-        title: "资料研究岗位",
-      },
-    });
+    expect(installed).toEqual([]);
   });
 
   it("deduplicates installed roles by role and prefers materialized local entitlements", () => {

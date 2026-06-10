@@ -164,6 +164,64 @@ describe("Dijie review center read model", () => {
     expect(model.queue[0].statusReason).not.toContain("图片理解");
   });
 
+  it("blocks catalog bindings that are no longer approved in the platform catalog", () => {
+    const model = createDijieReviewCenterReadModel(
+      [
+        {
+          id: "djrole_image_inspect",
+          package_id: "djpkg_image_inspect",
+          package_version: "1.0.0",
+          developer_ref: "acct_dev",
+          title: "智能门锁电商美工岗位",
+          description: "提供主图巡检、商品图检查和详情页优化清单。",
+          listing_status: "proposed",
+          review_state: "submitted",
+          usage_instructions:
+            "使用者需要上传商品图、目标平台、风格限制和人工确认标准。",
+          manifest_summary: {
+            requiredCapabilities: ["image.inspect", "audit.record"],
+            requiredTools: [
+              {
+                need: "图片理解",
+                catalogRef: "tool.platform.image_inspector",
+                status: "bindable",
+              },
+            ],
+          },
+          pricing: { currency: "CNY" },
+        },
+      ],
+      {
+        catalogItems: [
+          {
+            id: "tool.platform.image_inspector",
+            kind: "tool",
+            name: "图片理解工具",
+            version: "1.0.0",
+            description: "平台禁用的图片理解工具。",
+            tags: ["image"],
+            provides: ["image.inspect"],
+            source: "platform_builtin",
+            status: "disabled",
+            permissions: ["image.inspect"],
+            riskLevel: "medium",
+            auditPolicy: ["audit.record"],
+            keywords: ["图片理解"],
+          },
+        ],
+      },
+    );
+
+    const catalogCheck = model.queue[0].safetyChecks.find(
+      (item) => item.id === "catalog_binding_review",
+    );
+
+    expect(catalogCheck).toMatchObject({
+      status: "blocked",
+    });
+    expect(model.queue[0].statusReason).toContain("需处理");
+  });
+
   it("does not allow approval while automatic blocking checks remain", () => {
     const model = createDijieReviewCenterReadModel(
       [

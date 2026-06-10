@@ -67,7 +67,39 @@ function draft(ownerId = "acct_dev") {
   };
 }
 
-function request(input?: { actorId?: string | null; latestDraft?: ReturnType<typeof draft> }) {
+function catalogReviewRequest(rolePackageId = "visual_smart_lock_designer") {
+  return {
+    id: "djcatrev_001",
+    review_key: "skill-short-video-review",
+    catalog_ref: null,
+    need: "短视频质检",
+    kind: "skill",
+    source: "role_gap",
+    review_status: "pending_review",
+    role_package_id: rolePackageId,
+    role_listing_id: null,
+    requested_by: "acct_dev",
+    submitted_at: new Date("2026-06-10T00:00:00.000Z"),
+    reviewed_at: null,
+    reviewed_by: null,
+    review_note: null,
+    candidate: {
+      reason: "平台目录暂无短视频质检 skill。",
+      nextAction: "search_external",
+    },
+    risk_summary: {
+      riskLevel: "unknown",
+      requiresHumanReview: true,
+    },
+    payload: {},
+  };
+}
+
+function request(input?: {
+  actorId?: string | null;
+  latestDraft?: ReturnType<typeof draft>;
+  reviewRequests?: ReturnType<typeof catalogReviewRequest>[];
+}) {
   return {
     auth_context:
       input?.actorId === null
@@ -85,6 +117,7 @@ function request(input?: { actorId?: string | null; latestDraft?: ReturnType<typ
             retrieveLatestDijieRolePackageDraft: async (lookup: { ownerId: string }) =>
               input?.latestDraft?.owner_id === lookup.ownerId ? input.latestDraft : undefined,
             retrieveDijieRolePackageDraft: async () => undefined,
+            listDijieCatalogReviewRequests: async () => input?.reviewRequests ?? [],
           };
         }
         throw new Error("unknown service");
@@ -113,10 +146,45 @@ describe("GET /vendor/dijie/role-packages/drafts/latest", () => {
           ok: true,
           score: 100,
         },
+        catalogReviewRequests: [],
       },
     });
     expect(JSON.stringify(res.body)).not.toContain("package_files");
     expect(JSON.stringify(res.body)).not.toContain("content");
+  });
+
+  it("includes catalog review requests linked to the latest draft package", async () => {
+    const res = response();
+
+    await GET(
+      request({
+        latestDraft: draft(),
+        reviewRequests: [
+          catalogReviewRequest("visual_smart_lock_designer"),
+          catalogReviewRequest("other_package"),
+        ],
+      }) as never,
+      res as never,
+    );
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toMatchObject({
+      ok: true,
+      draft: {
+        draftId: "djdraft_1",
+        catalogReviewRequests: [
+          {
+            reviewId: "djcatrev_001",
+            reviewKey: "skill-short-video-review",
+            need: "短视频质检",
+            kind: "skill",
+            source: "role_gap",
+            status: "pending_review",
+            rolePackageId: "visual_smart_lock_designer",
+          },
+        ],
+      },
+    });
   });
 
   it("returns null when the current developer has no draft", async () => {

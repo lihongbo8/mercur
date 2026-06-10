@@ -5,11 +5,15 @@ import {
   type DijieRoleReviewStorageRecord,
 } from "./role-review-store";
 import type { DijieRoleListingStorageRecord } from "./role-listing-store";
+import {
+  testDijieRoleListingStorageRecord,
+  type TestDijieRoleReviewRepository,
+} from "./test-fixtures.test";
 
 function roleListing(
   overrides: Partial<DijieRoleListingStorageRecord & { id: string }> = {},
 ) {
-  return {
+  return testDijieRoleListingStorageRecord({
     id: "djrole_image_review",
     package_id: "djpkg_image_review",
     package_version: "1.0.0",
@@ -17,46 +21,27 @@ function roleListing(
     developer_ref: "acct_dev",
     listing_owner_ref: "acct_dev",
     billing_beneficiary_ref: "acct_dev",
-    title: "商品图检查岗位",
     subtitle: "检查商品图是否清晰、合规、适合上架。",
     description: null,
-    usage_instructions:
-      "使用者需要上传商品图、说明品牌卖点、目标平台、风格限制和人工确认标准。",
     category: "视觉设计",
-    listing_status: "proposed" as const,
-    review_state: "submitted" as const,
+    listing_status: "proposed",
+    review_state: "submitted",
     capabilities: ["workspace.read"],
     manifest_summary: {
       entrypoint: "role_package/manifest.json",
       requiredCapabilities: ["workspace.read"],
       sandbox: "workspace-write",
     },
-    pricing: {
-      kind: "one_time_authorization" as const,
-      authorizationFeeCents: 0,
-      currency: "CNY" as const,
-      platformFeeBps: 0,
-      developerReceivableCents: 0,
-    },
-    role_token_pricing: {
-      inputTokenCentsPerMillion: 120,
-      outputTokenCentsPerMillion: 360,
-      currency: "CNY" as const,
-      developerReceivableBps: 10000,
-      platformFeeBps: 0,
-    },
-    scopes: ["role.execute", "audit.write"],
     confirmation_points: 2,
     submitted_at: new Date("2026-06-04T10:00:00.000Z"),
-    published_at: null,
     ...overrides,
-  };
+  });
 }
 
 function repository(input: {
   listings?: Array<DijieRoleListingStorageRecord & { id: string }>;
   reviews?: Array<DijieRoleReviewStorageRecord & { id: string }>;
-}) {
+}): TestDijieRoleReviewRepository {
   const listings = input.listings ?? [roleListing()];
   const reviews = input.reviews ?? [];
 
@@ -152,7 +137,7 @@ describe("Dijie role review store", () => {
     });
   });
 
-  it("publishes the listing after all evaluations pass and the reviewer approves", async () => {
+  it("marks the listing approved without publishing after all evaluations pass", async () => {
     const repo = repository({});
     await saveDijieRoleReviewEvaluationsWithRepository(repo, {
       roleListingId: "djrole_image_review",
@@ -177,8 +162,9 @@ describe("Dijie role review store", () => {
           summary: "三项评估通过。",
         },
         listing: {
-          listing_status: "published",
+          listing_status: "delisted",
           review_state: "approved",
+          published_at: null,
         },
       },
     });

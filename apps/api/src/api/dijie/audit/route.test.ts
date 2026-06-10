@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 import {
   DIJIE_AUDIT_MODULE,
   recordDijieAuditSummaryWithRepository,
+  type DijieAuditStorageRecord,
 } from "../../../lib/dijie/audit-store";
 import { createDijieExecutionToken } from "../../../lib/dijie/execution-token";
 import { POST } from "./route";
@@ -162,19 +163,7 @@ describe("POST /dijie/audit", () => {
 
   it("records an audit summary through the configured audit record store", async () => {
     process.env.DIJIE_EXECUTION_TOKEN_PUBLIC_KEY_PEM = publicKeyPem;
-    let persisted:
-      | {
-          execution_id?: string;
-          actor_id?: string;
-          package_id?: string;
-          package_version?: string;
-          developer_ref?: string;
-          listing_owner_ref?: string;
-          billing_beneficiary_ref?: string;
-          role_usage_ledger?: { developerReceivableCents?: number };
-          changed_files?: string[];
-        }
-      | undefined;
+    let persisted: Partial<DijieAuditStorageRecord> | undefined;
     let ledgerEntry:
       | {
           accountId?: string;
@@ -295,14 +284,7 @@ describe("POST /dijie/audit", () => {
 
   it("records failed audit uploads without creating a role usage ledger when no model usage exists", async () => {
     process.env.DIJIE_EXECUTION_TOKEN_PUBLIC_KEY_PEM = publicKeyPem;
-    let persisted:
-      | {
-          execution_id?: string;
-          status?: string;
-          role_usage_ledger?: unknown;
-          error_summary?: string | null;
-        }
-      | undefined;
+    let persisted: Partial<DijieAuditStorageRecord> | undefined;
     let ledgerEntry: unknown;
     const store = {
       recordDijieAuditSummary: (record: never) =>

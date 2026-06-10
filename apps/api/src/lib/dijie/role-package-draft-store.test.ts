@@ -1,9 +1,23 @@
 import { describe, expect, it } from "bun:test";
+import type { DijieCapabilityMatchReport } from "./capability-bridge";
 import {
+  createDijieRolePackageDraftReadModel,
   markDijieRolePackageDraftSubmittedWithRepository,
   updateDijieRolePackageDraftWithRepository,
   type DijieRolePackageDraftStorageRecord,
 } from "./role-package-draft-store";
+
+const passingCapabilityReport = {
+  ok: true,
+  requiredSkills: [],
+  requiredCapabilities: [],
+  results: [],
+  matchedSkills: [],
+  matchedTools: [],
+  adapterNeeded: [],
+  missing: [],
+  blockedReasons: [],
+} satisfies DijieCapabilityMatchReport;
 
 function record(
   input?: Partial<DijieRolePackageDraftStorageRecord & { id: string }>,
@@ -18,6 +32,7 @@ function record(
     generated_at: new Date("2026-06-05T01:00:00.000Z"),
     manifest_summary: {
       name: "智能门锁电商美工岗位",
+      entrypoint: "role_package/README.md",
       manifestRef: "role_package/manifest.json",
       requiredCapabilities: ["image.inspect", "human.confirm"],
       permissions: ["role.execute"],
@@ -25,7 +40,7 @@ function record(
     },
     file_manifest: [{ path: "role_package/manifest.json" }],
     package_files: [{ path: "role_package/manifest.json", content: "{}" }],
-    capability_report: { ok: true, results: [], blockedReasons: [] },
+    capability_report: passingCapabilityReport,
     quality_report: { ok: true, score: 100, requiredChecks: [], blockingIssues: [] },
     upload_validation_issues: [],
     blocking_issues: [],
@@ -36,6 +51,42 @@ function record(
 }
 
 describe("role package draft store", () => {
+  it("includes linked catalog review requests in the safe draft read model", () => {
+    const readModel = createDijieRolePackageDraftReadModel(record(), {
+      catalogReviewRequests: [
+        {
+          reviewId: "djcatrev_001",
+          reviewKey: "skill-short-video-review",
+          catalogRef: null,
+          need: "短视频质检",
+          kind: "skill",
+          source: "role_gap",
+          status: "pending_review",
+          rolePackageId: "visual_smart_lock_designer",
+          roleListingId: null,
+          requestedBy: "acct_dev",
+          submittedAt: "2026-06-10T00:00:00.000Z",
+          reviewedAt: null,
+          reviewedBy: null,
+          reviewNote: null,
+          candidate: { reason: "平台目录暂无短视频质检 skill。" },
+          riskSummary: { requiresHumanReview: true },
+        },
+      ],
+    });
+
+    expect(readModel.catalogReviewRequests).toEqual([
+      expect.objectContaining({
+        reviewId: "djcatrev_001",
+        need: "短视频质检",
+        kind: "skill",
+        status: "pending_review",
+        rolePackageId: "visual_smart_lock_designer",
+      }),
+    ]);
+    expect(JSON.stringify(readModel)).not.toContain("package_files");
+  });
+
   it("marks ready drafts submitted with the Medusa service update signature", async () => {
     const updates: unknown[] = [];
     const repo = {
@@ -81,7 +132,7 @@ describe("role package draft store", () => {
       ownerId: "acct_dev",
       files: [{ path: "role_package/manifest.json", content: "{}" }],
       status: "ready",
-      capabilityReport: { ok: true, results: [], blockedReasons: [] },
+      capabilityReport: passingCapabilityReport,
       qualityReport: { ok: true, score: 100, requiredChecks: [], blockingIssues: [] },
       uploadValidationIssues: [],
       blockingIssues: [],

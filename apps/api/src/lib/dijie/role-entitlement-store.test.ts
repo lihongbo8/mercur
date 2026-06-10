@@ -4,66 +4,51 @@ import {
   authorizeDijieRoleListingWithRepository,
   type DijieRoleEntitlementStorageRecord,
 } from "./role-entitlement-store";
+import {
+  testDijieExecutionTokenPricing,
+  testDijieRoleEntitlementStorageRecord,
+  testDijieRoleListingStorageRecord,
+  testDijieRoleTokenPricing,
+} from "./test-fixtures.test";
 
-const roleTokenPricing = {
-  inputTokenCentsPerMillion: 120,
-  outputTokenCentsPerMillion: 360,
-  currency: "CNY",
-  developerReceivableBps: 10000,
-  platformFeeBps: 0,
-} as const;
+const roleTokenPricing = testDijieRoleTokenPricing();
 
-function listing(overrides: Record<string, unknown> = {}) {
-  return {
+function listing(
+  overrides: Partial<ReturnType<typeof testDijieRoleListingStorageRecord>> = {},
+) {
+  return testDijieRoleListingStorageRecord({
     id: "djrole_image_qc",
-    package_id: "pkg_product_image_qc",
-    package_version: "0.1.0",
     developer_ref: "member_123",
     listing_owner_ref: "seller_123",
     billing_beneficiary_ref: "member_123",
-    title: "商品图检查岗位",
     listing_status: "published",
     review_state: "approved",
-    capabilities: ["workspace.read", "image.inspect"],
-    manifest_summary: {
-      requiredCapabilities: ["workspace.read", "image.inspect"],
-    },
-    pricing: {
-      kind: "one_time_authorization",
-      authorizationFeeCents: 0,
-      currency: "CNY",
-      platformFeeBps: 0,
-      developerReceivableCents: 0,
-    },
-    role_token_pricing: roleTokenPricing,
-    scopes: ["role.execute", "audit.write"],
     ...overrides,
-  };
+  });
 }
 
-function paidListing(overrides: Record<string, unknown> = {}) {
+function paidListing(
+  overrides: Partial<ReturnType<typeof testDijieRoleListingStorageRecord>> = {},
+) {
   return listing({
     id: "djrole_paid",
-    pricing: {
-      kind: "one_time_authorization",
+    pricing: testDijieExecutionTokenPricing({
       authorizationFeeCents: 29900,
-      currency: "CNY",
-      platformFeeBps: 0,
       developerReceivableCents: 29900,
-    },
+    }),
     ...overrides,
   });
 }
 
 function repository(options: {
-  listings?: unknown[];
+  listings?: Array<ReturnType<typeof listing>>;
   entitlements?: Array<DijieRoleEntitlementStorageRecord & { id: string }>;
 } = {}) {
   const entitlements = [...(options.entitlements ?? [])];
   return {
     entitlements,
     async listDijieRoleListings() {
-      return (options.listings ?? [listing()]) as never;
+      return options.listings ?? [listing()];
     },
     async listDijieRoleEntitlements() {
       return entitlements;
@@ -107,22 +92,13 @@ describe("authorizeDijieRoleListingWithRepository", () => {
   });
 
   it("returns an existing authorized entitlement idempotently", async () => {
-    const existing = {
+    const existing = testDijieRoleEntitlementStorageRecord({
       id: "djent_existing",
       actor_id: "cus_001",
       role_listing_id: "djrole_image_qc",
-      package_id: "pkg_product_image_qc",
-      package_version: "0.1.0",
-      developer_ref: "member_123",
-      listing_owner_ref: "seller_123",
-      billing_beneficiary_ref: "member_123",
-      entitlement_status: "authorized",
-      source: "zero_price",
-      order_id: null,
       pricing: listing().pricing,
       role_token_pricing: roleTokenPricing,
-      authorized_at: new Date("2026-06-04T00:00:00.000Z"),
-    } satisfies DijieRoleEntitlementStorageRecord & { id: string };
+    });
     const repo = repository({ entitlements: [existing] });
     const result = await authorizeDijieRoleListingWithRepository(repo, {
       actorId: "cus_001",
@@ -144,7 +120,7 @@ describe("authorizeDijieRoleListingWithRepository", () => {
         listings: [
           listing({
             pricing: {
-              kind: "one_time_authorization",
+              kind: "one_time_authorization" as const,
               authorizationFeeCents: 29900,
               currency: "CNY",
               platformFeeBps: 0,
@@ -198,22 +174,15 @@ describe("authorizeDijiePaidRoleListingWithRepository", () => {
   });
 
   it("returns an existing checkout entitlement for the same paid order", async () => {
-    const existing = {
+    const existing = testDijieRoleEntitlementStorageRecord({
       id: "djent_existing_paid",
       actor_id: "cus_001",
       role_listing_id: "djrole_paid",
-      package_id: "pkg_product_image_qc",
-      package_version: "0.1.0",
-      developer_ref: "member_123",
-      listing_owner_ref: "seller_123",
-      billing_beneficiary_ref: "member_123",
-      entitlement_status: "authorized",
       source: "checkout",
       order_id: "ordgrp_paid_1",
       pricing: paidListing().pricing,
       role_token_pricing: roleTokenPricing,
-      authorized_at: new Date("2026-06-04T00:00:00.000Z"),
-    } satisfies DijieRoleEntitlementStorageRecord & { id: string };
+    });
     const repo = repository({ listings: [paidListing()], entitlements: [existing] });
     const result = await authorizeDijiePaidRoleListingWithRepository(repo, {
       actorId: "cus_001",
@@ -231,22 +200,16 @@ describe("authorizeDijiePaidRoleListingWithRepository", () => {
   });
 
   it("does not silently re-authorize a revoked checkout order", async () => {
-    const revoked = {
+    const revoked = testDijieRoleEntitlementStorageRecord({
       id: "djent_revoked",
       actor_id: "cus_001",
       role_listing_id: "djrole_paid",
-      package_id: "pkg_product_image_qc",
-      package_version: "0.1.0",
-      developer_ref: "member_123",
-      listing_owner_ref: "seller_123",
-      billing_beneficiary_ref: "member_123",
       entitlement_status: "revoked",
       source: "checkout",
       order_id: "ordgrp_paid_1",
       pricing: paidListing().pricing,
       role_token_pricing: roleTokenPricing,
-      authorized_at: new Date("2026-06-04T00:00:00.000Z"),
-    } satisfies DijieRoleEntitlementStorageRecord & { id: string };
+    });
     const repo = repository({ listings: [paidListing()], entitlements: [revoked] });
     const result = await authorizeDijiePaidRoleListingWithRepository(repo, {
       actorId: "cus_001",

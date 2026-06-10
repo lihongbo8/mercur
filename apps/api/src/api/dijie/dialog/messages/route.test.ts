@@ -736,6 +736,48 @@ describe("POST /dijie/dialog/messages", () => {
     });
   });
 
+  it("answers developer delist navigation without spending a model call", async () => {
+    const res = response();
+    let bridgeCalls = 0;
+
+    await POST(
+      request(
+        {
+          surface: "developer_center",
+          message: "下架岗位在哪",
+        },
+        { actor_id: "acct_dev" },
+        {
+          completeDijieDialogMessage: async () => {
+            bridgeCalls += 1;
+            return {
+              reply: "不应该调用模型。",
+              usage: null,
+            };
+          },
+        },
+      ) as never,
+      res as never,
+    );
+
+    expect(res.statusCode).toBe(200);
+    expect(bridgeCalls).toBe(0);
+    expect(res.body).toMatchObject({
+      modelCalled: false,
+      message: {
+        content: expect.stringContaining("下架岗位请进入岗位商品列表"),
+      },
+      actions: [
+        {
+          kind: "navigate",
+          action: "navigate_listing",
+          path: "/products",
+          requiresConfirmation: false,
+        },
+      ],
+    });
+  });
+
   it("generates and stores one role package draft stage for developer generation intent", async () => {
     const res = response();
     let bridgeCalls = 0;

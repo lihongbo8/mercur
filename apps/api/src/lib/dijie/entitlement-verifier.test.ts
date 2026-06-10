@@ -7,7 +7,7 @@ import {
 const input = {
   actorId: "cus_123",
   roleListingId: "prod_role_developer_agent",
-  entitlementId: "ordgrp_123",
+  entitlementId: "djent_123",
   deviceId: "device_123",
   workspaceRef: "workspace_123",
   localGatewayId: "gateway_123",
@@ -61,6 +61,7 @@ function paidOrder(overrides: Record<string, unknown> = {}) {
 
 function queryGraph(fixtures: {
   products?: unknown[];
+  entitlements?: unknown[];
   orderGroups?: unknown[];
   orders?: unknown[];
 }): DijieQueryGraph {
@@ -74,12 +75,27 @@ function queryGraph(fixtures: {
     if (entity === "order") {
       return { data: fixtures.orders ?? [] };
     }
+    if (entity === "dijie_role_entitlement") {
+      return {
+        data: fixtures.entitlements ?? [
+          {
+            id: input.entitlementId,
+            actor_id: input.actorId,
+            role_listing_id: input.roleListingId,
+            entitlement_status: "authorized",
+            source: "checkout",
+            order_id: "order_123",
+            authorized_at: new Date("2026-06-10T00:00:00.000Z"),
+          },
+        ],
+      };
+    }
     return { data: [] };
   };
 }
 
 describe("verifyDijieEntitlement", () => {
-  it("approves a paid one-time role authorization", async () => {
+  it("approves a materialized paid one-time role entitlement", async () => {
     const result = await verifyDijieEntitlement(input, queryGraph({}));
 
     expect(result).toEqual({
@@ -101,13 +117,14 @@ describe("verifyDijieEntitlement", () => {
     });
   });
 
-  it("approves manually authorized checkout orders", async () => {
+  it("rejects paid order facts before entitlement materializes", async () => {
     const result = await verifyDijieEntitlement(
       input,
       queryGraph({
+        entitlements: [],
         orderGroups: [
           {
-            id: input.entitlementId,
+            id: "ordgrp_123",
             customer_id: input.actorId,
             orders: [
               paidOrder({
@@ -122,37 +139,20 @@ describe("verifyDijieEntitlement", () => {
       }),
     );
 
-    expect(result.ok).toBe(true);
+    expect(result).toEqual({
+      ok: false,
+      status: 403,
+      error: "No materialized Dijie role entitlement was found for this customer.",
+    });
   });
 
-  it("approves zero-price authorizations against stored RoleListing records", async () => {
+  it("approves zero-price local entitlements against stored RoleListing records", async () => {
     const storedInput = {
       ...input,
       roleListingId: "djrole_image_qc",
-      entitlementId: "ordgrp_zero",
+      entitlementId: "djent_zero",
     };
     const result = await verifyDijieEntitlement(storedInput, async ({ entity }) => {
-      if (entity === "order_group") {
-        return {
-          data: [
-            {
-              id: storedInput.entitlementId,
-              customer_id: storedInput.actorId,
-              orders: [
-                {
-                  id: "order_zero",
-                  status: "completed",
-                  payment_collections: [],
-                  items: [{ product_id: storedInput.roleListingId }],
-                },
-              ],
-            },
-          ],
-        };
-      }
-      if (entity === "order") {
-        return { data: [] };
-      }
       if (entity === "dijie_role_listing") {
         return {
           data: [
@@ -184,7 +184,18 @@ describe("verifyDijieEntitlement", () => {
         };
       }
       if (entity === "dijie_role_entitlement") {
-        return { data: [] };
+        return {
+          data: [
+            {
+              id: storedInput.entitlementId,
+              actor_id: storedInput.actorId,
+              role_listing_id: storedInput.roleListingId,
+              entitlement_status: "authorized",
+              source: "zero_price",
+              authorized_at: new Date("2026-06-04T00:00:00.000Z"),
+            },
+          ],
+        };
       }
       throw new Error("legacy product fallback should not be used");
     });
@@ -312,13 +323,16 @@ describe("verifyDijieEntitlement", () => {
   it("rejects non-purchased role listings", async () => {
     const result = await verifyDijieEntitlement(
       input,
-      queryGraph({ orderGroups: [{ id: input.entitlementId, orders: [paidOrder({ items: [] })] }] }),
+      queryGraph({
+        entitlements: [],
+        orderGroups: [{ id: "ordgrp_123", orders: [paidOrder({ items: [] })] }],
+      }),
     );
 
     expect(result).toEqual({
       ok: false,
       status: 403,
-      error: "No paid one-time role authorization was found for this customer.",
+      error: "No materialized Dijie role entitlement was found for this customer.",
     });
   });
 
@@ -326,9 +340,10 @@ describe("verifyDijieEntitlement", () => {
     const result = await verifyDijieEntitlement(
       input,
       queryGraph({
+        entitlements: [],
         orderGroups: [
           {
-            id: input.entitlementId,
+            id: "ordgrp_123",
             orders: [paidOrder({ status: "pending", payment_collections: [] })],
           },
         ],

@@ -4,7 +4,7 @@ import { POST } from "./route";
 const validBody = {
   actorId: "cus_123",
   roleListingId: "prod_role_developer_agent",
-  entitlementId: "ordgrp_123",
+  entitlementId: "djent_123",
   deviceId: "device_123",
   workspaceRef: "workspace_123",
   localGatewayId: "gateway_123",
@@ -102,6 +102,21 @@ function request(options: {
                 ],
               };
             }
+            if (entity === "dijie_role_entitlement") {
+              return {
+                data: [
+                  {
+                    id: validBody.entitlementId,
+                    actor_id: validBody.actorId,
+                    role_listing_id: validBody.roleListingId,
+                    entitlement_status: "authorized",
+                    source: "checkout",
+                    order_id: "order_123",
+                    authorized_at: new Date("2026-06-10T00:00:00.000Z"),
+                  },
+                ],
+              };
+            }
             return { data: [] };
           }),
         };
@@ -133,7 +148,7 @@ describe("POST /dijie/entitlements/verify", () => {
     expect(res.body).toMatchObject({ ok: false });
   });
 
-  it("approves paid one-time role entitlements", async () => {
+  it("approves materialized paid one-time role entitlements", async () => {
     process.env.DIJIE_INTERNAL_BRIDGE_BEARER = "bridge-secret";
 
     const res = response();

@@ -61,7 +61,7 @@ describe("POST /admin/dijie/reviews/:reviewId/finalize", () => {
             review: { id: "djreview_image_review", final_result: "approved" },
             listing: {
               id: "djrole_image_review",
-              listing_status: "published",
+              listing_status: "delisted",
               review_state: "approved",
             },
           },
@@ -88,7 +88,7 @@ describe("POST /admin/dijie/reviews/:reviewId/finalize", () => {
     expect(res.body).toMatchObject({
       ok: true,
       listing: {
-        listing_status: "published",
+        listing_status: "delisted",
         review_state: "approved",
       },
     });

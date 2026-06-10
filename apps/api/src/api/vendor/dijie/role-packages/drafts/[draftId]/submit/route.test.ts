@@ -63,6 +63,13 @@ function draft(input?: { ownerId?: string; status?: "partial" | "ready" | "block
           entrypoint: "role_package/README.md",
           permissions: ["role.execute"],
           requiredCapabilities: ["image.inspect", "human.confirm"],
+          requiredTools: [
+            {
+              need: "图片理解",
+              catalogRef: "tool.platform.image_inspector",
+              status: "bindable",
+            },
+          ],
           files: [],
         }),
       },
@@ -84,6 +91,7 @@ function request(input?: {
   actorId?: string | null;
   draftId?: string;
   draftRecord?: ReturnType<typeof draft>;
+  catalogItems?: unknown[];
 }) {
   let submittedPackageId: string | undefined;
   return {
@@ -112,6 +120,9 @@ function request(input?: {
               input.draftRecord.owner_id === lookup.ownerId
                 ? input.draftRecord
                 : undefined,
+            listDijieEffectiveCatalogItems: input?.catalogItems
+              ? async () => input.catalogItems
+              : undefined,
             storeDijieRolePackage: async (storeInput: {
               summary: {
                 packageId: string;
@@ -179,6 +190,43 @@ describe("POST /vendor/dijie/role-packages/drafts/:draftId/submit", () => {
       draft: {
         status: "blocked",
         blockingIssues: ["缺少主图巡检 skill"],
+      },
+    });
+  });
+
+  it("rejects ready drafts when a catalog binding is no longer approved", async () => {
+    const res = response();
+
+    await POST(
+      request({
+        draftRecord: draft(),
+        catalogItems: [
+          {
+            id: "tool.platform.image_inspector",
+            kind: "tool",
+            name: "图片理解工具",
+            version: "1.0.0",
+            description: "平台禁用的图片理解工具。",
+            tags: ["image"],
+            provides: ["image.inspect"],
+            source: "platform_builtin",
+            status: "disabled",
+            permissions: ["image.inspect"],
+            riskLevel: "medium",
+            auditPolicy: ["audit.record"],
+            keywords: ["图片理解"],
+          },
+        ],
+      }) as never,
+      res as never,
+    );
+
+    expect(res.statusCode).toBe(409);
+    expect(res.body).toMatchObject({
+      ok: false,
+      error: "岗位包草稿存在未通过审核的 Skill/Tool 绑定，不能提交。",
+      roleCapabilityPlan: {
+        status: "waiting_skill_tool_review",
       },
     });
   });

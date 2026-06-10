@@ -1,9 +1,10 @@
 import { describe, expect, it } from "bun:test";
 import { GET } from "./route";
-import type {
-  DijieRolePackageReader,
-  DijieRolePackageStorageRecord,
-} from "../../../../../../lib/dijie/role-package-store";
+import type { DijieRolePackageReader } from "../../../../../../lib/dijie/role-package-store";
+import {
+  testDijieRolePackageReader,
+  testDijieRolePackageStorageRecord,
+} from "../../../../../../lib/dijie/test-fixtures.test";
 
 type TestResponse = {
   statusCode: number;
@@ -33,21 +34,10 @@ function response(): TestResponse {
   };
 }
 
-function packageRecord(overrides: Partial<DijieRolePackageStorageRecord> = {}) {
-  return {
-    id: "djpkg_123",
-    package_id: "pkg_product_image_qc",
-    package_version: "0.1.0",
-    owner_id: "member_123",
-    uploaded_at: new Date("2026-06-04T10:00:00.000Z"),
-    manifest_summary: {
-      entrypoint: "role_package/adapters/openclaw-adapter.ts",
-      manifestRef: "role_package/manifest.json",
-      name: "商品图检查岗位",
-      permissions: ["workspace.read"],
-      requiredCapabilities: ["workspace.read", "image.inspect"],
-      fileCount: 1,
-    },
+function packageRecord(
+  overrides: Partial<ReturnType<typeof testDijieRolePackageStorageRecord>> = {},
+) {
+  return testDijieRolePackageStorageRecord({
     file_manifest: [
       {
         path: "role_package/README.md",
@@ -63,9 +53,8 @@ function packageRecord(overrides: Partial<DijieRolePackageStorageRecord> = {}) {
         sizeBytes: 64,
       },
     ],
-    validation_issues: null,
     ...overrides,
-  };
+  });
 }
 
 function request(input: {
@@ -106,15 +95,15 @@ describe("GET /vendor/dijie/role-packages/:packageId/download", () => {
       request({
         actorId: "member_123",
         version: "0.1.0",
-        reader: {
-          async retrieveDijieRolePackage(input) {
+        reader: testDijieRolePackageReader({
+          async retrieve(input) {
             expect(input).toEqual({
               packageId: "pkg_product_image_qc",
               packageVersion: "0.1.0",
             });
             return packageRecord();
           },
-        },
+        }),
       }) as never,
       res as never,
     );
@@ -146,11 +135,11 @@ describe("GET /vendor/dijie/role-packages/:packageId/download", () => {
       request({
         actorId: "marketplace_owner_001",
         actorType: "marketplace_owner",
-        reader: {
-          async retrieveDijieRolePackage() {
+        reader: testDijieRolePackageReader({
+          async retrieve() {
             return packageRecord();
           },
-        },
+        }),
       }) as never,
       res as never,
     );
@@ -168,11 +157,11 @@ describe("GET /vendor/dijie/role-packages/:packageId/download", () => {
           accountLevel: "operator",
           dataScopes: ["package:pkg_product_image_qc"],
         },
-        reader: {
-          async retrieveDijieRolePackage() {
+        reader: testDijieRolePackageReader({
+          async retrieve() {
             return packageRecord();
           },
-        },
+        }),
       }) as never,
       res as never,
     );
@@ -186,11 +175,11 @@ describe("GET /vendor/dijie/role-packages/:packageId/download", () => {
     await GET(
       request({
         actorId: "member_other",
-        reader: {
-          async retrieveDijieRolePackage() {
+        reader: testDijieRolePackageReader({
+          async retrieve() {
             return packageRecord();
           },
-        },
+        }),
       }) as never,
       res as never,
     );
@@ -208,11 +197,11 @@ describe("GET /vendor/dijie/role-packages/:packageId/download", () => {
     await GET(
       request({
         actorId: "member_123",
-        reader: {
-          async retrieveDijieRolePackage() {
+        reader: testDijieRolePackageReader({
+          async retrieve() {
             return undefined;
           },
-        },
+        }),
       }) as never,
       res as never,
     );

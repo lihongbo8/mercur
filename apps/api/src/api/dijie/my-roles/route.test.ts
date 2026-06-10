@@ -232,66 +232,22 @@ describe("GET /dijie/my-roles", () => {
     expect(res.body).toMatchObject({ ok: false });
   });
 
-  it("returns roles installed through paid marketplace orders", async () => {
+  it("does not show paid marketplace orders before local entitlement materializes", async () => {
     const res = response();
     await GET(request("cus_001") as never, res as never);
 
     expect(res.statusCode).toBe(200);
-    expect(res.body).toMatchObject({
-      ok: true,
-      roles: [
-        {
-          entitlementId: "ordgrp_001",
-          entitlementSource: "order_group",
-          orderId: "order_001",
-          role: {
-            id: "prod_role_developer",
-            title: "开发岗位",
-            packageId: "pkg_developer",
-            packageVersion: "1.0.0",
-            roleTokenPricing: {
-              inputTokenCentsPerMillion: 120,
-              outputTokenCentsPerMillion: 360,
-              currency: "CNY",
-            },
-            tokenUsageSummary: {
-              inputTokenFee: "¥1.20/百万 Token",
-              outputTokenFee: "¥3.60/百万 Token",
-            },
-          },
-        },
-      ],
-    });
+    expect(res.body).toEqual({ ok: true, roles: [] });
     expect(JSON.stringify(res.body)).not.toContain("developerReceivableBps");
     expect(JSON.stringify(res.body)).not.toContain("platformFeeBps");
   });
 
-  it("returns authorized roles from stored RoleListing records", async () => {
+  it("does not show stored RoleListing orders before local entitlement materializes", async () => {
     const res = response();
     await GET(storedListingRequest("cus_001") as never, res as never);
 
     expect(res.statusCode).toBe(200);
-    expect(res.body).toMatchObject({
-      ok: true,
-      roles: [
-        {
-          entitlementId: "ordgrp_zero",
-          entitlementSource: "order_group",
-          orderId: "order_zero",
-          role: {
-            id: "djrole_image_qc",
-            title: "商品图检查岗位",
-            packageId: "pkg_product_image_qc",
-            packageVersion: "0.1.0",
-            capabilities: ["workspace.read", "image.inspect"],
-            tokenUsageSummary: {
-              inputTokenFee: "¥1.20/百万 Token",
-              outputTokenFee: "¥3.60/百万 Token",
-            },
-          },
-        },
-      ],
-    });
+    expect(res.body).toEqual({ ok: true, roles: [] });
     expect(JSON.stringify(res.body)).not.toContain("developerReceivableBps");
     expect(JSON.stringify(res.body)).not.toContain("platformFeeBps");
   });

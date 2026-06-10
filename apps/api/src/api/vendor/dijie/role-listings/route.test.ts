@@ -5,6 +5,15 @@ import type {
   DijieRoleListingStore,
 } from "../../../../lib/dijie/role-listing-store";
 import type { DijieRolePackageReader } from "../../../../lib/dijie/role-package-store";
+import {
+  testDijieRoleListingReader,
+  testDijieRoleListingStorageRecord,
+  testDijieRoleListingStore,
+  testDijieRolePackageReader,
+  testDijieRolePackageStorageRecord,
+  testDijieRoleTokenPricing,
+  testUsageInstructions,
+} from "../../../../lib/dijie/test-fixtures.test";
 
 type TestResponse = {
   statusCode: number;
@@ -28,36 +37,8 @@ function response(): TestResponse {
   };
 }
 
-function rolePackage() {
-  return {
-    package_id: "pkg_product_image_qc",
-    package_version: "0.1.0",
-    owner_id: "member_123",
-    uploaded_at: new Date(),
-    manifest_summary: {
-      entrypoint: "role_package/adapters/openclaw-adapter.ts",
-      manifestRef: "role_package/manifest.json",
-      name: "商品图检查岗位",
-      permissions: ["workspace.read"],
-      requiredCapabilities: ["workspace.read", "image.inspect"],
-      fileCount: 1,
-    },
-    file_manifest: [],
-    package_files: [],
-    validation_issues: null,
-  };
-}
-
-const roleTokenPricing = {
-  inputTokenCentsPerMillion: 120,
-  outputTokenCentsPerMillion: 360,
-  currency: "CNY" as const,
-  developerReceivableBps: 10000,
-  platformFeeBps: 0,
-};
-
-const usageInstructions =
-  "使用者需要提供商品图、目标平台、品牌卖点和人工确认标准后再发起任务。";
+const roleTokenPricing = testDijieRoleTokenPricing();
+const usageInstructions = testUsageInstructions;
 
 function request(input: {
   body: unknown;
@@ -92,36 +73,22 @@ function request(input: {
 }
 
 function storedListing() {
-  return {
-    id: "djrole_123",
-    package_id: "pkg_product_image_qc",
-    package_version: "0.1.0",
-    owner_id: "member_123",
-    developer_ref: "sel_001",
-    listing_owner_ref: "sel_001",
-    billing_beneficiary_ref: "sel_001",
-    title: "商品图检查岗位",
+  return testDijieRoleListingStorageRecord({
     subtitle: "检查商品图片质量",
     description: "输出图片质量问题和修改建议。",
-    usage_instructions: usageInstructions,
     category: "视觉质检",
-    listing_status: "proposed" as const,
-    review_state: "submitted" as const,
-    capabilities: ["workspace.read", "image.inspect"],
-    manifest_summary: rolePackage().manifest_summary,
+    listing_status: "proposed",
+    review_state: "submitted",
     pricing: {
-      kind: "one_time_authorization" as const,
+      kind: "one_time_authorization",
       authorizationFeeCents: 29900,
-      currency: "CNY" as const,
+      currency: "CNY",
       platformFeeBps: 0,
       developerReceivableCents: 29900,
     },
-    role_token_pricing: roleTokenPricing,
-    scopes: ["role.execute", "audit.write"],
     confirmation_points: 2,
     submitted_at: new Date("2026-06-04T01:00:00.000Z"),
-    published_at: null,
-  };
+  });
 }
 
 describe("POST /vendor/dijie/role-listings", () => {
@@ -140,12 +107,14 @@ describe("POST /vendor/dijie/role-listings", () => {
           roleTokenPricing,
         },
         service: {
+          ...testDijieRolePackageReader(),
+          ...testDijieRoleListingStore(),
           async retrieveDijieRolePackage(input) {
             expect(input).toEqual({
               packageId: "pkg_product_image_qc",
               packageVersion: "0.1.0",
             });
-            return rolePackage();
+            return testDijieRolePackageStorageRecord();
           },
           async createDijieRoleListing(input) {
             expect(input).toMatchObject({
@@ -162,44 +131,9 @@ describe("POST /vendor/dijie/role-listings", () => {
               ok: true,
               value: {
                 roleListingId: "djrole_123",
-                listing: {
-                  id: "djrole_123",
-                  package_id: "pkg_product_image_qc",
-                  package_version: "0.1.0",
-                  owner_id: "member_123",
-                  developer_ref: "sel_001",
-                  listing_owner_ref: "sel_001",
-                  billing_beneficiary_ref: "sel_001",
-                  title: "商品图检查岗位",
-                  subtitle: null,
-                  description: null,
-                  usage_instructions: usageInstructions,
-                  category: null,
-                  listing_status: "draft",
-                  review_state: "draft",
-                  capabilities: ["workspace.read", "image.inspect"],
-                  manifest_summary: rolePackage().manifest_summary,
-                  pricing: {
-                    kind: "one_time_authorization",
-                    authorizationFeeCents: 0,
-                    currency: "CNY",
-                    platformFeeBps: 0,
-                    developerReceivableCents: 0,
-                  },
-                  role_token_pricing: roleTokenPricing,
-                  scopes: ["role.execute", "audit.write"],
-                  confirmation_points: 0,
-                  submitted_at: null,
-                  published_at: null,
-                },
+                listing: testDijieRoleListingStorageRecord(),
               },
             };
-          },
-          async updateDijieRoleListingDraft() {
-            throw new Error("not used");
-          },
-          async submitDijieRoleListingForReview() {
-            throw new Error("not used");
           },
         },
       }) as never,
@@ -231,17 +165,10 @@ describe("POST /vendor/dijie/role-listings", () => {
           usageInstructions,
         },
         service: {
+          ...testDijieRolePackageReader(),
+          ...testDijieRoleListingStore(),
           async retrieveDijieRolePackage() {
-            return rolePackage();
-          },
-          async createDijieRoleListing() {
-            throw new Error("must not create");
-          },
-          async updateDijieRoleListingDraft() {
-            throw new Error("not used");
-          },
-          async submitDijieRoleListingForReview() {
-            throw new Error("not used");
+            return testDijieRolePackageStorageRecord();
           },
         },
       }) as never,
@@ -281,18 +208,15 @@ describe("GET /vendor/dijie/role-listings", () => {
         actorId: "member_123",
         sellerId: "sel_001",
         body: {},
-        service: {
-          async retrieveDijieRoleListing() {
-            throw new Error("not used");
-          },
-          async listDijieStoredRoleListings(input) {
+        service: testDijieRoleListingReader({
+          async list(input) {
             expect(input).toEqual({
               developerRef: "sel_001",
               take: 100,
             });
             return [storedListing()];
           },
-        },
+        }),
       }) as never,
       res as never,
     );

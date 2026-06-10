@@ -491,6 +491,22 @@ describe("POST /vendor/dijie/role-packages/generate", () => {
       },
       manifestSummary: {
         name: "智能门锁电商美工岗位",
+        requiredSkills: expect.arrayContaining([
+          expect.objectContaining({
+            catalogRef: "skill.platform.visual_main_image_inspection",
+            status: "bindable",
+          }),
+        ]),
+        requiredTools: expect.arrayContaining([
+          expect.objectContaining({
+            catalogRef: "tool.platform.image_inspector",
+            status: "bindable",
+          }),
+        ]),
+      },
+      roleCapabilityPlan: {
+        status: "platform_ready",
+        gaps: [],
       },
       qualityReport: {
         ok: true,
@@ -498,6 +514,25 @@ describe("POST /vendor/dijie/role-packages/generate", () => {
       },
     });
     expect(drafts).toHaveLength(1);
+    const manifest = JSON.parse(
+      (drafts[0].package_files as Array<{ path: string; content: string }>).find(
+        (file) => file.path === "role_package/manifest.json",
+      )?.content ?? "{}",
+    );
+    expect(manifest.requiredSkills).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          catalogRef: "skill.platform.visual_main_image_inspection",
+        }),
+      ]),
+    );
+    expect(manifest.requiredTools).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          catalogRef: "tool.platform.image_inspector",
+        }),
+      ]),
+    );
     expect(JSON.stringify(res.body)).not.toContain("Bearer");
     expect(JSON.stringify(res.body)).not.toContain("API key");
   });

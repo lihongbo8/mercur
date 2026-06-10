@@ -105,6 +105,69 @@ function paidService(result: unknown, calls: unknown[] = []) {
   };
 }
 
+function paidLedgerService(options: {
+  authorizationResult: unknown;
+  authorizationCalls?: unknown[];
+  existingLedgerEntries?: unknown[];
+  ledgerCalls?: unknown[];
+}) {
+  const authorizationCalls = options.authorizationCalls ?? [];
+  const ledgerCalls = options.ledgerCalls ?? [];
+  return {
+    async authorizeDijieRoleListing() {
+      throw new Error("paid route should not use zero-price authorization");
+    },
+    async authorizeDijiePaidRoleListing(input: unknown) {
+      authorizationCalls.push(input);
+      return options.authorizationResult;
+    },
+    async listDijieLedgerEntriesForAccount() {
+      return options.existingLedgerEntries ?? [];
+    },
+    async createDijieLedgerEntry(input: unknown) {
+      ledgerCalls.push(input);
+      return {
+        ok: true,
+        value: {
+          ledgerEntry: {
+            id: "djledger_auth_1",
+            account_id: "cus_001",
+            billing_account_id: "cus_001",
+            source: "role_marketplace",
+            usage_kind: "install",
+            surface: "buyer_storefront",
+            mode: "user",
+            subject: {
+              eventKind: "role_authorization",
+              orderId: "ordgrp_paid_1",
+              roleListingId: "djrole_paid",
+              packageId: "pkg_paid_role",
+              entitlementId: "djent_paid_1",
+            },
+            meters: [{ name: "role_authorization", quantity: 1, unit: "authorization" }],
+            currency: "CNY",
+            gross_amount_cents: 29900,
+            platform_receivable_cents: 0,
+            developer_receivable_cents: 29900,
+            model_provider: null,
+            model_id: null,
+            model_pricing_known: false,
+            model_pricing_source: null,
+            provider_cost_cents: null,
+            provider_cost_currency: null,
+            role_listing_id: "djrole_paid",
+            package_id: "pkg_paid_role",
+            execution_id: null,
+            entitlement_id: "djent_paid_1",
+            developer_ref: "member_paid",
+            occurred_at: new Date("2026-06-04T01:00:00.000Z"),
+          },
+        },
+      };
+    },
+  };
+}
+
 function paidOrderQueryGraph(options: { paid?: boolean; customerId?: string } = {}) {
   return async ({ entity, filters }: {
     entity: string;
@@ -361,6 +424,146 @@ describe("POST /dijie/authorizations", () => {
       ok: false,
       code: undefined,
       error: "No paid one-time role authorization was found for this customer.",
+    });
+  });
+
+  it("writes a marketplace authorization ledger after paid checkout entitlement materializes", async () => {
+    const authorizationCalls: unknown[] = [];
+    const ledgerCalls: unknown[] = [];
+    const res = response();
+    await POST(
+      request({
+        actorId: "cus_001",
+        roleListingId: "djrole_paid",
+        orderId: "ordgrp_paid_1",
+        queryGraph: paidOrderQueryGraph(),
+        service: paidLedgerService({
+          authorizationCalls,
+          ledgerCalls,
+          authorizationResult: {
+            ok: true,
+            value: {
+              entitlementId: "djent_paid_1",
+              entitlement: {
+                id: "djent_paid_1",
+                actor_id: "cus_001",
+                role_listing_id: "djrole_paid",
+                package_id: "pkg_paid_role",
+                package_version: "1.2.0",
+                developer_ref: "member_paid",
+                listing_owner_ref: "seller_paid",
+                billing_beneficiary_ref: "member_paid",
+                entitlement_status: "authorized",
+                source: "checkout",
+                order_id: "ordgrp_paid_1",
+                pricing: paidPricing,
+                role_token_pricing: roleTokenPricing,
+                authorized_at: new Date("2026-06-04T01:00:00.000Z"),
+              },
+            },
+          },
+        }),
+      }) as never,
+      res as never,
+    );
+
+    expect(res.statusCode).toBe(200);
+    expect(authorizationCalls).toHaveLength(1);
+    expect(ledgerCalls).toEqual([
+      {
+        accountId: "cus_001",
+        billingAccountId: "cus_001",
+        source: "role_marketplace",
+        usageKind: "install",
+        surface: "buyer_storefront",
+        mode: "user",
+        subject: {
+          eventKind: "role_authorization",
+          orderId: "ordgrp_paid_1",
+          roleListingId: "djrole_paid",
+          packageId: "pkg_paid_role",
+          entitlementId: "djent_paid_1",
+        },
+        meters: [{ name: "role_authorization", quantity: 1, unit: "authorization" }],
+        currency: "CNY",
+        grossAmountCents: 29900,
+        platformReceivableCents: 0,
+        developerReceivableCents: 29900,
+        roleListingId: "djrole_paid",
+        packageId: "pkg_paid_role",
+        entitlementId: "djent_paid_1",
+        developerRef: "member_paid",
+        occurredAt: new Date("2026-06-04T01:00:00.000Z"),
+      },
+    ]);
+    expect(res.body).toMatchObject({
+      ok: true,
+      ledgerEntry: {
+        id: "djledger_auth_1",
+        source: "role_marketplace",
+        usageKind: "install",
+        roleListingId: "djrole_paid",
+        entitlementId: "djent_paid_1",
+        grossAmountCents: 29900,
+        developerReceivableCents: 29900,
+      },
+    });
+  });
+
+  it("does not duplicate marketplace authorization ledger entries for repeated paid callbacks", async () => {
+    const ledgerCalls: unknown[] = [];
+    const res = response();
+    await POST(
+      request({
+        actorId: "cus_001",
+        roleListingId: "djrole_paid",
+        orderId: "ordgrp_paid_1",
+        queryGraph: paidOrderQueryGraph(),
+        service: paidLedgerService({
+          ledgerCalls,
+          existingLedgerEntries: [
+            {
+              id: "djledger_existing",
+              account_id: "cus_001",
+              billing_account_id: "cus_001",
+              source: "role_marketplace",
+              usage_kind: "install",
+              role_listing_id: "djrole_paid",
+              entitlement_id: "djent_paid_1",
+            },
+          ],
+          authorizationResult: {
+            ok: true,
+            value: {
+              entitlementId: "djent_paid_1",
+              entitlement: {
+                id: "djent_paid_1",
+                actor_id: "cus_001",
+                role_listing_id: "djrole_paid",
+                package_id: "pkg_paid_role",
+                package_version: "1.2.0",
+                developer_ref: "member_paid",
+                listing_owner_ref: "seller_paid",
+                billing_beneficiary_ref: "member_paid",
+                entitlement_status: "authorized",
+                source: "checkout",
+                order_id: "ordgrp_paid_1",
+                pricing: paidPricing,
+                role_token_pricing: roleTokenPricing,
+                authorized_at: new Date("2026-06-04T01:00:00.000Z"),
+              },
+            },
+          },
+        }),
+      }) as never,
+      res as never,
+    );
+
+    expect(res.statusCode).toBe(200);
+    expect(ledgerCalls).toHaveLength(0);
+    expect(res.body).toMatchObject({
+      ok: true,
+      entitlementId: "djent_paid_1",
     });
   });
 });

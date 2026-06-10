@@ -2,6 +2,8 @@ import { describe, expect, it } from "bun:test";
 import {
   createDijieRoleListingDraftRecord,
   createDijieRoleListingWithRepository,
+  delistDijieRoleListingWithRepository,
+  publishDijieRoleListingWithRepository,
   submitDijieRoleListingForReviewWithRepository,
   updateDijieRoleListingDraftWithRepository,
   type DijieRoleListingStorageRecord,
@@ -185,6 +187,84 @@ describe("Dijie role listing store", () => {
         listing: {
           listing_status: "proposed",
           review_state: "submitted",
+        },
+      },
+    });
+  });
+
+  it("publishes an approved listing", async () => {
+    const result = await publishDijieRoleListingWithRepository(
+      {
+        async listDijieRoleListings() {
+          return [
+            draftListing({
+              listing_status: "delisted",
+              review_state: "approved",
+            }),
+          ];
+        },
+        async updateDijieRoleListings(data) {
+          return {
+            ...draftListing({
+              listing_status: "delisted",
+              review_state: "approved",
+            }),
+            ...data,
+          };
+        },
+      },
+      {
+        roleListingId: "djrole_123",
+        ownerId: "member_123",
+      },
+    );
+
+    expect(result).toMatchObject({
+      ok: true,
+      value: {
+        listing: {
+          listing_status: "published",
+          review_state: "approved",
+        },
+      },
+    });
+  });
+
+  it("delists a published approved listing", async () => {
+    const result = await delistDijieRoleListingWithRepository(
+      {
+        async listDijieRoleListings() {
+          return [
+            draftListing({
+              listing_status: "published",
+              review_state: "approved",
+              published_at: new Date("2026-06-09T10:00:00.000Z"),
+            }),
+          ];
+        },
+        async updateDijieRoleListings(data) {
+          return {
+            ...draftListing({
+              listing_status: "published",
+              review_state: "approved",
+            }),
+            ...data,
+          };
+        },
+      },
+      {
+        roleListingId: "djrole_123",
+        ownerId: "member_123",
+      },
+    );
+
+    expect(result).toMatchObject({
+      ok: true,
+      value: {
+        listing: {
+          listing_status: "delisted",
+          review_state: "approved",
+          published_at: null,
         },
       },
     });
