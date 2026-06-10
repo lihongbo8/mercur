@@ -325,6 +325,8 @@ execution token 必须固化以下业务快照，后续审计、结算、争议�
   - `surface=developer_center`：开发者中心 AI 对话；当消息是岗位包生成意图时会生成并保存 `role_package` 草稿。
   - `surface=admin_review`：平台审核助手/审核员工作台；只辅助总结、查缺失、评估风险和起草意见，不自动改变审核结果。
   - `surface=openclaw_local`：本地主系统桥接入口，仅允许具备本地主系统权限的账号。
+- `POST /dijie/dialog/messages/stream`
+  - 开发者中心普通对话优先使用的 SSE 入口；先返回 `status`，真流式可用时返回多个 `delta`，模型等待或流式失败时返回 `fallback`，最终返回与 `/dijie/dialog/messages` 同结构的 `final`。
 - `POST /vendor/dijie/role-packages/generate`
   - 开发者中心岗位包生成的专用兼容入口，内部使用同一个 `resolveDijieOpenClawDialogModelBridge()`。
 
@@ -335,10 +337,17 @@ DIJIE_OPENCLAW_MODEL_BRIDGE=cli
 DIJIE_OPENCLAW_CLI_PATH=openclaw
 DIJIE_OPENCLAW_MODEL_BRIDGE_EXECUTION=local
 DIJIE_OPENCLAW_MODEL=<provider/model>
+DIJIE_OPENCLAW_FAST_MODEL=<provider/fast-model>
 DIJIE_OPENCLAW_MODEL_TIMEOUT_MS=1800000
+DIJIE_OPENAI_STREAMING_ENABLED=true
+DIJIE_OPENAI_API_KEY=<openai-api-key>
+DIJIE_OPENAI_MODEL=<provider/model>
+DIJIE_OPENAI_FAST_MODEL=<provider/fast-model>
 ```
 
 也可以通过依赖注入注册 `DIJIE_OPENCLAW_MODEL_BRIDGE`，只要对象暴露 `completeDijieDialogMessage()` 方法。环境变量方式和依赖注入方式必须返回同一类安全响应：只回传 assistant reply 和脱敏后的 usage；不能把 provider key、raw model request/response、cloud bearer、execution token、本地绝对路径或 OpenClaw raw stdout/stderr 写入对话、草稿、审核记录或审计记录。
+
+开发者中心普通对话会向模型桥传入 `latencyClass=fast_interaction`。CLI 桥在配置了 `DIJIE_OPENCLAW_FAST_MODEL` 时优先使用快模型；未配置时保持 `DIJIE_OPENCLAW_MODEL` 原行为。真 token 流式不走当前 OpenClaw CLI 的完整 JSON 输出路径，而是在 `DIJIE_OPENAI_STREAMING_ENABLED=true` 且配置 OpenAI API key 时使用 Responses API streaming；收到 `response.output_text.delta` 后转成 SSE `delta`。岗位包生成仍走强模型/默认模型路径和完整 JSON 校验。
 
 岗位包生成不是一次性等待完整 JSON。`generateDijieRolePackageDraftWithModel()` 默认每次只推进一个 role_package 文件阶段，并在阶段完成后保存 `partial` 草稿；调用方只有显式传入 `maxStages` 时才会在同一请求内推进多个阶段。`partial` 草稿只能继续生成，不能进入上传承接；全部文件生成并通过上传校验、质量校验后才变为 `ready`。
 

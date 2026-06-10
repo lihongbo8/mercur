@@ -616,6 +616,8 @@ export async function POST(req: MedusaRequest, res: MedusaResponse) {
         ? await modelBridge.completeDijieDialogMessage({
             context: dialogContext,
             billingPolicy: fallbackReply.billingPolicy,
+            latencyClass:
+              dialogContext.surface === "developer_center" ? "fast_interaction" : "standard",
             message: buildSurfacePrompt({
               context: dialogContext,
               capabilityPolicy,

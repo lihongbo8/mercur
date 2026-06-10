@@ -28,14 +28,27 @@ export type DijieOpenClawDialogModelResult = {
   usage: DijieDialogModelUsage | Record<string, unknown>;
 };
 
+export type DijieOpenClawDialogModelInput = {
+  context: DijieDialogContext;
+  billingPolicy: DijieDialogBillingPolicy;
+  latencyClass?: "fast_interaction" | "standard" | "deep_generation";
+  message: string;
+  fallbackReply: string;
+  roles: Array<Pick<DijieRoleListing, "id" | "title" | "subtitle" | "handle">>;
+};
+
+export type DijieOpenClawDialogModelStreamHandlers = {
+  onDelta?: (text: string) => void;
+};
+
 export type DijieOpenClawDialogModelBridge = {
-  completeDijieDialogMessage: (input: {
-    context: DijieDialogContext;
-    billingPolicy: DijieDialogBillingPolicy;
-    message: string;
-    fallbackReply: string;
-    roles: Array<Pick<DijieRoleListing, "id" | "title" | "subtitle" | "handle">>;
-  }) => Promise<DijieOpenClawDialogModelResult>;
+  completeDijieDialogMessage: (
+    input: DijieOpenClawDialogModelInput,
+  ) => Promise<DijieOpenClawDialogModelResult>;
+  streamDijieDialogMessage?: (
+    input: DijieOpenClawDialogModelInput,
+    handlers?: DijieOpenClawDialogModelStreamHandlers,
+  ) => Promise<DijieOpenClawDialogModelResult>;
 };
 
 export const DIJIE_OPENCLAW_MODEL_BRIDGE = "dijie_openclaw_model_bridge";

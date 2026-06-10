@@ -2,12 +2,23 @@ import { describe, expect, it } from "bun:test";
 import { DIJIE_AUDIT_MODULE } from "../../../../lib/dijie/audit-store";
 import { DIJIE_OPENCLAW_MODEL_BRIDGE } from "../../../../lib/dijie/dialog-model-bridge";
 import { POST } from "./route";
+import { POST as POST_STREAM } from "./stream/route";
 
 type TestResponse = {
   statusCode: number;
   body: unknown;
   status: (statusCode: number) => TestResponse;
   json: (body: unknown) => unknown;
+};
+
+type TestStreamResponse = TestResponse & {
+  headers: Record<string, string>;
+  chunks: string[];
+  ended: boolean;
+  setHeader: (name: string, value: string) => void;
+  write: (chunk: string) => void;
+  end: () => void;
+  flushHeaders: () => void;
 };
 
 function response(): TestResponse {
@@ -21,6 +32,27 @@ function response(): TestResponse {
     json(body: unknown) {
       this.body = body;
       return body;
+    },
+  };
+}
+
+function streamResponse(): TestStreamResponse {
+  return {
+    ...response(),
+    headers: {},
+    chunks: [],
+    ended: false,
+    setHeader(name: string, value: string) {
+      this.headers[name] = value;
+    },
+    write(chunk: string) {
+      this.chunks.push(chunk);
+    },
+    end() {
+      this.ended = true;
+    },
+    flushHeaders() {
+      return undefined;
     },
   };
 }
@@ -498,6 +530,171 @@ describe("POST /dijie/dialog/messages", () => {
     });
     expect(JSON.stringify(res.body)).toContain("生成岗位包");
     expect(bridgeCalls).toBe(1);
+  });
+
+  it("streams developer center dialog status before the final model-backed response", async () => {
+    const res = streamResponse();
+    let bridgeCalls = 0;
+
+    await POST_STREAM(
+      request(
+        {
+          surface: "developer_center",
+          message: "我这个岗位能力标准怎么拆？",
+        },
+        { actor_id: "acct_user" },
+        {
+          completeDijieDialogMessage: async (input: { latencyClass?: string }) => {
+            bridgeCalls += 1;
+            expect(input.latencyClass).toBe("fast_interaction");
+            return {
+              reply: "可以拆成日常管理标准和岗位能力标准两层。",
+              usage: {
+                provider: "openai",
+                model: "gpt-5.4",
+                promptTokens: 800,
+                completionTokens: 120,
+                totalTokens: 920,
+                pricing: {
+                  pricingKnown: true,
+                  pricingSource: "platform_review_config",
+                  grossAmountCents: 2,
+                  platformReceivableCents: 2,
+                  developerReceivableCents: 0,
+                },
+              },
+            };
+          },
+        },
+      ) as never,
+      res as never,
+    );
+
+    const stream = res.chunks.join("");
+    expect(res.statusCode).toBe(200);
+    expect(res.headers["Content-Type"]).toContain("text/event-stream");
+    expect(stream).toContain("event: status");
+    expect(stream).toContain("event: final");
+    expect(stream).toContain("可以拆成日常管理标准和岗位能力标准两层");
+    expect(stream).toContain("\"modelCalled\":true");
+    expect(res.ended).toBe(true);
+    expect(bridgeCalls).toBe(1);
+  });
+
+  it("streams developer center model deltas before the final response", async () => {
+    const res = streamResponse();
+    let streamCalls = 0;
+    let completeCalls = 0;
+
+    await POST_STREAM(
+      request(
+        {
+          surface: "developer_center",
+          message: "普通问题要真流式回答",
+        },
+        { actor_id: "acct_user" },
+        {
+          completeDijieDialogMessage: async () => {
+            completeCalls += 1;
+            return {
+              reply: "不应该走完整回复。",
+              usage: null,
+            };
+          },
+          streamDijieDialogMessage: async (
+            input: { latencyClass?: string },
+            handlers?: { onDelta?: (text: string) => void },
+          ) => {
+            streamCalls += 1;
+            expect(input.latencyClass).toBe("fast_interaction");
+            handlers?.onDelta?.("第一段");
+            handlers?.onDelta?.("第二段");
+            return {
+              reply: "第一段第二段",
+              usage: {
+                provider: "openai",
+                model: "gpt-fast",
+                promptTokens: 100,
+                completionTokens: 20,
+                totalTokens: 120,
+                pricing: {
+                  pricingKnown: true,
+                  pricingSource: "platform_review_config",
+                  grossAmountCents: 1,
+                  platformReceivableCents: 1,
+                  developerReceivableCents: 0,
+                },
+              },
+            };
+          },
+        },
+      ) as never,
+      res as never,
+    );
+
+    const stream = res.chunks.join("");
+    expect(res.statusCode).toBe(200);
+    expect(stream.indexOf("event: status")).toBeLessThan(stream.indexOf("event: delta"));
+    expect(stream).toContain("event: delta");
+    expect(stream).toContain("\"text\":\"第一段\"");
+    expect(stream).toContain("\"text\":\"第二段\"");
+    expect(stream).toContain("event: final");
+    expect(stream.indexOf("event: delta")).toBeLessThan(stream.indexOf("event: final"));
+    expect(stream).toContain("第一段第二段");
+    expect(streamCalls).toBe(1);
+    expect(completeCalls).toBe(0);
+  });
+
+  it("falls back to complete response when developer dialog streaming fails", async () => {
+    const res = streamResponse();
+    let streamCalls = 0;
+    let completeCalls = 0;
+
+    await POST_STREAM(
+      request(
+        {
+          surface: "developer_center",
+          message: "流式失败时要降级",
+        },
+        { actor_id: "acct_user" },
+        {
+          completeDijieDialogMessage: async () => {
+            completeCalls += 1;
+            return {
+              reply: "完整回复兜底成功。",
+              usage: {
+                provider: "openai",
+                model: "gpt-5.4",
+                promptTokens: 100,
+                completionTokens: 20,
+                totalTokens: 120,
+                pricing: {
+                  pricingKnown: true,
+                  pricingSource: "platform_review_config",
+                  grossAmountCents: 1,
+                  platformReceivableCents: 1,
+                  developerReceivableCents: 0,
+                },
+              },
+            };
+          },
+          streamDijieDialogMessage: async () => {
+            streamCalls += 1;
+            throw new Error("stream failed");
+          },
+        },
+      ) as never,
+      res as never,
+    );
+
+    const stream = res.chunks.join("");
+    expect(res.statusCode).toBe(200);
+    expect(stream).toContain("event: fallback");
+    expect(stream).toContain("stream_fallback");
+    expect(stream).toContain("event: final");
+    expect(stream).toContain("完整回复兜底成功");
+    expect(streamCalls).toBe(1);
+    expect(completeCalls).toBe(1);
   });
 
   it("returns developer navigation actions without spending a model call for pure navigation", async () => {

@@ -7,6 +7,7 @@ import {
   fetchLatestDijieRolePackageDraftQuery,
   generateDijieRolePackageDraftQuery,
   sendDijieDeveloperDialogMessageQuery,
+  streamDijieDeveloperDialogMessageQuery,
 } from "@lib/client";
 
 type RolePackageDraftSummary = {
@@ -35,6 +36,11 @@ type DialogResponse = {
     content?: string;
   };
   actions?: DialogAction[];
+};
+
+type DialogStreamStatus = {
+  message?: unknown;
+  text?: unknown;
 };
 
 type DialogAction = {
@@ -171,9 +177,6 @@ const estimateRemainingGenerationTime = (remainingFiles: number) =>
     remainingFiles * ROLE_PACKAGE_EXPECTED_SECONDS_PER_FILE_MIN,
     remainingFiles * ROLE_PACKAGE_EXPECTED_SECONDS_PER_FILE_MAX,
   );
-
-const isNavigationIntent = (text: string) =>
-  /(打开|进入|查看|去|跳到|回到|返回|带我到|带我去|我要到|我要去|上传|上架).*(开发对话|对话|销售|订单|结算|分账|能力|工具|上传|上架|审核|岗位商品|商品|开发者资料|账户资料|资料)|\b(dialog|chat|home|products?|listings?|upload|create|orders?|sales?|payouts?|settlements?|capabilities|resources|tools?|profile|settings)\b/u.test(text.toLowerCase());
 
 const isNegatedGenerationIntent = (text: string) =>
   /(?:不要|不需要|无需|先别|别|勿|禁止).{0,12}(?:生成|创建|开发|输出|写出).{0,12}(?:岗位包|role_package|文件|manifest|skill|sop|template|validation)/u.test(text);
@@ -380,6 +383,12 @@ const isAbortError = (error: unknown) =>
   error instanceof Error &&
   (error.name === "AbortError" || /aborted|abort/i.test(error.message));
 
+const textFromDialogStreamStatus = (data: DialogStreamStatus, fallback: string) =>
+  typeof data.message === "string" && data.message.trim() ? data.message.trim() : fallback;
+
+const textFromDialogStreamDelta = (data: DialogStreamStatus) =>
+  typeof data.text === "string" ? data.text : "";
+
 export const DeveloperAiPanel = ({ compact = false }: { compact?: boolean }) => {
   const navigate = useNavigate();
   const [draft, setDraft] = useState("");
@@ -392,7 +401,7 @@ export const DeveloperAiPanel = ({ compact = false }: { compact?: boolean }) => 
   const [requirementNotes, setRequirementNotes] = useState<string[]>([]);
   const [skippedRequirementFields, setSkippedRequirementFields] = useState<string[]>([]);
   const [activeController, setActiveController] = useState<AbortController | null>(null);
-  const abortReasonRef = useRef<"manual" | null>(null);
+  const abortReasonRef = useRef<"manual" | "timeout" | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -462,7 +471,7 @@ export const DeveloperAiPanel = ({ compact = false }: { compact?: boolean }) => 
       return "待命";
     }
     if (runningMode === "dialog") {
-      return "正在调用 OpenClaw 模型回答开发问题。";
+      return "正在理解并生成回答；模型慢时会先显示等待状态。";
     }
     const savedFiles = Math.min(rolePackageDraft?.fileCount ?? 0, ROLE_PACKAGE_REQUIRED_FILE_COUNT);
     const remainingFiles = Math.max(ROLE_PACKAGE_REQUIRED_FILE_COUNT - savedFiles, 0);
@@ -480,7 +489,17 @@ export const DeveloperAiPanel = ({ compact = false }: { compact?: boolean }) => 
   }, [elapsedSeconds, rolePackageDraft, running, runningMode]);
 
   const appendMessage = (message: Omit<DeveloperMessage, "id">) => {
-    setMessages((current) => [...current, { id: createMessageId(), ...message }]);
+    const id = createMessageId();
+    setMessages((current) => [...current, { id, ...message }]);
+    return id;
+  };
+
+  const updateMessageText = (messageId: string, text: string) => {
+    setMessages((current) =>
+      current.map((message) =>
+        message.id === messageId ? { ...message, text } : message,
+      ),
+    );
   };
 
   const handleCancel = () => {
@@ -680,22 +699,75 @@ export const DeveloperAiPanel = ({ compact = false }: { compact?: boolean }) => 
 
     const controller = new AbortController();
     setActiveController(controller);
-    const timeoutId = window.setTimeout(() => {
-      abortReasonRef.current = "timeout";
-      controller.abort();
-    }, DIALOG_REQUEST_TIMEOUT_MS);
     setRunning(true);
     setRunningMode("dialog");
     setStartedAt(Date.now());
+    const assistantMessageId = appendMessage({
+      role: "assistant",
+      text: "我在理解你的意思，会先保持对话不断线。",
+    });
     try {
-      const result = (await sendDijieDeveloperDialogMessageQuery(text, controller.signal)) as DialogResponse;
-      appendMessage({
-        role: "assistant",
-        text:
-          result.message?.content ??
+      let result: DialogResponse | undefined;
+      let streamedText = "";
+
+      try {
+        result = (await streamDijieDeveloperDialogMessageQuery(
+          text,
+          {
+            onStatus: (data) => {
+              if (streamedText) {
+                return;
+              }
+              updateMessageText(
+                assistantMessageId,
+                textFromDialogStreamStatus(data, "我在理解你的意思，会先保持对话不断线。"),
+              );
+            },
+            onFallback: (data) => {
+              if (streamedText) {
+                return;
+              }
+              updateMessageText(
+                assistantMessageId,
+                textFromDialogStreamStatus(
+                  data,
+                  "这个问题需要稍微分析，我会继续等模型完成，不让对话卡死。",
+                ),
+              );
+            },
+            onDelta: (data) => {
+              const delta = textFromDialogStreamDelta(data);
+              if (!delta) {
+                return;
+              }
+              streamedText += delta;
+              updateMessageText(assistantMessageId, streamedText);
+            },
+          },
+          controller.signal,
+        )) as DialogResponse | undefined;
+      } catch (streamError) {
+        if (isAbortError(streamError)) {
+          throw streamError;
+        }
+        updateMessageText(assistantMessageId, "流式通道暂不可用，我切回兼容模式继续回答。");
+        const timeoutId = window.setTimeout(() => {
+          abortReasonRef.current = "timeout";
+          controller.abort();
+        }, DIALOG_REQUEST_TIMEOUT_MS);
+        try {
+          result = (await sendDijieDeveloperDialogMessageQuery(text, controller.signal)) as DialogResponse;
+        } finally {
+          window.clearTimeout(timeoutId);
+        }
+      }
+
+      updateMessageText(
+        assistantMessageId,
+        result?.message?.content ??
           "已记录。低风险导航可以直接执行；发布、改价、结算确认会等待你确认。",
-      });
-      const lowRiskAction = result.actions?.find(
+      );
+      const lowRiskAction = result?.actions?.find(
         (item) => item.kind === "navigate" && item.path && !item.requiresConfirmation,
       );
       if (lowRiskAction) {
@@ -705,21 +777,21 @@ export const DeveloperAiPanel = ({ compact = false }: { compact?: boolean }) => 
       }
     } catch (error) {
       if (navigationTarget) {
-        runLowRiskAction(navigationTarget.path, navigationTarget.message);
+        updateMessageText(assistantMessageId, navigationTarget.message);
+        navigate(navigationTarget.path);
       } else {
-        appendMessage({
-          role: "assistant",
-          text: isAbortError(error)
+        updateMessageText(
+          assistantMessageId,
+          isAbortError(error)
             ? abortReasonRef.current === "timeout"
               ? `开发助手等待模型超过 ${Math.floor(DIALOG_REQUEST_TIMEOUT_MS / 1000)} 秒，已停止本次回答。`
               : "已停止当前开发助手回答。"
             : `开发助手暂时无法调用模型：${
                 error instanceof Error && error.message ? error.message : "请稍后重试。"
               }`,
-        });
+        );
       }
     } finally {
-      window.clearTimeout(timeoutId);
       abortReasonRef.current = null;
       setActiveController(null);
       setRunning(false);
@@ -776,7 +848,9 @@ export const DeveloperAiPanel = ({ compact = false }: { compact?: boolean }) => 
         <div className="flex items-center justify-between gap-x-3">
           <Text className="txt-compact-small text-ui-fg-subtle">
             {running
-              ? "岗位包生成是长任务，可能需要十几到二十多分钟；完成一个文件就保存一次，可停止后继续。"
+              ? runningMode === "dialog"
+                ? "普通对话会先保持连接，模型完成后补全回答；可停止。"
+                : "岗位包生成是长任务，可能需要十几到二十多分钟；完成一个文件就保存一次，可停止后继续。"
               : "长规格会作为岗位包生成输入，不会只做关键词导航。"}
           </Text>
           <Button
