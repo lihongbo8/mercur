@@ -24,7 +24,64 @@ function response(): TestResponse {
   };
 }
 
-function draft(input?: { ownerId?: string; status?: "partial" | "ready" | "blocked" | "submitted" }) {
+function packageFiles() {
+  return [
+    {
+      path: "role_package/manifest.json",
+      content: JSON.stringify({
+        manifestVersion: 1,
+        rolePackageId: "visual_smart_lock_designer",
+        version: "1.0.0",
+        name: "智能门锁电商美工岗位",
+        entrypoint: "role_package/README.md",
+        permissions: ["role.execute"],
+        requiredCapabilities: ["image.inspect", "human.confirm"],
+        files: [],
+      }),
+      sha256: "sha-manifest",
+      sizeBytes: 128,
+    },
+    {
+      path: "role_package/README.md",
+      content: "岗位定位：负责智能门锁电商视觉巡检。",
+      sha256: "sha-readme",
+      sizeBytes: 96,
+    },
+    {
+      path: "role_package/listing.md",
+      content: "商城展示说明。",
+      sha256: "sha-listing",
+      sizeBytes: 64,
+    },
+    {
+      path: "role_package/validation/smoke-test.md",
+      content: "验收样例。",
+      sha256: "sha-validation",
+      sizeBytes: 64,
+    },
+  ];
+}
+
+function fileConfirmations(files = packageFiles()) {
+  return Object.fromEntries(
+    files.map((file) => [
+      file.path,
+      {
+        path: file.path,
+        sha256: file.sha256,
+        confirmed_at: "2026-06-05T02:00:00.000Z",
+        confirmed_by: "acct_dev",
+      },
+    ]),
+  );
+}
+
+function draft(input?: {
+  ownerId?: string;
+  status?: "partial" | "ready" | "blocked" | "submitted";
+  confirmed?: boolean;
+}) {
+  const files = packageFiles();
   return {
     id: "djdraft_1",
     owner_id: input?.ownerId ?? "acct_dev",
@@ -38,43 +95,19 @@ function draft(input?: { ownerId?: string; status?: "partial" | "ready" | "block
       manifestRef: "role_package/manifest.json",
       requiredCapabilities: ["image.inspect", "human.confirm"],
       permissions: ["role.execute"],
-      fileCount: 2,
+      fileCount: files.length,
     },
-    file_manifest: [
-      {
-        path: "role_package/manifest.json",
-        sha256: "sha256",
-        sizeBytes: 128,
-      },
-      {
-        path: "role_package/README.md",
-        sha256: "sha256-readme",
-        sizeBytes: 256,
-      },
-    ],
-    package_files: [
-      {
-        path: "role_package/manifest.json",
-        content: JSON.stringify({
-          manifestVersion: 1,
-          rolePackageId: "visual_smart_lock_designer",
-          version: "1.0.0",
-          name: "智能门锁电商美工岗位",
-          entrypoint: "role_package/README.md",
-          permissions: ["role.execute"],
-          requiredCapabilities: ["image.inspect", "human.confirm"],
-          files: [],
-        }),
-      },
-      {
-        path: "role_package/README.md",
-        content: "岗位定位：负责智能门锁电商视觉巡检。",
-      },
-    ],
+    file_manifest: files.map((file) => ({
+      path: file.path,
+      sha256: file.sha256,
+      sizeBytes: file.sizeBytes,
+    })),
+    package_files: files,
     capability_report: { ok: true, results: [], blockedReasons: [] },
     quality_report: { ok: true, score: 100, requiredChecks: [], blockingIssues: [] },
     upload_validation_issues: [],
     blocking_issues: input?.status === "blocked" ? ["缺少主图巡检 skill"] : [],
+    file_confirmations: input?.confirmed === false ? {} : fileConfirmations(files),
     model_usage: null,
     submitted_package_id: null,
   };
@@ -179,6 +212,31 @@ describe("POST /vendor/dijie/role-packages/drafts/:draftId/submit", () => {
       draft: {
         status: "blocked",
         blockingIssues: ["缺少主图巡检 skill"],
+      },
+    });
+  });
+
+  it("requires every generated draft file to be confirmed before submit", async () => {
+    const res = response();
+
+    await POST(
+      request({ draftRecord: draft({ confirmed: false }) }) as never,
+      res as never,
+    );
+
+    expect(res.statusCode).toBe(409);
+    expect(res.body).toMatchObject({
+      ok: false,
+      error: "岗位包草稿还没有完成开发者逐文件确认，不能提交。",
+      unconfirmedFiles: expect.arrayContaining([
+        "role_package/manifest.json",
+        "role_package/README.md",
+      ]),
+      draft: {
+        confirmationStatus: {
+          allConfirmed: false,
+          confirmedFileCount: 0,
+        },
       },
     });
   });

@@ -166,6 +166,19 @@ const useColumns = () => {
         ),
       }),
       columnHelper.display({
+        id: "role_category",
+        header: () => (
+          <div className="flex h-full w-full items-center">
+            <span className="truncate">岗位分类</span>
+          </div>
+        ),
+        cell: ({ row }) => (
+          <span className="txt-compact-small truncate text-ui-fg-subtle">
+            {row.original.category || "-"}
+          </span>
+        ),
+      }),
+      columnHelper.display({
         id: "authorization_fee",
         header: () => (
           <div className="flex h-full w-full items-center">

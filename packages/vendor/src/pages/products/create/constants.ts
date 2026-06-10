@@ -86,6 +86,7 @@ export const ProductCreateBaseSchema = z.object({
     .string()
     .min(1, "请输入输出 Token 使用费")
     .regex(/^\d+$/, "请输入整数分/百万 Token"),
+  role_category: z.string().optional(),
   role_capabilities: z.string().optional(),
   role_required_capabilities: z.string().optional(),
   role_manifest_ref: z
@@ -107,9 +108,7 @@ export const ProductCreateBaseSchema = z.object({
   type_id: z.string().optional(),
   collection_id: z.string().optional(),
   shipping_profile_id: z.string().optional(),
-  categories: z
-    .array(z.string())
-    .min(1, i18n.t("products.create.errors.primaryCategoryRequired")),
+  categories: z.array(z.string()).optional(),
   secondary_categories: z.array(z.string()).optional(),
   tags: z.array(z.string()).optional(),
   sales_channels: z
@@ -136,6 +135,25 @@ export const ProductCreateBaseSchema = z.object({
 
 export const ProductCreateSchema = ProductCreateBaseSchema.superRefine(
   (data, ctx) => {
+    const isAicsRoleListing = Boolean(
+      data.role_package_id && data.role_package_version,
+    );
+    if (isAicsRoleListing) {
+      if (!data.role_category?.trim()) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["role_category"],
+          message: "请选择岗位分类",
+        });
+      }
+    } else if (!data.categories || data.categories.length < 1) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["categories"],
+        message: i18n.t("products.create.errors.primaryCategoryRequired"),
+      });
+    }
+
     if (data.variants.every((v) => !v.should_create)) {
       return ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -205,6 +223,7 @@ export const PRODUCT_CREATE_FORM_DEFAULTS: Partial<
   role_usage_instructions: "",
   role_input_token_price_cents_per_million: "",
   role_output_token_price_cents_per_million: "",
+  role_category: "",
   role_capabilities: "",
   role_required_capabilities: "",
   role_manifest_ref: "",

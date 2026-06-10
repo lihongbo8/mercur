@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import type { DijieCapabilityMatchReport } from "./capability-bridge";
 import type { DijieDialogModelUsage } from "./dialog-model-bridge";
 import type { DijieRolePackageQualityReport } from "./role-package-quality";
@@ -7,6 +8,18 @@ import type {
 } from "./role-package-upload";
 
 export type DijieRolePackageDraftStatus = "partial" | "ready" | "blocked" | "submitted";
+
+export type DijieRolePackageDraftFileConfirmation = {
+  path: string;
+  sha256: string;
+  confirmed_at: string;
+  confirmed_by: string;
+};
+
+export type DijieRolePackageDraftFileConfirmations = Record<
+  string,
+  DijieRolePackageDraftFileConfirmation
+>;
 
 export type DijieRolePackageDraftStorageRecord = {
   owner_id: string;
@@ -22,6 +35,7 @@ export type DijieRolePackageDraftStorageRecord = {
   quality_report: DijieRolePackageQualityReport;
   upload_validation_issues: string[];
   blocking_issues: string[];
+  file_confirmations?: DijieRolePackageDraftFileConfirmations | null;
   model_usage: DijieDialogModelUsage | null;
   submitted_package_id: string | null;
 };
@@ -74,8 +88,17 @@ export type DijieRolePackageDraftStore = {
     qualityReport: DijieRolePackageQualityReport;
     uploadValidationIssues: string[];
     blockingIssues: string[];
+    fileConfirmations?: DijieRolePackageDraftFileConfirmations | null;
     modelUsage: DijieDialogModelUsage | null;
   }) => Promise<{ ok: true } | { ok: false; status: number; error: string }>;
+  confirmDijieRolePackageDraftFile: (input: {
+    draftId: string;
+    ownerId: string;
+    path: string;
+  }) => Promise<
+    | { ok: true; confirmation: DijieRolePackageDraftFileConfirmation }
+    | { ok: false; status: number; error: string }
+  >;
   markDijieRolePackageDraftSubmitted: (input: {
     draftId: string;
     ownerId: string;
@@ -93,12 +116,120 @@ export type DijieRolePackageDraftReader = {
   }) => Promise<(DijieRolePackageDraftStorageRecord & { id?: string }) | undefined>;
 };
 
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function stringField(record: Record<string, unknown>, field: string): string | undefined {
+  const value = record[field];
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function sha256(content: string): string {
+  return crypto.createHash("sha256").update(content).digest("hex");
+}
+
+function fileSha256(file: DijieRolePackageUploadFile): string | undefined {
+  return file.sha256 ?? (typeof file.content === "string" ? sha256(file.content) : undefined);
+}
+
 function fileManifest(files: DijieRolePackageUploadFile[]) {
   return files.map((file) => ({
     path: file.path,
-    ...(file.sha256 ? { sha256: file.sha256 } : {}),
+    ...(fileSha256(file) ? { sha256: fileSha256(file) } : {}),
     ...(file.sizeBytes !== undefined ? { sizeBytes: file.sizeBytes } : {}),
   }));
+}
+
+function normalizeFileConfirmations(
+  value: unknown,
+): DijieRolePackageDraftFileConfirmations {
+  const source = asRecord(value);
+  const normalized: DijieRolePackageDraftFileConfirmations = {};
+
+  for (const [key, entry] of Object.entries(source)) {
+    const record = asRecord(entry);
+    const path = stringField(record, "path") ?? key;
+    const digest = stringField(record, "sha256");
+    const confirmedAt = stringField(record, "confirmed_at");
+    const confirmedBy = stringField(record, "confirmed_by");
+    if (!path || !digest || !confirmedAt || !confirmedBy) {
+      continue;
+    }
+    normalized[path] = {
+      path,
+      sha256: digest,
+      confirmed_at: confirmedAt,
+      confirmed_by: confirmedBy,
+    };
+  }
+
+  return normalized;
+}
+
+export function getDijieRolePackageDraftConfirmationStatus(
+  record: DijieRolePackageDraftStorageRecord & { id?: string },
+  requiredPaths?: readonly string[],
+) {
+  const confirmations = normalizeFileConfirmations(record.file_confirmations);
+  const filesByPath = new Map(record.package_files.map((file) => [file.path, file]));
+  const required = requiredPaths?.length
+    ? [...new Set(requiredPaths)]
+    : record.file_manifest.map((file) => file.path);
+  const confirmedFiles: string[] = [];
+  const unconfirmedFiles: string[] = [];
+  const missingFiles: string[] = [];
+
+  for (const path of required) {
+    const file = filesByPath.get(path);
+    if (!file) {
+      missingFiles.push(path);
+      unconfirmedFiles.push(path);
+      continue;
+    }
+    const currentDigest = fileSha256(file);
+    const confirmation = confirmations[path];
+    if (currentDigest && confirmation?.sha256 === currentDigest) {
+      confirmedFiles.push(path);
+    } else {
+      unconfirmedFiles.push(path);
+    }
+  }
+
+  return {
+    requiredFileCount: required.length,
+    confirmedFileCount: confirmedFiles.length,
+    confirmedFiles,
+    unconfirmedFiles,
+    missingFiles,
+    allConfirmed: required.length > 0 && unconfirmedFiles.length === 0 && missingFiles.length === 0,
+  };
+}
+
+export function pruneDijieRolePackageDraftFileConfirmations(input: {
+  files: DijieRolePackageUploadFile[];
+  confirmations?: DijieRolePackageDraftFileConfirmations | null;
+  clearPaths?: string[];
+}): DijieRolePackageDraftFileConfirmations {
+  const confirmations = normalizeFileConfirmations(input.confirmations);
+  const clearPaths = new Set(input.clearPaths ?? []);
+  const filesByPath = new Map(input.files.map((file) => [file.path, file]));
+  const pruned: DijieRolePackageDraftFileConfirmations = {};
+
+  for (const [path, confirmation] of Object.entries(confirmations)) {
+    const file = filesByPath.get(path);
+    if (!file || clearPaths.has(path)) {
+      continue;
+    }
+    const currentDigest = fileSha256(file);
+    if (currentDigest && confirmation.sha256 === currentDigest) {
+      pruned[path] = confirmation;
+    }
+  }
+
+  return pruned;
 }
 
 export async function createDijieRolePackageDraftWithRepository(
@@ -121,6 +252,7 @@ export async function createDijieRolePackageDraftWithRepository(
     quality_report: input.qualityReport,
     upload_validation_issues: input.uploadValidationIssues,
     blocking_issues: [...new Set(blockingIssues)],
+    file_confirmations: {},
     model_usage: input.modelUsage,
     submitted_package_id: null,
   });
@@ -154,9 +286,52 @@ export async function updateDijieRolePackageDraftWithRepository(
     quality_report: input.qualityReport,
     upload_validation_issues: input.uploadValidationIssues,
     blocking_issues: [...new Set(blockingIssues)],
+    ...(input.fileConfirmations !== undefined
+      ? { file_confirmations: input.fileConfirmations ?? {} }
+      : {}),
     model_usage: input.modelUsage,
   });
   return { ok: true as const };
+}
+
+export async function confirmDijieRolePackageDraftFileWithRepository(
+  repository: DijieRolePackageDraftLookupRepository & DijieRolePackageDraftUpdateRepository,
+  input: { draftId: string; ownerId: string; path: string },
+) {
+  const record = await retrieveDijieRolePackageDraftWithRepository(repository, input);
+  if (!record) {
+    return { ok: false as const, status: 404, error: "未找到岗位包草稿。" };
+  }
+  if (record.draft_status === "submitted") {
+    return { ok: false as const, status: 409, error: "岗位包草稿已提交，不能继续确认。" };
+  }
+  if (record.draft_status !== "ready" || record.blocking_issues.length > 0) {
+    return { ok: false as const, status: 409, error: "岗位包草稿未通过验收，不能确认文件。" };
+  }
+  const file = record.package_files.find((entry) => entry.path === input.path);
+  const digest = file ? fileSha256(file) : undefined;
+  if (!file || !digest) {
+    return { ok: false as const, status: 404, error: "未找到可确认的草稿文件。" };
+  }
+
+  const confirmation: DijieRolePackageDraftFileConfirmation = {
+    path: input.path,
+    sha256: digest,
+    confirmed_at: new Date().toISOString(),
+    confirmed_by: input.ownerId,
+  };
+  await repository.updateDijieRolePackageDrafts({
+    id: input.draftId,
+    file_confirmations: {
+      ...pruneDijieRolePackageDraftFileConfirmations({
+        files: record.package_files,
+        confirmations: record.file_confirmations,
+      }),
+      [input.path]: confirmation,
+    },
+  });
+
+  return { ok: true as const, confirmation };
 }
 
 export async function retrieveLatestDijieRolePackageDraftWithRepository(
@@ -202,6 +377,7 @@ export async function markDijieRolePackageDraftSubmittedWithRepository(
 
 export function createDijieRolePackageDraftReadModel(
   record: DijieRolePackageDraftStorageRecord & { id?: string },
+  requiredPaths?: readonly string[],
 ) {
   return {
     draftId: record.id,
@@ -215,11 +391,43 @@ export function createDijieRolePackageDraftReadModel(
     manifestSummary: record.manifest_summary,
     fileCount: record.file_manifest.length,
     files: record.file_manifest,
+    confirmationStatus: getDijieRolePackageDraftConfirmationStatus(record, requiredPaths),
     capabilityReport: record.capability_report,
     qualityReport: record.quality_report,
     uploadValidationIssues: record.upload_validation_issues,
     blockingIssues: record.blocking_issues,
     modelUsage: record.model_usage,
     submittedPackageId: record.submitted_package_id,
+  };
+}
+
+export function createDijieRolePackageDraftDetailReadModel(
+  record: DijieRolePackageDraftStorageRecord & { id?: string },
+  requiredPaths?: readonly string[],
+) {
+  const confirmations = normalizeFileConfirmations(record.file_confirmations);
+  const files = record.package_files.map((file) => {
+    const digest = fileSha256(file);
+    const confirmation = confirmations[file.path];
+    const confirmed = Boolean(digest && confirmation?.sha256 === digest);
+    return {
+      path: file.path,
+      content: file.content ?? "",
+      ...(digest ? { sha256: digest } : {}),
+      ...(file.sizeBytes !== undefined
+        ? { sizeBytes: file.sizeBytes }
+        : typeof file.content === "string"
+          ? { sizeBytes: Buffer.byteLength(file.content) }
+          : {}),
+      confirmed,
+      confirmedAt: confirmed ? confirmation.confirmed_at : null,
+      confirmedBy: confirmed ? confirmation.confirmed_by : null,
+    };
+  });
+
+  return {
+    ...createDijieRolePackageDraftReadModel(record, requiredPaths),
+    files,
+    confirmationStatus: getDijieRolePackageDraftConfirmationStatus(record, requiredPaths),
   };
 }

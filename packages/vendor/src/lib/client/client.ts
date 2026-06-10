@@ -8,7 +8,20 @@ const resolveBackendUrl = () => {
     typeof window !== 'undefined' ? window.location.origin : undefined
 
   if (!configured) {
-    return browserOrigin ?? 'http://localhost:9000'
+    if (browserOrigin) {
+      try {
+        const originUrl = new URL(browserOrigin)
+        if (['7001', '5173'].includes(originUrl.port)) {
+          originUrl.port = '9000'
+          return originUrl.origin
+        }
+      } catch {
+        // Fall through to the static local backend default.
+      }
+      return browserOrigin
+    }
+
+    return 'http://localhost:9000'
   }
 
   if (!browserOrigin) {
@@ -124,7 +137,7 @@ export const fetchQuery = async (
     sellerScoped,
     signal,
   }: {
-    method: 'GET' | 'POST' | 'DELETE'
+    method: 'GET' | 'POST' | 'PATCH' | 'DELETE'
     body?: object
     query?: Record<string, string | number | object>
     headers?: { [key: string]: string }
@@ -254,6 +267,39 @@ export const fetchLatestDijieRolePackageDraftQuery = async () => {
     method: 'GET',
     sellerScoped: true,
   })
+}
+
+export const fetchDijieRolePackageDraftQuery = async (draftId: string) => {
+  return fetchQuery(`/vendor/dijie/role-packages/drafts/${encodeURIComponent(draftId)}`, {
+    method: 'GET',
+    sellerScoped: true,
+  })
+}
+
+export const updateDijieRolePackageDraftFileQuery = async (
+  draftId: string,
+  path: string,
+  content: string
+) => {
+  return fetchQuery(`/vendor/dijie/role-packages/drafts/${encodeURIComponent(draftId)}/files`, {
+    method: 'PATCH',
+    body: { path, content },
+    sellerScoped: true,
+  })
+}
+
+export const confirmDijieRolePackageDraftFileQuery = async (
+  draftId: string,
+  path: string
+) => {
+  return fetchQuery(
+    `/vendor/dijie/role-packages/drafts/${encodeURIComponent(draftId)}/files/confirm`,
+    {
+      method: 'POST',
+      body: { path },
+      sellerScoped: true,
+    }
+  )
 }
 
 export const submitDijieRolePackageDraftQuery = async (draftId: string) => {

@@ -1,5 +1,8 @@
 import type { MedusaRequest, MedusaResponse } from "@medusajs/framework/http";
-import { createDijieRolePackageDraftReadModel } from "../../../../../../../lib/dijie/role-package-draft-store";
+import {
+  createDijieRolePackageDraftReadModel,
+  getDijieRolePackageDraftConfirmationStatus,
+} from "../../../../../../../lib/dijie/role-package-draft-store";
 import {
   actorIdFromRequest,
   resolveRolePackageDraftStore,
@@ -47,6 +50,19 @@ export async function POST(req: MedusaRequest, res: MedusaResponse) {
       ok: false,
       error: "岗位包草稿未通过验收，不能提交。",
       draft: createDijieRolePackageDraftReadModel(draft),
+    });
+  }
+  const confirmationStatus = getDijieRolePackageDraftConfirmationStatus(draft);
+  if (!confirmationStatus.allConfirmed) {
+    return res.status(409).json({
+      ok: false,
+      error: "岗位包草稿还没有完成开发者逐文件确认，不能提交。",
+      unconfirmedFiles: confirmationStatus.unconfirmedFiles,
+      missingFiles: confirmationStatus.missingFiles,
+      draft: {
+        ...createDijieRolePackageDraftReadModel(draft),
+        confirmationStatus,
+      },
     });
   }
 

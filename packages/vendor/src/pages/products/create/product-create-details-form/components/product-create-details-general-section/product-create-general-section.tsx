@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import {
   Button,
   Input,
+  Select,
   StatusBadge,
   Text,
   Textarea,
@@ -18,8 +19,11 @@ import {
 import { Form } from "@components/common/form";
 import { useTabbedForm } from "@components/tabbed-form";
 import {
+  confirmDijieRolePackageDraftFileQuery,
+  fetchDijieRolePackageDraftQuery,
   fetchLatestDijieRolePackageDraftQuery,
   submitDijieRolePackageDraftQuery,
+  updateDijieRolePackageDraftFileQuery,
   uploadDijieRolePackageQuery,
 } from "@lib/client";
 import { ProductCreateSchemaType } from "../../../types";
@@ -30,6 +34,16 @@ const ROLE_PACKAGE_REQUIRED_MESSAGE = "请先上传岗位资料包。";
 const ROLE_PACKAGE_INVALID_MESSAGE = "岗位资料包无法用于上架，请重新上传。";
 const PLATFORM_TOKEN_PRICE_HINT =
   "开发者可自行定价；提交时后端会按平台成本和上限倍率做硬限制。";
+
+const ROLE_CATEGORIES = [
+  "电商美工",
+  "客服运营",
+  "数据分析",
+  "文档处理",
+  "图片生成",
+  "运营增长",
+  "其他",
+];
 
 const ROLE_PACKAGE_STATUS_COLOR = {
   检查中: "orange",
@@ -69,6 +83,30 @@ type RolePackageDraftSummary = {
     ok?: boolean;
   };
   blockingIssues?: string[];
+  confirmationStatus?: RolePackageDraftConfirmationStatus;
+};
+
+type RolePackageDraftConfirmationStatus = {
+  requiredFileCount?: number;
+  confirmedFileCount?: number;
+  confirmedFiles?: string[];
+  unconfirmedFiles?: string[];
+  missingFiles?: string[];
+  allConfirmed?: boolean;
+};
+
+type RolePackageDraftFile = {
+  path: string;
+  content: string;
+  sha256?: string;
+  sizeBytes?: number;
+  confirmed?: boolean;
+  confirmedAt?: string | null;
+  confirmedBy?: string | null;
+};
+
+type RolePackageDraftDetail = RolePackageDraftSummary & {
+  files: RolePackageDraftFile[];
 };
 
 const centsPerMillionHint = (value: unknown, baselineCents: number) => {
@@ -80,6 +118,39 @@ const centsPerMillionHint = (value: unknown, baselineCents: number) => {
     return "请输入整数分/百万 Token。";
   }
   return `${amount} 分/百万 Token = ¥${(amount / 100).toFixed(2)}/百万 Token。`;
+};
+
+const inferRoleCategory = (input: {
+  packageId?: string | null;
+  title?: string | null;
+  requiredCapabilities?: string[];
+}) => {
+  const text = [
+    input.packageId,
+    input.title,
+    ...(input.requiredCapabilities ?? []),
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+
+  if (/美工|主图|详情页|visual|design|image|图片/u.test(text)) {
+    return "电商美工";
+  }
+  if (/客服|customer|service|support/u.test(text)) {
+    return "客服运营";
+  }
+  if (/数据|分析|analytics|data/u.test(text)) {
+    return "数据分析";
+  }
+  if (/文档|document|doc|office/u.test(text)) {
+    return "文档处理";
+  }
+  if (/运营|growth|marketing/u.test(text)) {
+    return "运营增长";
+  }
+
+  return "其他";
 };
 
 const DeveloperModeStatus = ({ ready, running }: DeveloperModeStatusProps) => {
@@ -111,11 +182,39 @@ const DeveloperModeStatus = ({ ready, running }: DeveloperModeStatusProps) => {
 
 const LatestRolePackageDraftPanel = ({
   draft,
+  draftDetail,
   running,
+  detailRunning,
+  fileSaving,
+  fileConfirming,
+  selectedPath,
+  editorContent,
+  reviewMessage,
+  reviewError,
+  onLoadDraft,
+  onSelectPath,
+  onEditorContentChange,
+  onSaveFile,
+  onConfirmFile,
+  onConfirmAllFiles,
   onUseDraft,
 }: {
   draft: RolePackageDraftSummary | null;
+  draftDetail: RolePackageDraftDetail | null;
   running: boolean;
+  detailRunning: boolean;
+  fileSaving: boolean;
+  fileConfirming: boolean;
+  selectedPath?: string;
+  editorContent: string;
+  reviewMessage?: string;
+  reviewError?: string;
+  onLoadDraft: () => void;
+  onSelectPath: (path: string) => void;
+  onEditorContentChange: (content: string) => void;
+  onSaveFile: () => void;
+  onConfirmFile: () => void;
+  onConfirmAllFiles: () => void;
   onUseDraft: () => void;
 }) => {
   if (!draft) {
@@ -126,44 +225,161 @@ const LatestRolePackageDraftPanel = ({
   const ready = draft.status === "ready" && blockingCount === 0;
   const submitted = draft.status === "submitted";
   const blocked = draft.status === "blocked" || blockingCount > 0;
+  const confirmationStatus =
+    draftDetail?.confirmationStatus ?? draft.confirmationStatus;
+  const allConfirmed = Boolean(confirmationStatus?.allConfirmed);
+  const requiredFileCount =
+    confirmationStatus?.requiredFileCount ?? draft.fileCount ?? 0;
+  const confirmedFileCount = confirmationStatus?.confirmedFileCount ?? 0;
+  const files = draftDetail?.files ?? [];
+  const selectedFile =
+    files.find((file) => file.path === selectedPath) ?? files[0];
   const statusLabel = ready
-    ? "可承接"
+    ? allConfirmed
+      ? "可承接"
+      : "待确认"
     : submitted
       ? "已承接"
       : blocked
         ? "需修复"
         : "生成中";
   const statusColor = ready
-    ? "green"
+    ? allConfirmed
+      ? "green"
+      : "orange"
     : submitted
       ? "grey"
       : blocked
         ? "red"
-        : "orange";
+        : allConfirmed
+          ? "green"
+          : "orange";
 
   return (
-    <div className="flex flex-col gap-3 rounded-lg border border-ui-border-base bg-ui-bg-base px-4 py-3 shadow-elevation-card-rest md:flex-row md:items-center md:justify-between">
-      <div className="flex min-w-0 flex-col gap-y-1">
-        <div className="flex items-center gap-x-2">
-          <Text size="small" weight="plus">
-            AI 生成岗位包草稿
+    <div className="flex flex-col gap-3 rounded-lg border border-ui-border-base bg-ui-bg-base px-4 py-3 shadow-elevation-card-rest">
+      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div className="flex min-w-0 flex-col gap-y-1">
+          <div className="flex items-center gap-x-2">
+            <Text size="small" weight="plus">
+              AI 生成岗位包草稿
+            </Text>
+            <StatusBadge color={statusColor}>{statusLabel}</StatusBadge>
+            <StatusBadge color={allConfirmed ? "green" : "orange"}>
+              {confirmedFileCount}/{requiredFileCount} 已确认
+            </StatusBadge>
+          </div>
+          <Text size="xsmall" className="text-ui-fg-subtle">
+            {draft.packageId ?? draft.draftId} · {draft.fileCount ?? 0} 个文件 ·
+            质量评分 {draft.qualityReport?.score ?? 0}
           </Text>
-          <StatusBadge color={statusColor}>{statusLabel}</StatusBadge>
         </div>
-        <Text size="xsmall" className="text-ui-fg-subtle">
-          {draft.packageId ?? draft.draftId} · {draft.fileCount ?? 0} 个文件 ·
-          质量评分 {draft.qualityReport?.score ?? 0}
-        </Text>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            size="small"
+            variant="secondary"
+            type="button"
+            disabled={detailRunning || running || !draft.draftId}
+            onClick={onLoadDraft}
+          >
+            {detailRunning ? "读取中" : draftDetail ? "刷新文档" : "预览文档"}
+          </Button>
+          <Button
+            size="small"
+            variant="secondary"
+            type="button"
+            disabled={!ready || allConfirmed || fileConfirming || files.length === 0}
+            onClick={onConfirmAllFiles}
+          >
+            {fileConfirming ? "确认中" : "确认全部"}
+          </Button>
+          <Button
+            size="small"
+            variant="secondary"
+            type="button"
+            disabled={!ready || !allConfirmed || running}
+            onClick={onUseDraft}
+          >
+            {running ? "承接中" : "承接草稿"}
+          </Button>
+        </div>
       </div>
-      <Button
-        size="small"
-        variant="secondary"
-        type="button"
-        disabled={!ready || running}
-        onClick={onUseDraft}
-      >
-        {running ? "承接中" : "承接草稿"}
-      </Button>
+
+      {(reviewMessage || reviewError) && (
+        <Text
+          size="xsmall"
+          className={reviewError ? "text-ui-fg-error" : "text-ui-fg-subtle"}
+        >
+          {reviewError || reviewMessage}
+        </Text>
+      )}
+
+      {draftDetail && (
+        <div className="grid grid-cols-1 gap-3 border-t border-ui-border-base pt-3 md:grid-cols-[minmax(220px,280px)_1fr]">
+          <div className="flex max-h-[440px] flex-col gap-2 overflow-auto pr-1">
+            {files.map((file) => {
+              const active = file.path === selectedFile?.path;
+              return (
+                <button
+                  key={file.path}
+                  type="button"
+                  onClick={() => onSelectPath(file.path)}
+                  className={`flex min-h-11 items-center justify-between gap-3 rounded-md border px-3 text-left ${
+                    active
+                      ? "border-ui-border-interactive bg-ui-bg-subtle"
+                      : "border-ui-border-base bg-ui-bg-base"
+                  }`}
+                >
+                  <span className="min-w-0 truncate text-ui-fg-base text-xs">
+                    {file.path}
+                  </span>
+                  <StatusBadge color={file.confirmed ? "green" : "orange"}>
+                    {file.confirmed ? "已确认" : "待确认"}
+                  </StatusBadge>
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="flex min-w-0 flex-col gap-3">
+            <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+              <div className="min-w-0">
+                <Text size="small" weight="plus" className="truncate">
+                  {selectedFile?.path ?? "选择文件"}
+                </Text>
+                <Text size="xsmall" className="text-ui-fg-subtle">
+                  保存后会重新校验；内容变化会清空该文件确认。
+                </Text>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  size="small"
+                  variant="secondary"
+                  type="button"
+                  disabled={!selectedFile || fileSaving || submitted}
+                  onClick={onSaveFile}
+                >
+                  {fileSaving ? "保存中" : "保存修改"}
+                </Button>
+                <Button
+                  size="small"
+                  variant="secondary"
+                  type="button"
+                  disabled={!ready || !selectedFile || fileConfirming || selectedFile.confirmed}
+                  onClick={onConfirmFile}
+                >
+                  {fileConfirming ? "确认中" : "确认此文件"}
+                </Button>
+              </div>
+            </div>
+            <Textarea
+              value={editorContent}
+              onChange={(event) => onEditorContentChange(event.target.value)}
+              disabled={!selectedFile || submitted}
+              className="min-h-[360px] resize-y font-mono text-xs leading-5"
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -269,6 +485,15 @@ export const ProductCreateGeneralSection = () => {
   }>({ running: false });
   const [latestDraft, setLatestDraft] =
     useState<RolePackageDraftSummary | null>(null);
+  const [draftDetail, setDraftDetail] =
+    useState<RolePackageDraftDetail | null>(null);
+  const [draftDetailRunning, setDraftDetailRunning] = useState(false);
+  const [draftFileSaving, setDraftFileSaving] = useState(false);
+  const [draftFileConfirming, setDraftFileConfirming] = useState(false);
+  const [selectedDraftPath, setSelectedDraftPath] = useState<string>();
+  const [draftEditorContent, setDraftEditorContent] = useState("");
+  const [draftReviewMessage, setDraftReviewMessage] = useState<string>();
+  const [draftReviewError, setDraftReviewError] = useState<string>();
   const [draftSubmitRunning, setDraftSubmitRunning] = useState(false);
 
   useEffect(() => {
@@ -293,6 +518,22 @@ export const ProductCreateGeneralSection = () => {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (!draftDetail?.files.length) {
+      setSelectedDraftPath(undefined);
+      setDraftEditorContent("");
+      return;
+    }
+
+    const selectedFile =
+      draftDetail.files.find((file) => file.path === selectedDraftPath) ??
+      draftDetail.files[0];
+    if (selectedFile.path !== selectedDraftPath) {
+      setSelectedDraftPath(selectedFile.path);
+    }
+    setDraftEditorContent(selectedFile.content ?? "");
+  }, [draftDetail, selectedDraftPath]);
 
   const rolePackageReady = Boolean(
     form.watch("role_package_id") && form.watch("role_package_version"),
@@ -330,6 +571,148 @@ export const ProductCreateGeneralSection = () => {
     rolePackageUpload.error || rolePackageValidationError
       ? "text-ui-fg-error"
       : "text-ui-fg-subtle";
+
+  const applyDraftDetail = (draft: RolePackageDraftDetail) => {
+    setDraftDetail(draft);
+    setLatestDraft(draft);
+    setSelectedDraftPath((current) =>
+      current && draft.files.some((file) => file.path === current)
+        ? current
+        : draft.files[0]?.path,
+    );
+  };
+
+  const loadLatestDraftDetail = async () => {
+    if (!latestDraft?.draftId || draftDetailRunning) {
+      return;
+    }
+
+    setDraftDetailRunning(true);
+    setDraftReviewError(undefined);
+    setDraftReviewMessage(undefined);
+    try {
+      const result = (await fetchDijieRolePackageDraftQuery(
+        latestDraft.draftId,
+      )) as { draft?: RolePackageDraftDetail };
+      if (!result.draft) {
+        throw new Error("岗位包草稿详情返回不完整");
+      }
+      applyDraftDetail(result.draft);
+      setDraftReviewMessage("已读取草稿文档，请逐个检查并确认。");
+    } catch (error) {
+      setDraftReviewError(
+        error instanceof Error
+          ? error.message
+          : "岗位包草稿详情读取失败。",
+      );
+    } finally {
+      setDraftDetailRunning(false);
+    }
+  };
+
+  const handleSaveDraftFile = async () => {
+    if (
+      !draftDetail?.draftId ||
+      !selectedDraftPath ||
+      draftFileSaving ||
+      draftDetail.status === "submitted"
+    ) {
+      return;
+    }
+
+    setDraftFileSaving(true);
+    setDraftReviewError(undefined);
+    setDraftReviewMessage(undefined);
+    try {
+      const result = (await updateDijieRolePackageDraftFileQuery(
+        draftDetail.draftId,
+        selectedDraftPath,
+        draftEditorContent,
+      )) as { draft?: RolePackageDraftDetail };
+      if (!result.draft) {
+        throw new Error("岗位包草稿保存返回不完整");
+      }
+      applyDraftDetail(result.draft);
+      setDraftReviewMessage("已保存并重新校验，该文件需要重新确认。");
+    } catch (error) {
+      setDraftReviewError(
+        error instanceof Error ? error.message : "岗位包草稿保存失败。",
+      );
+    } finally {
+      setDraftFileSaving(false);
+    }
+  };
+
+  const handleConfirmDraftFile = async (path?: string) => {
+    const targetPath = path ?? selectedDraftPath;
+    if (!draftDetail?.draftId || !targetPath || draftFileConfirming) {
+      return;
+    }
+
+    setDraftFileConfirming(true);
+    setDraftReviewError(undefined);
+    setDraftReviewMessage(undefined);
+    try {
+      const result = (await confirmDijieRolePackageDraftFileQuery(
+        draftDetail.draftId,
+        targetPath,
+      )) as { draft?: RolePackageDraftDetail };
+      if (!result.draft) {
+        throw new Error("岗位包草稿确认返回不完整");
+      }
+      applyDraftDetail(result.draft);
+      setDraftReviewMessage("文件已确认。");
+    } catch (error) {
+      setDraftReviewError(
+        error instanceof Error ? error.message : "岗位包草稿文件确认失败。",
+      );
+    } finally {
+      setDraftFileConfirming(false);
+    }
+  };
+
+  const handleConfirmAllDraftFiles = async () => {
+    if (!draftDetail?.draftId || draftFileConfirming) {
+      return;
+    }
+
+    const availablePaths = new Set(draftDetail.files.map((file) => file.path));
+    const unconfirmedPaths =
+      draftDetail.confirmationStatus?.unconfirmedFiles?.filter((path) =>
+        availablePaths.has(path),
+      ) ??
+      draftDetail.files
+        .filter((file) => !file.confirmed)
+        .map((file) => file.path);
+    if (unconfirmedPaths.length === 0) {
+      return;
+    }
+
+    setDraftFileConfirming(true);
+    setDraftReviewError(undefined);
+    setDraftReviewMessage(undefined);
+    try {
+      let refreshed: RolePackageDraftDetail | undefined = draftDetail;
+      for (const path of unconfirmedPaths) {
+        const result = (await confirmDijieRolePackageDraftFileQuery(
+          draftDetail.draftId,
+          path,
+        )) as { draft?: RolePackageDraftDetail };
+        refreshed = result.draft ?? refreshed;
+      }
+      if (!refreshed) {
+        throw new Error("岗位包草稿确认返回不完整");
+      }
+      applyDraftDetail(refreshed);
+      setDraftReviewMessage("已确认全部可确认文件。");
+    } catch (error) {
+      setDraftReviewError(
+        error instanceof Error ? error.message : "岗位包草稿批量确认失败。",
+      );
+    } finally {
+      setDraftFileConfirming(false);
+    }
+  };
 
   const handleRolePackageUpload = async (
     event: ChangeEvent<HTMLInputElement>,
@@ -407,6 +790,20 @@ export const ProductCreateGeneralSection = () => {
           shouldValidate: true,
         });
       }
+      if (!form.getValues("role_category")?.trim()) {
+        form.setValue(
+          "role_category",
+          inferRoleCategory({
+            packageId: uploadedPackage.packageId,
+            title: manifestTitle,
+            requiredCapabilities: normalizedRequiredCapabilities,
+          }),
+          {
+            shouldDirty: true,
+            shouldValidate: true,
+          },
+        );
+      }
       form.setValue("role_listing_id", "", {
         shouldDirty: true,
         shouldValidate: false,
@@ -432,9 +829,20 @@ export const ProductCreateGeneralSection = () => {
     if (!latestDraft?.draftId || draftSubmitRunning) {
       return;
     }
+    const confirmationStatus =
+      draftDetail?.confirmationStatus ?? latestDraft.confirmationStatus;
+    if (!confirmationStatus?.allConfirmed) {
+      setDraftReviewError("请先预览并确认全部岗位包文档，再承接草稿。");
+      if (!draftDetail) {
+        void loadLatestDraftDetail();
+      }
+      return;
+    }
 
     setDraftSubmitRunning(true);
     setRolePackageUpload({ running: true });
+    setDraftReviewError(undefined);
+    setDraftReviewMessage(undefined);
     try {
       const result = (await submitDijieRolePackageDraftQuery(
         latestDraft.draftId,
@@ -479,6 +887,20 @@ export const ProductCreateGeneralSection = () => {
           shouldValidate: true,
         });
       }
+      if (!form.getValues("role_category")?.trim()) {
+        form.setValue(
+          "role_category",
+          inferRoleCategory({
+            packageId: result.packageId,
+            title: manifestTitle,
+            requiredCapabilities,
+          }),
+          {
+            shouldDirty: true,
+            shouldValidate: true,
+          },
+        );
+      }
       form.setValue("role_listing_id", "", {
         shouldDirty: true,
         shouldValidate: false,
@@ -491,11 +913,15 @@ export const ProductCreateGeneralSection = () => {
             : "AI 草稿已承接。请继续确认商品信息后手动提交审核。",
       });
       setLatestDraft({ ...latestDraft, status: "submitted" });
+      setDraftDetail(
+        draftDetail ? { ...draftDetail, status: "submitted" } : null,
+      );
     } catch {
       setRolePackageUpload({
         running: false,
         error: "AI 草稿承接失败，请重新生成或手动上传岗位资料包。",
       });
+      setDraftReviewError("AI 草稿承接失败，请检查文档确认状态和草稿校验结果。");
     } finally {
       setDraftSubmitRunning(false);
     }
@@ -505,7 +931,21 @@ export const ProductCreateGeneralSection = () => {
     <div id="general" className="flex flex-col gap-y-6">
       <LatestRolePackageDraftPanel
         draft={latestDraft}
+        draftDetail={draftDetail}
         running={draftSubmitRunning}
+        detailRunning={draftDetailRunning}
+        fileSaving={draftFileSaving}
+        fileConfirming={draftFileConfirming}
+        selectedPath={selectedDraftPath}
+        editorContent={draftEditorContent}
+        reviewMessage={draftReviewMessage}
+        reviewError={draftReviewError}
+        onLoadDraft={loadLatestDraftDetail}
+        onSelectPath={setSelectedDraftPath}
+        onEditorContentChange={setDraftEditorContent}
+        onSaveFile={handleSaveDraftFile}
+        onConfirmFile={() => void handleConfirmDraftFile()}
+        onConfirmAllFiles={handleConfirmAllDraftFiles}
         onUseDraft={handleUseLatestDraft}
       />
       <div className="flex flex-col gap-y-2">
@@ -588,6 +1028,43 @@ export const ProductCreateGeneralSection = () => {
               </Text>
               <Form.ErrorMessage>
                 {form.formState.errors.role_usage_instructions?.message}
+              </Form.ErrorMessage>
+            </Form.Item>
+          );
+        }}
+      />
+      <Form.Field
+        control={form.control}
+        name="role_category"
+        render={({ field: { ref, ...field } }) => {
+          const selectedCategory = ROLE_CATEGORIES.find(
+            (category) => category === field.value,
+          );
+
+          return (
+            <Form.Item>
+              <Form.Label>岗位分类</Form.Label>
+              <Form.Control>
+                <Select {...field} onValueChange={field.onChange}>
+                  <Select.Trigger ref={ref}>
+                    <Select.Value placeholder="请选择岗位分类">
+                      {selectedCategory}
+                    </Select.Value>
+                  </Select.Trigger>
+                  <Select.Content>
+                    {ROLE_CATEGORIES.map((category) => (
+                      <Select.Item key={category} value={category}>
+                        {category}
+                      </Select.Item>
+                    ))}
+                  </Select.Content>
+                </Select>
+              </Form.Control>
+              <Text size="xsmall" className="text-ui-fg-subtle">
+                岗位分类用于审核、商城浏览和使用者中心展示，不再使用普通商品分类。
+              </Text>
+              <Form.ErrorMessage>
+                {form.formState.errors.role_category?.message}
               </Form.ErrorMessage>
             </Form.Item>
           );
