@@ -3,6 +3,8 @@ import type {
   DijieRoleListingStorageRecord,
   DijieRoleListingUpdateRepository,
 } from "./role-listing-store";
+import { validateDijieRoleCapabilityIntegration } from "./role-capability-integration";
+import type { DijieRoleCategoryRegistry } from "./role-category-registry";
 
 export type DijieRoleReviewDecision = "pending" | "pass" | "needs_changes" | "reject";
 export type DijieRoleReviewFinalResult =
@@ -83,6 +85,7 @@ export type DijieRoleReviewStore = {
     reviewerId?: string;
     finalResult: DijieRoleReviewFinalResult;
     summary?: string | null;
+    categoryRegistry?: DijieRoleCategoryRegistry;
   }) => Promise<DijieRoleReviewMutationResult>;
 };
 
@@ -285,6 +288,7 @@ export async function finalizeDijieRoleReviewWithRepository(
     reviewerId?: string;
     finalResult: DijieRoleReviewFinalResult;
     summary?: string | null;
+    categoryRegistry?: DijieRoleCategoryRegistry;
   },
 ): Promise<DijieRoleReviewMutationResult> {
   const finalResult =
@@ -309,6 +313,23 @@ export async function finalizeDijieRoleReviewWithRepository(
   const canComplete = canFinalize(review, finalResult);
   if (!canComplete.ok) {
     return canComplete;
+  }
+  if (finalResult === "approved") {
+    const capabilityIntegration = validateDijieRoleCapabilityIntegration({
+      manifestSummary: listing.manifest_summary,
+      categoryRef: listing.category_ref,
+      category: listing.category,
+      categoryRegistry: input.categoryRegistry,
+    });
+    if (!capabilityIntegration.ok) {
+      return {
+        ok: false,
+        status: 409,
+        error:
+          capabilityIntegration.error ??
+          "岗位上架前必须绑定 approved 平台品类和基础品类包。",
+      };
+    }
   }
 
   const listingPatch = listingPatchForFinalResult(finalResult);

@@ -54,8 +54,44 @@ export type DijieRoleListing = {
     label: string;
     message: string;
   };
+  specialCapabilityRequests?: DijieSpecialCapabilityRequest[];
+  specialCapabilityBindings?: DijieSpecialCapabilityBinding[];
   allowedActions?: string[];
   statusReason?: string;
+};
+
+export type DijieSpecialCapabilityRequest = {
+  reviewId?: string;
+  reviewKey?: string;
+  catalogRef?: string | null;
+  need: string;
+  kind: string;
+  source: string;
+  status: "pending_review" | "approved" | "rejected" | "request_changes";
+  rolePackageId?: string | null;
+  roleListingId?: string | null;
+  requestedBy?: string | null;
+  submittedAt?: string | null;
+  reviewedAt?: string | null;
+  reviewedBy?: string | null;
+  reviewNote?: string | null;
+  candidate?: unknown;
+  riskSummary?: unknown;
+};
+
+export type DijieSpecialCapabilityBinding = {
+  bindingId?: string;
+  bindingKey?: string;
+  reviewRequestId?: string;
+  catalogRef: string;
+  need: string;
+  kind: string;
+  rolePackageId?: string | null;
+  roleListingId?: string | null;
+  categoryRef?: string | null;
+  status: "bound" | "disabled";
+  boundBy?: string | null;
+  boundAt?: string | null;
 };
 
 export type DijieRoleListingListResponse = {
@@ -71,6 +107,7 @@ export type CreateDijieRoleListingPayload = {
   description?: string;
   usageInstructions: string;
   category?: string;
+  categoryRef?: string;
   pricing?: {
     kind: "one_time_authorization";
     authorizationFeeCents: number;
@@ -94,6 +131,35 @@ export type DijieRoleListingMutationResponse = {
   listing: unknown;
 };
 
+export type BindDijieSpecialCapabilityPayload = {
+  reviewId: string;
+  roleListingId: string;
+};
+
+export type BindDijieSpecialCapabilityResponse = {
+  ok: boolean;
+  binding: DijieSpecialCapabilityBinding;
+};
+
+export type DijieRoleCategoryOption = {
+  categoryRef: string;
+  name: string;
+  version: string;
+  description?: string;
+  packBinding?: {
+    categoryPackRef: string;
+    skillPackRef: string;
+    toolPackRef: string;
+    inheritedCatalogRefCount: number;
+    inheritedCapabilityRefCount: number;
+  } | null;
+};
+
+export type DijieRoleCategoryListResponse = {
+  ok: boolean;
+  categories: DijieRoleCategoryOption[];
+};
+
 export const fetchDijieRoleListingsQuery = async () => {
   return fetchQuery("/vendor/dijie/role-listings", {
     method: "GET",
@@ -109,6 +175,13 @@ export const createDijieRoleListingQuery = async (
     body: payload,
     sellerScoped: true,
   }) as Promise<DijieRoleListingMutationResponse>;
+};
+
+export const fetchDijieRoleCategoriesQuery = async () => {
+  return fetchQuery("/vendor/dijie/role-categories", {
+    method: "GET",
+    sellerScoped: true,
+  }) as Promise<DijieRoleCategoryListResponse>;
 };
 
 export const submitDijieRoleListingReviewQuery = async (
@@ -141,6 +214,21 @@ export const delistDijieRoleListingQuery = async (roleListingId: string) => {
       sellerScoped: true,
     },
   ) as Promise<DijieRoleListingMutationResponse>;
+};
+
+export const bindDijieSpecialCapabilityQuery = async (
+  payload: BindDijieSpecialCapabilityPayload,
+) => {
+  return fetchQuery(
+    `/vendor/dijie/special-capability-requests/${encodeURIComponent(payload.reviewId)}/bind`,
+    {
+      method: "POST",
+      body: {
+        roleListingId: payload.roleListingId,
+      },
+      sellerScoped: true,
+    },
+  ) as Promise<BindDijieSpecialCapabilityResponse>;
 };
 
 export const useDijieRoleListings = (
@@ -213,6 +301,25 @@ export const useDelistDijieRoleListing = (
 ) => {
   return useMutation({
     mutationFn: delistDijieRoleListingQuery,
+    onSuccess: (data, variables, context) => {
+      queryClient.invalidateQueries({
+        queryKey: dijieRoleListingsQueryKeys.lists(),
+      });
+      options?.onSuccess?.(data, variables, context);
+    },
+    ...options,
+  });
+};
+
+export const useBindDijieSpecialCapability = (
+  options?: UseMutationOptions<
+    BindDijieSpecialCapabilityResponse,
+    Error,
+    BindDijieSpecialCapabilityPayload
+  >,
+) => {
+  return useMutation({
+    mutationFn: bindDijieSpecialCapabilityQuery,
     onSuccess: (data, variables, context) => {
       queryClient.invalidateQueries({
         queryKey: dijieRoleListingsQueryKeys.lists(),

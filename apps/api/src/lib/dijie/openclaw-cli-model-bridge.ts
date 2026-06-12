@@ -203,6 +203,7 @@ export function createDijieOpenClawCliModelBridge(
         const { stdout } = await execFileAsync(cliPath, args, {
           timeout: timeoutMs,
           maxBuffer: maxBufferBytes,
+          signal: input.signal,
         });
         return {
           reply: replyFromOpenClawOutput(stdout),

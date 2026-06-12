@@ -22,6 +22,10 @@ import {
   submitDijieRolePackageDraftQuery,
   uploadDijieRolePackageQuery,
 } from "@lib/client";
+import {
+  fetchDijieRoleCategoriesQuery,
+  type DijieRoleCategoryOption,
+} from "@hooks/api/dijie-role-listings";
 import { ProductCreateSchemaType } from "../../../types";
 
 const ROLE_PACKAGE_UPLOAD_ERROR_MESSAGE =
@@ -30,6 +34,9 @@ const ROLE_PACKAGE_REQUIRED_MESSAGE = "请先上传岗位资料包。";
 const ROLE_PACKAGE_INVALID_MESSAGE = "岗位资料包无法用于上架，请重新上传。";
 const PLATFORM_TOKEN_PRICE_HINT =
   "开发者可自行定价；提交时后端会按平台成本和上限倍率做硬限制。";
+const DIJIE_ECOMMERCE_ART_DESIGNER_CATEGORY_REF =
+  "category:ecommerce_art_designer@1";
+const DIJIE_ECOMMERCE_ART_DESIGNER_CATEGORY_NAME = "电商美工";
 
 const ROLE_PACKAGE_STATUS_COLOR = {
   检查中: "orange",
@@ -62,6 +69,7 @@ type RolePackageDraftSummary = {
     name?: string;
     title?: string;
     manifestRef?: string;
+    categoryRef?: string;
     requiredCapabilities?: string[];
   } | null;
   qualityReport?: {
@@ -75,6 +83,10 @@ type RolePackageDraftSummary = {
       catalogRef?: string;
       kind?: string;
       status?: string;
+      catalogRefs?: string[];
+      routeKind?: string;
+      preferredRoute?: string;
+      permissionSummary?: string[];
     }>;
     gaps?: Array<{ need?: string; reason?: string }>;
     reviewBlockers?: string[];
@@ -153,6 +165,64 @@ const DeveloperModeStatus = ({ ready, running }: DeveloperModeStatusProps) => {
   );
 };
 
+const PlatformCategoryStatus = ({
+  categories,
+  loading,
+  error,
+  selectedRef,
+  onSelect,
+}: {
+  categories: DijieRoleCategoryOption[];
+  loading: boolean;
+  error: string;
+  selectedRef: string;
+  onSelect: (category: DijieRoleCategoryOption) => void;
+}) => {
+  const selected = categories.find((category) => category.categoryRef === selectedRef);
+  return (
+    <div className="flex flex-col gap-2 rounded-lg border border-ui-border-base bg-ui-bg-subtle px-4 py-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <Text size="small" weight="plus">
+          平台品类
+        </Text>
+        <StatusBadge color={categories.length > 0 ? "green" : "orange"}>
+          {selected?.name ?? DIJIE_ECOMMERCE_ART_DESIGNER_CATEGORY_NAME}
+        </StatusBadge>
+      </div>
+      {categories.length > 0 ? (
+        <select
+          className="h-10 rounded-md border border-ui-border-base bg-ui-bg-base px-3 txt-compact-small outline-none"
+          value={selectedRef}
+          disabled={loading}
+          onChange={(event) => {
+            const next = categories.find(
+              (category) => category.categoryRef === event.target.value,
+            );
+            if (next) {
+              onSelect(next);
+            }
+          }}
+        >
+          {categories.map((category) => (
+            <option key={category.categoryRef} value={category.categoryRef}>
+              {category.name} / {category.categoryRef}
+            </option>
+          ))}
+        </select>
+      ) : null}
+      <Text size="xsmall" className="text-ui-fg-subtle">
+        {loading
+          ? "正在读取平台已启用品类..."
+          : error
+            ? error
+            : selected
+              ? `${selected.categoryRef} · 继承 ${selected.packBinding?.inheritedCapabilityRefCount ?? 0} 项能力引用；特殊能力需另走平台审核。`
+              : "暂无平台已启用品类，不能提交岗位审核。"}
+      </Text>
+    </div>
+  );
+};
+
 const LatestRolePackageDraftPanel = ({
   draft,
   running,
@@ -205,7 +275,7 @@ const LatestRolePackageDraftPanel = ({
         </Text>
         {capabilityBlocked ? (
           <Text size="xsmall" className="text-orange-600">
-            能力状态：{capabilityStatus}，需等待平台 Skill/Tool 审核通过后承接。
+            能力状态：{capabilityStatus}，需等待能力目录审核通过后承接。
           </Text>
         ) : null}
         {reviewNeeds.length > 0 ? (
@@ -342,6 +412,9 @@ export const ProductCreateGeneralSection = () => {
   const [latestDraft, setLatestDraft] =
     useState<RolePackageDraftSummary | null>(null);
   const [draftSubmitRunning, setDraftSubmitRunning] = useState(false);
+  const [roleCategories, setRoleCategories] = useState<DijieRoleCategoryOption[]>([]);
+  const [roleCategoryLoading, setRoleCategoryLoading] = useState(false);
+  const [roleCategoryError, setRoleCategoryError] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -365,6 +438,80 @@ export const ProductCreateGeneralSection = () => {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    setRoleCategoryLoading(true);
+    setRoleCategoryError("");
+
+    fetchDijieRoleCategoriesQuery()
+      .then((result) => {
+        if (cancelled) {
+          return;
+        }
+        const categories = result.categories ?? [];
+        setRoleCategories(categories);
+        const currentRef = form.getValues("role_category_ref")?.trim();
+        const selected =
+          categories.find((category) => category.categoryRef === currentRef) ??
+          categories[0];
+        if (selected) {
+          form.setValue("role_category_ref", selected.categoryRef, {
+            shouldDirty: false,
+            shouldValidate: true,
+          });
+          form.setValue("role_category_name", selected.name, {
+            shouldDirty: false,
+            shouldValidate: false,
+          });
+        } else {
+          form.setValue("role_category_ref", "", {
+            shouldDirty: false,
+            shouldValidate: true,
+          });
+          form.setValue("role_category_name", "", {
+            shouldDirty: false,
+            shouldValidate: false,
+          });
+        }
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setRoleCategoryError(
+            error instanceof Error ? error.message : "平台品类暂时无法读取。",
+          );
+          setRoleCategories([]);
+          form.setValue("role_category_ref", "", {
+            shouldDirty: false,
+            shouldValidate: true,
+          });
+          form.setValue("role_category_name", "", {
+            shouldDirty: false,
+            shouldValidate: false,
+          });
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setRoleCategoryLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [form]);
+
+  const selectRoleCategory = (category: DijieRoleCategoryOption) => {
+    form.setValue("role_category_ref", category.categoryRef, {
+      shouldDirty: true,
+      shouldValidate: true,
+    });
+    form.setValue("role_category_name", category.name, {
+      shouldDirty: true,
+      shouldValidate: false,
+    });
+  };
 
   const rolePackageReady = Boolean(
     form.watch("role_package_id") && form.watch("role_package_version"),
@@ -442,6 +589,15 @@ export const ProductCreateGeneralSection = () => {
         shouldDirty: true,
         shouldValidate: true,
       });
+      form.setValue(
+        "role_category_ref",
+        uploadedPackage.manifestSummary?.categoryRef ||
+          DIJIE_ECOMMERCE_ART_DESIGNER_CATEGORY_REF,
+        {
+          shouldDirty: true,
+          shouldValidate: true,
+        },
+      );
       const manifestRef = uploadedPackage.manifestSummary?.manifestRef;
       if (manifestRef) {
         form.setValue("role_manifest_ref", manifestRef, {
@@ -525,6 +681,15 @@ export const ProductCreateGeneralSection = () => {
         shouldDirty: true,
         shouldValidate: true,
       });
+      form.setValue(
+        "role_category_ref",
+        latestDraft.manifestSummary?.categoryRef ||
+          DIJIE_ECOMMERCE_ART_DESIGNER_CATEGORY_REF,
+        {
+          shouldDirty: true,
+          shouldValidate: true,
+        },
+      );
       const manifestRef = latestDraft.manifestSummary?.manifestRef;
       if (manifestRef) {
         form.setValue("role_manifest_ref", manifestRef, {
@@ -592,6 +757,16 @@ export const ProductCreateGeneralSection = () => {
         running={draftSubmitRunning}
         onUseDraft={handleUseLatestDraft}
       />
+      <PlatformCategoryStatus
+        categories={roleCategories}
+        loading={roleCategoryLoading}
+        error={roleCategoryError}
+        selectedRef={
+          form.watch("role_category_ref") ||
+          DIJIE_ECOMMERCE_ART_DESIGNER_CATEGORY_REF
+        }
+        onSelect={selectRoleCategory}
+      />
       <div className="flex flex-col gap-y-2">
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           <Form.Field
@@ -633,6 +808,28 @@ export const ProductCreateGeneralSection = () => {
             name="handle"
             render={({ field }) => (
               <input {...field} type="hidden" value={field.value ?? ""} />
+            )}
+          />
+          <Form.Field
+            control={form.control}
+            name="role_category_ref"
+            render={({ field }) => (
+              <input
+                {...field}
+                type="hidden"
+                value={field.value || DIJIE_ECOMMERCE_ART_DESIGNER_CATEGORY_REF}
+              />
+            )}
+          />
+          <Form.Field
+            control={form.control}
+            name="role_category_name"
+            render={({ field }) => (
+              <input
+                {...field}
+                type="hidden"
+                value={field.value || DIJIE_ECOMMERCE_ART_DESIGNER_CATEGORY_NAME}
+              />
             )}
           />
         </div>

@@ -1,8 +1,25 @@
 import type { DijieRoleEntitlementStorageRecord } from "./role-entitlement-store";
 import type { DijieRoleListing } from "./role-listings";
 import type { DijieRolePackageStorageRecord } from "./role-package-store";
+import type {
+  DijieCatalogReviewRequestStorageRecord,
+  DijieSpecialCapabilityBindingStorageRecord,
+} from "./catalog-store";
+import {
+  preferredRouteForDijieCategoryCapabilityRef,
+  routeKindForDijieCategoryCapabilityRef,
+  validateDijieRoleCategoryIntegration,
+  type DijieRoleCategory,
+  type DijieRoleCategoryRegistry,
+  type DijieRoleSpecialCapabilityRequest,
+} from "./role-category-registry";
 import {
   DIJIE_PLATFORM_SKILL_TOOL_CATALOG,
+  catalogRefsForDijieCatalogItem,
+  preferredRouteForDijieCatalogItem,
+  routeKindForDijieCatalogItem,
+  type DijieCapabilityPreferredRoute,
+  type DijieCapabilityRouteKind,
   type DijieCatalogItem,
   type DijieCatalogKind,
   type DijieCatalogStatus,
@@ -25,6 +42,7 @@ export type DijieDispatcherGatewayRole = {
   packageVersion: string | null;
   protocolVersion: string | null;
   capabilities: string[];
+  catalogRefs: string[];
   scopes: string[];
   packageContext: DijieDispatcherGatewayRolePackageContext;
   callable: boolean;
@@ -66,7 +84,21 @@ export type DijieDispatcherGatewayRolePackageContext = {
     outputs: string[];
   };
   requiredCapabilities: string[];
+  catalogRefs: string[];
   catalogBindings: DijieDispatcherGatewayCatalogBinding[];
+  capabilityRequirements: DijieDispatcherGatewayCapabilityRequirement[];
+  category: {
+    categoryRef: string | null;
+    name: string | null;
+    status: DijieRoleCategory["status"] | "missing";
+    categoryPackRef: string | null;
+    skillPackRef: string | null;
+    toolPackRef: string | null;
+  };
+  inheritedCatalogRefs: string[];
+  inheritedCapabilityRefs: string[];
+  specialCapabilityRequests: DijieRoleSpecialCapabilityRequest[];
+  specialCapabilityBindings: DijieDispatcherGatewayCapabilityRequirement[];
   effectiveCapabilities: string[];
   blockedCapabilities: DijieDispatcherGatewayBlockedCapability[];
   skills: string[];
@@ -88,6 +120,23 @@ export type DijieDispatcherGatewayCatalogBinding = {
   name: string | null;
   version: string | null;
   riskLevel: DijieCatalogItem["riskLevel"] | null;
+  permissionSummary: string[];
+  catalogRefs: string[];
+  routeKind: DijieCapabilityRouteKind;
+  preferredRoute: DijieCapabilityPreferredRoute;
+};
+
+export type DijieDispatcherGatewayCapabilityRequirement = {
+  ref: string;
+  catalogRef: string;
+  kind: DijieCatalogKind;
+  catalogStatus: DijieCatalogStatus | "missing";
+  approved: boolean;
+  riskLevel: DijieCatalogItem["riskLevel"] | null;
+  permissionSummary: string[];
+  catalogRefs: string[];
+  routeKind: DijieCapabilityRouteKind;
+  preferredRoute: DijieCapabilityPreferredRoute;
 };
 
 export type DijieDispatcherGatewayBlockedCapability = {
@@ -190,7 +239,9 @@ function stringFromRecord(record: UnknownRecord, fields: string[]): string | und
 function catalogKind(value: unknown, fallback: DijieCatalogKind): DijieCatalogKind {
   return value === "skill" ||
     value === "tool" ||
+    value === "api" ||
     value === "mcp" ||
+    value === "provider" ||
     value === "adapter" ||
     value === "capability"
     ? value
@@ -224,11 +275,166 @@ function catalogBindingRequests(
   });
 }
 
+function uniqueCapabilityRefs(values: string[]): string[] {
+  return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
+}
+
+function catalogRefsForMissingRequest(request: {
+  need: string;
+  catalogRef: string;
+  kind: DijieCatalogKind;
+}): string[] {
+  if (/^[a-z]+:/iu.test(request.catalogRef)) {
+    return [request.catalogRef];
+  }
+  if (request.kind === "skill") {
+    return [`skill:${request.need}`];
+  }
+  if (request.kind === "tool") {
+    return [`tool:${request.need}`];
+  }
+  if (request.kind === "api" || request.kind === "adapter") {
+    return [`api:${request.need}`];
+  }
+  if (request.kind === "mcp") {
+    return [`mcp:${request.need}`];
+  }
+  if (request.kind === "provider") {
+    return [`provider:${request.need}`];
+  }
+  return [`capability:${request.need}`];
+}
+
+function routeKindForMissingRequest(request: {
+  need: string;
+  kind: DijieCatalogKind;
+}): DijieCapabilityRouteKind {
+  if (request.need === "human.confirm" || request.need.includes(".confirm")) {
+    return "human_gate";
+  }
+  if (request.kind === "skill") {
+    return "local_skill";
+  }
+  if (request.kind === "tool" || request.kind === "capability") {
+    return "local_tool";
+  }
+  if (request.kind === "api" || request.kind === "adapter") {
+    return "remote_api";
+  }
+  if (request.kind === "mcp") {
+    return "remote_mcp";
+  }
+  if (request.kind === "provider") {
+    return "provider_capability";
+  }
+  return "unsupported";
+}
+
+function preferredRouteFromRouteKind(
+  routeKind: DijieCapabilityRouteKind,
+): DijieCapabilityPreferredRoute {
+  if (routeKind === "local_tool" || routeKind === "local_skill") {
+    return "local";
+  }
+  if (routeKind === "provider_capability") {
+    return "provider";
+  }
+  if (routeKind === "human_gate") {
+    return "human_gate";
+  }
+  if (routeKind === "unsupported") {
+    return "unsupported";
+  }
+  return routeKind;
+}
+
+function specialCapabilityRequestsForRole(input: {
+  role: DijieRoleListing;
+  packageRecord?: DijieRolePackageStorageRecord & { id?: string };
+  reviewRequests?: Array<DijieCatalogReviewRequestStorageRecord & { id?: string }>;
+}): DijieRoleSpecialCapabilityRequest[] {
+  const packageRefs = new Set(
+    [
+      input.role.packageId,
+      input.packageRecord?.package_id,
+      input.packageRecord?.id,
+    ].filter((value): value is string => Boolean(value)),
+  );
+  return (input.reviewRequests ?? [])
+    .filter((request) => {
+      if (request.payload?.requestType !== "special_capability_pack") {
+        return false;
+      }
+      if (request.role_listing_id && request.role_listing_id === input.role.id) {
+        return true;
+      }
+      return Boolean(request.role_package_id && packageRefs.has(request.role_package_id));
+    })
+    .map((request) => ({
+      requestRef: request.id ?? request.review_key,
+      need: sanitizePackageText(request.need),
+      kind: request.kind,
+      catalogRef: request.catalog_ref,
+      status: request.review_status,
+      reason: typeof request.candidate.reason === "string" ? request.candidate.reason : null,
+    }));
+}
+
+function specialCapabilityBindingsForRole(input: {
+  role: DijieRoleListing;
+  packageRecord?: DijieRolePackageStorageRecord & { id?: string };
+  bindings?: Array<DijieSpecialCapabilityBindingStorageRecord & { id?: string }>;
+}) {
+  const packageRefs = new Set(
+    [
+      input.role.packageId,
+      input.packageRecord?.package_id,
+      input.packageRecord?.id,
+    ].filter((value): value is string => Boolean(value)),
+  );
+  return (input.bindings ?? []).filter((binding) => {
+    if (binding.binding_status !== "bound") {
+      return false;
+    }
+    if (binding.role_listing_id === input.role.id) {
+      return true;
+    }
+    return Boolean(binding.role_package_id && packageRefs.has(binding.role_package_id));
+  });
+}
+
+function specialCapabilityRequirementFromBinding(
+  binding: DijieSpecialCapabilityBindingStorageRecord,
+): DijieDispatcherGatewayCapabilityRequirement {
+  const routeKind = routeKindForMissingRequest({
+    need: binding.need,
+    kind: binding.kind,
+  });
+  return {
+    ref: binding.need,
+    catalogRef: binding.catalog_ref,
+    kind: binding.kind,
+    catalogStatus: "approved",
+    approved: true,
+    riskLevel: null,
+    permissionSummary: [],
+    catalogRefs: catalogRefsForMissingRequest({
+      need: binding.need,
+      catalogRef: binding.catalog_ref,
+      kind: binding.kind,
+    }),
+    routeKind,
+    preferredRoute: preferredRouteFromRouteKind(routeKind),
+  };
+}
+
 function resolveCatalogBindings(input: {
   manifest: UnknownRecord;
   catalogItems?: DijieCatalogItem[];
 }): {
   catalogBindings: DijieDispatcherGatewayCatalogBinding[];
+  catalogRefs: string[];
+  capabilityRequirements: DijieDispatcherGatewayCapabilityRequirement[];
   effectiveCapabilities: string[];
   blockedCapabilities: DijieDispatcherGatewayBlockedCapability[];
 } {
@@ -246,6 +452,15 @@ function resolveCatalogBindings(input: {
   const catalogBindings: DijieDispatcherGatewayCatalogBinding[] = dedupedRequests.map((request) => {
     const item = byRef.get(request.catalogRef);
     const catalogStatus: DijieCatalogStatus | "missing" = item?.status ?? "missing";
+    const routeKind = item
+      ? routeKindForDijieCatalogItem(item)
+      : routeKindForMissingRequest(request);
+    const preferredRoute = item
+      ? preferredRouteForDijieCatalogItem(item)
+      : preferredRouteFromRouteKind(routeKind);
+    const catalogRefs = item
+      ? catalogRefsForDijieCatalogItem(item, request.need)
+      : catalogRefsForMissingRequest(request);
     return {
       need: request.need,
       catalogRef: request.catalogRef,
@@ -255,8 +470,27 @@ function resolveCatalogBindings(input: {
       name: item?.name ?? null,
       version: item?.version ?? null,
       riskLevel: item?.riskLevel ?? null,
+      permissionSummary: item?.permissions ?? [],
+      catalogRefs,
+      routeKind,
+      preferredRoute,
     };
   });
+  const catalogRefs = uniqueCapabilityRefs(
+    catalogBindings.flatMap((binding) => binding.catalogRefs),
+  );
+  const capabilityRequirements = catalogBindings.map((binding) => ({
+    ref: binding.need,
+    catalogRef: binding.catalogRef,
+    kind: binding.kind,
+    catalogStatus: binding.catalogStatus,
+    approved: binding.approved,
+    riskLevel: binding.riskLevel,
+    permissionSummary: binding.permissionSummary,
+    catalogRefs: binding.catalogRefs,
+    routeKind: binding.routeKind,
+    preferredRoute: binding.preferredRoute,
+  }));
   const effectiveCapabilities = [
     ...new Set(
       catalogBindings
@@ -264,24 +498,32 @@ function resolveCatalogBindings(input: {
         .flatMap((binding) => byRef.get(binding.catalogRef)?.provides ?? [binding.need]),
     ),
   ];
-  const blockedCapabilities: DijieDispatcherGatewayBlockedCapability[] = catalogBindings.flatMap((binding) => {
-    if (binding.approved) {
-      return [];
-    }
-    return [
-      {
-        need: binding.need,
-        catalogRef: binding.catalogRef,
-        kind: binding.kind,
-        reason:
-          binding.catalogStatus === "missing"
-            ? ("missing_catalog_item" as const)
-            : ("catalog_item_not_approved" as const),
-        catalogStatus: binding.catalogStatus,
-      },
-    ];
-  });
-  return { catalogBindings, effectiveCapabilities, blockedCapabilities };
+  const blockedCapabilities: DijieDispatcherGatewayBlockedCapability[] = catalogBindings.flatMap(
+    (binding) => {
+      if (binding.approved) {
+        return [];
+      }
+      return [
+        {
+          need: binding.need,
+          catalogRef: binding.catalogRef,
+          kind: binding.kind,
+          reason:
+            binding.catalogStatus === "missing"
+              ? ("missing_catalog_item" as const)
+              : ("catalog_item_not_approved" as const),
+          catalogStatus: binding.catalogStatus,
+        },
+      ];
+    },
+  );
+  return {
+    catalogBindings,
+    catalogRefs,
+    capabilityRequirements,
+    effectiveCapabilities,
+    blockedCapabilities,
+  };
 }
 
 function packageRecordForRole(
@@ -314,6 +556,9 @@ function createPackageContext(
   role: DijieRoleListing,
   packageRecord?: DijieRolePackageStorageRecord & { id?: string },
   catalogItems?: DijieCatalogItem[],
+  categoryRegistry?: DijieRoleCategoryRegistry,
+  catalogReviewRequests?: Array<DijieCatalogReviewRequestStorageRecord & { id?: string }>,
+  specialCapabilityBindings?: Array<DijieSpecialCapabilityBindingStorageRecord & { id?: string }>,
 ): DijieDispatcherGatewayRolePackageContext {
   const manifest = asRecord(packageRecord?.manifest_summary ?? {});
   const paths = filePaths(packageRecord?.file_manifest);
@@ -326,8 +571,54 @@ function createPackageContext(
     packageRequiredCapabilities.length > 0
       ? packageRequiredCapabilities
       : fallbackRequiredCapabilities;
-  const catalog = resolveCatalogBindings({ manifest, catalogItems });
-  const context = {
+  const catalog = resolveCatalogBindings({ manifest: {}, catalogItems });
+  const categoryCheck = validateDijieRoleCategoryIntegration({
+    manifestSummary: manifest,
+    categoryRef: role.categoryRef,
+    category: role.category,
+    registry: categoryRegistry,
+  });
+  const categoryBinding = categoryCheck.category?.packBinding ?? null;
+  const inheritedCapabilityRequirements: DijieDispatcherGatewayCapabilityRequirement[] =
+    categoryCheck.inheritedCatalogRefs.map((catalogRef) => ({
+      ref: catalogRef,
+      catalogRef,
+      kind: catalogRef.startsWith("skill") || catalogRef.startsWith("skillpack")
+        ? "skill"
+        : catalogRef.startsWith("api:")
+          ? "api"
+          : catalogRef.startsWith("mcp:")
+            ? "mcp"
+            : catalogRef.startsWith("provider:")
+              ? "provider"
+              : catalogRef.startsWith("capability:")
+                ? "capability"
+                : "tool",
+      catalogStatus: "approved",
+      approved: true,
+      riskLevel: null,
+      permissionSummary: categoryBinding?.permissionSummary ?? [],
+      catalogRefs: [catalogRef],
+      routeKind: routeKindForDijieCategoryCapabilityRef(catalogRef),
+      preferredRoute: preferredRouteForDijieCategoryCapabilityRef(catalogRef),
+    }));
+  const specialCapabilityRequests = specialCapabilityRequestsForRole({
+    role,
+    packageRecord,
+    reviewRequests: catalogReviewRequests,
+  });
+  const specialCapabilityRequirements = specialCapabilityBindingsForRole({
+    role,
+    packageRecord,
+    bindings: specialCapabilityBindings,
+  }).map(specialCapabilityRequirementFromBinding);
+  const catalogRefs = uniqueCapabilityRefs([
+    ...requiredCapabilities.map((capability) => `capability:${capability}`),
+    ...categoryCheck.inheritedCatalogRefs,
+    ...catalog.catalogRefs,
+    ...specialCapabilityRequirements.flatMap((request) => request.catalogRefs),
+  ]);
+  const context: Omit<DijieDispatcherGatewayRolePackageContext, "digest"> = {
     packageId: role.packageId,
     packageVersion: role.packageVersion,
     protocolVersion: role.protocolVersion,
@@ -344,9 +635,47 @@ function createPackageContext(
       outputs: uniqueStrings([manifest.outputs, manifest.outputExamples]),
     },
     requiredCapabilities,
+    catalogRefs,
     catalogBindings: catalog.catalogBindings,
-    effectiveCapabilities: catalog.effectiveCapabilities,
-    blockedCapabilities: catalog.blockedCapabilities,
+    capabilityRequirements: [
+      ...inheritedCapabilityRequirements,
+      ...catalog.capabilityRequirements,
+      ...specialCapabilityRequirements,
+    ],
+    category: {
+      categoryRef: role.categoryRef ?? null,
+      name: categoryCheck.category?.name ?? role.category ?? null,
+      status: categoryCheck.category?.status ?? "missing",
+      categoryPackRef: categoryBinding?.categoryPackRef ?? null,
+      skillPackRef: categoryBinding?.skillPackRef ?? null,
+      toolPackRef: categoryBinding?.toolPackRef ?? null,
+    },
+    inheritedCatalogRefs: categoryCheck.inheritedCatalogRefs,
+    inheritedCapabilityRefs: categoryCheck.inheritedCapabilityRefs,
+    specialCapabilityRequests,
+    specialCapabilityBindings: specialCapabilityRequirements,
+    effectiveCapabilities: uniqueCapabilityRefs([
+      ...categoryCheck.inheritedCapabilityRefs,
+      ...catalog.effectiveCapabilities,
+      ...specialCapabilityRequirements.map((request) => request.ref),
+    ]),
+    blockedCapabilities: [
+      ...categoryCheck.missing.map((need) => ({
+        need,
+        catalogRef: need,
+        kind: "capability" as const,
+        reason: "missing_catalog_item" as const,
+        catalogStatus: "missing" as const,
+      })),
+      ...categoryCheck.blocked.map((need) => ({
+        need,
+        catalogRef: need,
+        kind: "capability" as const,
+        reason: "catalog_item_not_approved" as const,
+        catalogStatus: "missing" as const,
+      })),
+      ...catalog.blockedCapabilities,
+    ],
     skills: pathsMatching(paths, /(^|\/)(skills?|skill)(\/|[-_.])/iu),
     templates: pathsMatching(paths, /(^|\/)(templates?|template)(\/|[-_.])/iu),
     validation: pathsMatching(paths, /(^|\/)(validation|tests?|smoke|checklists?)(\/|[-_.])/iu),
@@ -401,6 +730,9 @@ export function buildDijieDispatcherGatewayRoleReadModel(input: {
   entitlements?: Array<DijieRoleEntitlementStorageRecord & { id: string }>;
   packages?: Array<DijieRolePackageStorageRecord & { id?: string }>;
   catalogItems?: DijieCatalogItem[];
+  categoryRegistry?: DijieRoleCategoryRegistry;
+  catalogReviewRequests?: Array<DijieCatalogReviewRequestStorageRecord & { id?: string }>;
+  specialCapabilityBindings?: Array<DijieSpecialCapabilityBindingStorageRecord & { id?: string }>;
   generatedAt?: Date;
 }): DijieDispatcherGatewayRoleReadModel {
   const entitlements = input.entitlements ?? [];
@@ -414,7 +746,14 @@ export function buildDijieDispatcherGatewayRoleReadModel(input: {
     roles: input.roles.map((role) => {
       const entitlement = authorizedEntitlementForRole(role, entitlements);
       const packageRecord = packageRecordForRole(role, packages);
-      const packageContext = createPackageContext(role, packageRecord, input.catalogItems);
+      const packageContext = createPackageContext(
+        role,
+        packageRecord,
+        input.catalogItems,
+        input.categoryRegistry,
+        input.catalogReviewRequests,
+        input.specialCapabilityBindings,
+      );
       const reasons = unavailableReasons(role, entitlement, packageContext);
 
       return {
@@ -426,6 +765,7 @@ export function buildDijieDispatcherGatewayRoleReadModel(input: {
         packageVersion: role.packageVersion,
         protocolVersion: role.protocolVersion,
         capabilities: role.capabilities,
+        catalogRefs: packageContext.catalogRefs,
         scopes: role.scopes,
         packageContext,
         callable: reasons.length === 0,

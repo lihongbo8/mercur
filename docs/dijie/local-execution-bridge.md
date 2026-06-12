@@ -173,11 +173,103 @@ Mercur/Medusa 侧原则：
 
 岗位包可以声明 `requiredCapabilities`，例如 `workspace.read`、`image.inspect`、`document.write`、`human.confirm`。这些是抽象本地能力需求，不是岗位自带工具清单，也不是新工具协议。包内不能包含浏览器工具、文件工具、命令工具、API client、MCP server、工具 schema、provider auth、secret 或本地工具实现；缺少 OpenClaw 工具协议 bridge 或 `tools.effective` 不支持时，OpenClaw 必须失败提示并记录审计，而不是伪装执行成功。
 
-Skill、Tool、MCP 和 Adapter 归平台统一安装、审核、版本管理、禁用和审计。岗位包只能保存 `requiredSkills`、`requiredTools`、`requiredCapabilities` 和平台 `catalogRef` 引用；不能把 skill/tool 实现、MCP server、adapter 源码、连接串、密钥或平台内部数据库访问能力打进包里。平台统一安装也不等于全岗位无条件调用：岗位必须有审核通过的绑定，运行时还必须通过用户授权、workspace 范围、风险策略和人工确认。
+Skill、Tool、API、MCP、Provider 和 Adapter 归平台统一审核能力引用、风险边界、版本/hash、禁用和审计事实；实际实现由 OpenClaw 本地通用能力、用户配置的远程 API、MCP 或 provider 路由承接。岗位包只描述岗位本身：岗位名称、目标、服务对象、平台品类、输入输出、服务标准、服务节奏、验收和失败标准；不能保存 `requiredSkills`、`requiredTools`、特殊能力申请、skill/tool 实现、MCP server、adapter 源码、连接串、密钥或平台内部数据库访问能力。审核通过也不等于全岗位无条件调用：岗位必须绑定 approved 平台品类和基础品类包；超出基础品类包的能力必须走独立特殊能力包申请、审核、建设和绑定，运行时还必须通过用户授权、workspace 范围、风险策略和人工确认。
+
+通用、高频、隐私敏感或低延迟能力可以作为本地 tool/skill 安装；岗位专属、低频、重型或商业 SaaS/生成/爬取类能力默认作为 `api`、`mcp` 或 `provider` 目录项，由本地 OpenClaw 做能力路由、授权配置和审计，不把实现下载到本地，也不把 provider key 或 OAuth token 写入云端。
+
+`GET /dijie/gateway/roles/read-model` 给 OpenClaw 的每个 role 必须在顶层输出 `catalogRefs`。本地能力路由中心以这个数组作为主入口，例如 `tool:web.fetch@1.0`、`skill:market-research`、`api:image.generate@1.0.0`、`mcp:zapier.gmail.send`、`provider:openai.image.generate`、`capability:human.confirm`。`packageContext.catalogRefs` 和 `capabilityRequirements` 只作为详情和兼容投影；本地端不需要从岗位包里解析实现。
+
+岗位品类体系已经进入平台治理链路：品类包是父包，内部绑定已审核的 Skill、Tool、API、MCP、provider 和 capability 引用。云端岗位只能保存 `categoryRef`、`categoryPackRef`、继承后的能力引用、安全摘要、版本/hash、风险等级和审核事实；不能把品类包实现、Skill 实现、工具源码、MCP server、adapter 源码或 provider key 写入岗位包或商品 metadata。
+
+本地知识存储可以供应云端岗位绑定使用，但只能通过安全绑定投影：`knowledgeRef` / `catalogRef`、版本、hash、能力摘要、适用范围、风险摘要、来源类型和审核建议。它不能上传知识原文、素材、页面截图、本地绝对路径、用户私有记忆、完整运行历史、provider key、OAuth token、raw prompt 或 raw API request/response。云端审核通过的是这个知识/能力引用能否被岗位绑定，不是直接获得本地知识库读取权。
+
+OpenClaw 本地端的第一版安全投影由能力路由中心纯函数生成：
+
+```ts
+type LocalKnowledgeSafeBindingExport = {
+  schemaVersion: "aics.local_knowledge_binding_export.v1";
+  categoryRef?: string;
+  categoryPackRef?: string;
+  projections: Array<{
+    schemaVersion: "aics.local_knowledge_binding.v1";
+    knowledgeRef: string;
+    catalogRef: string;
+    localCapabilityId: string;
+    label: string;
+    sourceType: "memory_core" | "memory_lancedb" | "memory_wiki" | "active_memory" | "unknown";
+    version: string;
+    hash: string;
+    capabilitySummary: string[];
+    riskSummary: string[];
+    applicableScopes: string[];
+    reviewRecommendation: string;
+    routeStatus: "available";
+  }>;
+  omittedRoutes: Array<{
+    catalogRef: string;
+    status: string;
+    reason: string;
+  }>;
+  forbiddenFields: string[];
+};
+```
+
+只有本地真实可用的 knowledge / memory / wiki 能力会进入 `projections`。缺少真实工具、未安装、未启用、被策略阻断或需要配置的能力只能进入 `omittedRoutes`，不能伪装成云端可绑定能力。`hash` 是安全投影自身的稳定摘要，不是本地知识原文 hash，也不能被云端用来反推出知识内容。
 
 平台业务数据库不是岗位可调用工具。岗位不能直接查平台订单、用户、钱包、审核、授权、结算等业务表，也不能执行任意数据库查询。确实需要数据能力时，只能通过独立且已审核的 adapter/tool，访问独立授权的数据源或安全投影，并记录调用岗位、用户、参数摘要、结果状态和失败原因。
 
 第一版本地能力目录覆盖 `workspace`、`code`、`browser`、`document`、`spreadsheet`、`presentation`、`image`、`network`、`audit`、`human`。这个目录只是 `requiredCapabilities -> OpenClaw 工具协议` 的解释层；后续新增工具优先接入 OpenClaw 社区工具、插件或 MCP bundle，让工具进入 `tools.catalog` / `tools.effective` 后，再由本地 OpenClaw 的权限确认、风险策略、`tools.invoke` 和审计链路决定是否可执行。
+
+## Cloud To Local Capability Routing Contract
+
+云端给 OpenClaw 的岗位执行投影只表达能力需求和审核事实，不携带实现。当前稳定入口是 `GET /dijie/gateway/roles/read-model`，每个 role 至少应包含：
+
+```ts
+type DijieGatewayRoleCapabilityProjection = {
+  id: string;
+  title: string;
+  packageId: string;
+  packageVersion: string;
+  categoryRef?: string;
+  categoryName?: string;
+  categoryPackRef?: string;
+  skillPackRef?: string;
+  toolPackRef?: string;
+  inheritedCatalogRefs?: string[];
+  inheritedCapabilityRefs?: string[];
+  catalogRefs: string[];
+  blockedCatalogRefs: string[];
+  callable: boolean;
+  unavailableReasons: string[];
+  packageContext?: {
+    category?: {
+      categoryRef: string;
+      name: string;
+      categoryPackRef?: string;
+      skillPackRef?: string;
+      toolPackRef?: string;
+    };
+    inheritedCatalogRefs?: string[];
+    inheritedCapabilityRefs?: string[];
+    catalogRefs: string[];
+    capabilityRequirements: Array<{
+      ref: string;
+      kind: "capability" | "tool" | "skill" | "api" | "mcp" | "provider";
+      required: boolean;
+      approved: boolean;
+      risk?: "low" | "medium" | "high";
+      permissionSummary?: string[];
+      version?: string;
+      hash?: string;
+    }>;
+    blockedCapabilities: string[];
+  };
+};
+```
+
+OpenClaw 能力路由中心以顶层 `catalogRefs` 为主入口，并结合本地 `tools.catalog`、Skill report、MCP/provider/plugin 配置解析为 `local_tool`、`local_skill`、`remote_api`、`remote_mcp`、`provider_capability`、`human_gate` 或 `unsupported`。`callable=false` 或 `blockedCatalogRefs` 非空时必须失败关闭，不能让 UI 或执行层伪装成已具备能力。
+
+云端禁止返回 provider key、OAuth token、raw execution token、raw prompt、raw API request/response、本地绝对路径、工具源码、MCP server 实现、adapter 源码或平台业务数据库访问能力。本地端回传云端的执行事实也只能是 execution、capability usage、tool/model/API usage、cost、risk/audit summary 和脱敏失败原因。
 
 开发者中心的表单只承接“已有岗位包”的上架资料：岗位包 ID、版本、清单入口、授权价、岗位 Token 单价、审核资料和发布状态。它不能反过来成为主系统里的岗位生成入口。
 

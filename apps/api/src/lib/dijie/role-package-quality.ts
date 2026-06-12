@@ -17,54 +17,49 @@ const QUALITY_CHECKS: Array<{
   patterns: RegExp[];
 }> = [
   {
-    key: "positioning",
-    label: "岗位定位",
-    patterns: [/岗位定位|岗位目标|角色定位|负责/u],
+    key: "role_name",
+    label: "岗位名称",
+    patterns: [/"name"\s*:|岗位名称|岗位名|角色名称|岗位：/u],
   },
   {
-    key: "task_work",
-    label: "任务型工作",
-    patterns: [/任务型工作|主图巡检|详情页巡检|产品保真/u],
+    key: "role_goal",
+    label: "岗位目标",
+    patterns: [/岗位目标|目标|解决|负责|交付|结果/u],
   },
   {
-    key: "routine_work",
-    label: "日常型工作",
-    patterns: [/日常型工作|每日|每周|每月|SOP/u],
+    key: "service_audience",
+    label: "服务对象",
+    patterns: [/服务对象|面向|适用商家|客户|用户|团队/u],
   },
   {
-    key: "main_image_skill",
-    label: "主图巡检 skill",
-    patterns: [/主图巡检/u, /产品主体|背景|卖点|遮挡|变形/u],
+    key: "category_binding",
+    label: "平台品类",
+    patterns: [/categoryRef|category_ref|平台品类|品类绑定|品类/u],
   },
   {
-    key: "detail_page_skill",
-    label: "详情页巡检 skill",
-    patterns: [/详情页巡检/u, /模块顺序|风格统一|文案|低清|重复/u],
+    key: "inputs_outputs",
+    label: "输入输出",
+    patterns: [/输入|输入资料|来源资料/u, /输出|输出物|交付物|交付结果|报告/u],
   },
   {
-    key: "fidelity_skill",
-    label: "产品保真自检 skill",
-    patterns: [/产品保真/u, /通过|存疑|不通过/u, /人工复核/u],
+    key: "service_standards",
+    label: "服务标准",
+    patterns: [/服务标准|质量标准|工作标准|复核标准|验收标准/u],
   },
   {
-    key: "issue_record",
-    label: "问题记录",
-    patterns: [/问题记录|问题台账/u, /严重程度|修改建议|状态/u],
-  },
-  {
-    key: "design_standard",
-    label: "设计标准维护",
-    patterns: [/设计标准/u, /规则|沉淀|维护/u],
-  },
-  {
-    key: "templates",
-    label: "输出模板",
-    patterns: [/主图巡检记录/u, /详情页视觉优化清单/u],
+    key: "cadence",
+    label: "服务节奏",
+    patterns: [/服务节奏|节奏|触发条件|每日|每周|每月|频率|cadence/u],
   },
   {
     key: "validation",
-    label: "验收样例",
-    patterns: [/验收样例|smoke|validation|失败标准/u],
+    label: "验收标准",
+    patterns: [/验收|验收样例|通过|存疑|不通过/u],
+  },
+  {
+    key: "failure_standard",
+    label: "失败标准",
+    patterns: [/失败标准|失败|降级|不能执行|人工复核/u],
   },
 ];
 

@@ -1,6 +1,13 @@
 type UnknownRecord = Record<string, unknown>;
 
-export type DijieCatalogKind = "skill" | "tool" | "mcp" | "adapter" | "capability";
+export type DijieCatalogKind =
+  | "skill"
+  | "tool"
+  | "api"
+  | "mcp"
+  | "provider"
+  | "adapter"
+  | "capability";
 
 export type DijieCatalogStatus =
   | "draft"
@@ -8,6 +15,23 @@ export type DijieCatalogStatus =
   | "approved"
   | "rejected"
   | "disabled";
+
+export type DijieCapabilityRouteKind =
+  | "local_tool"
+  | "local_skill"
+  | "remote_api"
+  | "remote_mcp"
+  | "provider_capability"
+  | "human_gate"
+  | "unsupported";
+
+export type DijieCapabilityPreferredRoute =
+  | "local"
+  | "remote_api"
+  | "remote_mcp"
+  | "provider"
+  | "human_gate"
+  | "unsupported";
 
 export type DijieCatalogItem = {
   id: string;
@@ -53,6 +77,10 @@ export type DijieCatalogBinding = {
   status: "bindable" | "waiting_review" | "blocked";
   riskLevel: DijieCatalogItem["riskLevel"];
   permissions: string[];
+  catalogRefs?: string[];
+  routeKind?: DijieCapabilityRouteKind;
+  preferredRoute?: DijieCapabilityPreferredRoute;
+  permissionSummary?: string[];
 };
 
 export type DijieCapabilityGap = {
@@ -86,6 +114,36 @@ const PLATFORM_DATABASE_PATTERNS = [
 ];
 
 export const DIJIE_PLATFORM_SKILL_TOOL_CATALOG: DijieCatalogItem[] = [
+  {
+    id: "tool.platform.workboard_task",
+    kind: "tool",
+    name: "岗位任务看板工具",
+    version: "1.0.0",
+    description: "创建今日、本周、下周岗位任务，并把执行结果回写到本地任务看板。",
+    tags: ["workboard", "task", "cadence"],
+    provides: ["workboard.task"],
+    source: "openclaw",
+    status: "approved",
+    permissions: ["workboard.task", "audit.record"],
+    riskLevel: "low",
+    auditPolicy: ["audit.record"],
+    keywords: ["岗位任务", "任务看板", "workboard.task", "今日任务", "本周任务"],
+  },
+  {
+    id: "tool.platform.scheduler_cadence",
+    kind: "tool",
+    name: "经营节奏调度工具",
+    version: "1.0.0",
+    description: "按日、周、月、季、年经营节奏生成岗位任务和复盘动作。",
+    tags: ["scheduler", "cadence", "business_flow"],
+    provides: ["scheduler.cadence"],
+    source: "openclaw",
+    status: "approved",
+    permissions: ["scheduler.cadence", "audit.record"],
+    riskLevel: "low",
+    auditPolicy: ["audit.record"],
+    keywords: ["经营节奏", "定时", "周任务", "月度复盘", "scheduler.cadence"],
+  },
   {
     id: "skill.platform.visual_main_image_inspection",
     kind: "skill",
@@ -177,19 +235,49 @@ export const DIJIE_PLATFORM_SKILL_TOOL_CATALOG: DijieCatalogItem[] = [
     keywords: ["图片理解", "看图", "识图", "image.inspect", "图片检查"],
   },
   {
-    id: "tool.platform.image_generation",
-    kind: "tool",
-    name: "图片生成工具",
+    id: "api.opencloud.image_generation",
+    kind: "api",
+    name: "图片生成 API 接入",
     version: "1.0.0",
-    description: "平台统一审核的图片生成能力，运行时必须经过用户授权和结果复核。",
-    tags: ["image", "generation"],
+    description: "通过用户授权的外部图片生成 API/provider 按需调用，平台只保存目录引用和审计摘要。",
+    tags: ["image", "generation", "remote_api"],
     provides: ["image.generate"],
-    source: "platform_builtin",
+    source: "opencloud",
     status: "approved",
     permissions: ["image.generate", "human.confirm"],
     riskLevel: "high",
     auditPolicy: ["human.confirm.before_publication", "audit.record"],
-    keywords: ["图片生成", "生成图", "image.generate", "出图"],
+    keywords: ["图片生成", "生成图", "image.generate", "出图", "openai images", "replicate"],
+  },
+  {
+    id: "api.opencloud.video_generation",
+    kind: "api",
+    name: "视频生成 API 接入",
+    version: "1.0.0",
+    description: "通过用户授权的视频生成 API/provider 按需调用，适合低频、重型、岗位专属生成任务。",
+    tags: ["video", "generation", "remote_api"],
+    provides: ["video.generate"],
+    source: "opencloud",
+    status: "approved",
+    permissions: ["video.generate", "human.confirm"],
+    riskLevel: "high",
+    auditPolicy: ["human.confirm.before_publication", "audit.record"],
+    keywords: ["视频生成", "生成视频", "video.generate", "runway", "replicate"],
+  },
+  {
+    id: "api.opencloud.actor_run",
+    kind: "api",
+    name: "远程 Actor/API 任务接入",
+    version: "1.0.0",
+    description: "通过外部 API/Actor 平台执行爬取、批处理或 SaaS 自动化任务，本地端只做路由、授权和审计。",
+    tags: ["api", "actor", "automation"],
+    provides: ["actor.run", "web.crawl", "saas.action"],
+    source: "opencloud",
+    status: "approved",
+    permissions: ["network.call", "audit.record"],
+    riskLevel: "medium",
+    auditPolicy: ["tenant.scope.check", "audit.record"],
+    keywords: ["apify", "actor", "爬虫", "抓取", "SaaS", "自动化", "composio", "zapier"],
   },
   {
     id: "tool.platform.browser_review",
@@ -577,6 +665,114 @@ function catalogItemForNeed(
   );
 }
 
+function firstProvidedCapability(item: DijieCatalogItem, fallback: string): string {
+  return item.provides.find((provide) => provide.trim()) ?? fallback;
+}
+
+function isHumanGateCapability(value: string): boolean {
+  const normalized = value.trim().toLowerCase();
+  return (
+    normalized === "human.confirm" ||
+    normalized === "capability:human.confirm" ||
+    normalized.includes(".confirm") ||
+    normalized.includes(".approve")
+  );
+}
+
+function isRemoteGenerationCapability(value: string): boolean {
+  const normalized = value.trim().toLowerCase();
+  return (
+    normalized.includes(".generate") ||
+    normalized.includes(".video") ||
+    normalized.includes(".translate") ||
+    normalized.includes(".transcribe") ||
+    normalized.includes(".tts") ||
+    normalized.includes(".search") ||
+    normalized.includes(".crawl") ||
+    normalized.includes(".actor")
+  );
+}
+
+export function routeKindForDijieCatalogItem(item: DijieCatalogItem): DijieCapabilityRouteKind {
+  const primaryCapability = firstProvidedCapability(item, item.id);
+  if (isHumanGateCapability(primaryCapability)) {
+    return "human_gate";
+  }
+  if (item.kind === "skill") {
+    return "local_skill";
+  }
+  if (item.kind === "tool") {
+    return "local_tool";
+  }
+  if (item.kind === "api" || item.kind === "adapter") {
+    return "remote_api";
+  }
+  if (item.kind === "mcp") {
+    return "remote_mcp";
+  }
+  if (item.kind === "provider") {
+    return "provider_capability";
+  }
+  if (isRemoteGenerationCapability(primaryCapability)) {
+    return "remote_api";
+  }
+  if (item.kind === "capability") {
+    return "local_tool";
+  }
+  return "unsupported";
+}
+
+export function preferredRouteForDijieCatalogItem(
+  item: DijieCatalogItem,
+): DijieCapabilityPreferredRoute {
+  const routeKind = routeKindForDijieCatalogItem(item);
+  if (routeKind === "local_tool" || routeKind === "local_skill") {
+    return "local";
+  }
+  if (routeKind === "provider_capability") {
+    return "provider";
+  }
+  if (routeKind === "human_gate") {
+    return "human_gate";
+  }
+  if (routeKind === "unsupported") {
+    return "unsupported";
+  }
+  return routeKind;
+}
+
+export function catalogRefsForDijieCatalogItem(
+  item: DijieCatalogItem,
+  fallbackNeed?: string,
+): string[] {
+  const routeKind = routeKindForDijieCatalogItem(item);
+  const primaryCapability = firstProvidedCapability(item, fallbackNeed ?? item.id);
+  const versionSuffix = item.version ? `@${item.version}` : "";
+  const refs = new Set<string>();
+
+  if (routeKind === "human_gate") {
+    refs.add(`capability:${primaryCapability}${versionSuffix}`);
+  } else if (routeKind === "local_skill") {
+    refs.add(`skill:${primaryCapability}${versionSuffix}`);
+  } else if (routeKind === "local_tool") {
+    refs.add(`tool:${primaryCapability}${versionSuffix}`);
+  } else if (routeKind === "remote_api") {
+    refs.add(`api:${primaryCapability}${versionSuffix}`);
+  } else if (routeKind === "remote_mcp") {
+    refs.add(`mcp:${primaryCapability}${versionSuffix}`);
+  } else if (routeKind === "provider_capability") {
+    refs.add(`provider:${primaryCapability}${versionSuffix}`);
+  } else {
+    refs.add(`capability:${primaryCapability}${versionSuffix}`);
+  }
+
+  if (item.kind === "capability" || isRemoteGenerationCapability(primaryCapability)) {
+    refs.add(`capability:${primaryCapability}${versionSuffix}`);
+  }
+
+  return [...refs];
+}
+
 function needsFromInput(
   input: unknown,
   spec: DijieRoleRequirementSpec,
@@ -625,6 +821,10 @@ function bindingForItem(need: string, item: DijieCatalogItem): DijieCatalogBindi
           : "waiting_review",
     riskLevel: item.riskLevel,
     permissions: item.permissions,
+    catalogRefs: catalogRefsForDijieCatalogItem(item, need),
+    routeKind: routeKindForDijieCatalogItem(item),
+    preferredRoute: preferredRouteForDijieCatalogItem(item),
+    permissionSummary: item.permissions,
   };
 }
 
@@ -684,9 +884,9 @@ export function renderDijieRoleToolRequirementsMarkdown(input: {
 }) {
   const { requirementSpec, capabilityPlan } = input;
   const lines = [
-    "# Skill / Tool 需求与平台绑定计划",
+    "# Skill / Tool / API 需求与平台绑定计划",
     "",
-    "本文件只声明岗位需要的平台能力和 catalog 引用，不包含 skill/tool/MCP/adapter 实现、密钥、连接串或平台内部数据库访问。",
+    "本文件只声明岗位需要的平台能力和 catalog 引用，不包含 skill/tool/API/MCP/adapter 实现、密钥、连接串或平台内部数据库访问。",
     "",
     "## 岗位需求摘要",
     `- 岗位：${requirementSpec.roleName}`,
@@ -696,7 +896,7 @@ export function renderDijieRoleToolRequirementsMarkdown(input: {
     ...(capabilityPlan.catalogBindings.length > 0
       ? capabilityPlan.catalogBindings.map(
           (binding) =>
-            `- ${binding.need} -> ${binding.catalogRef}@${binding.versionRange}；状态：${binding.status}；风险：${binding.riskLevel}；权限：${binding.permissions.join(", ") || "none"}`,
+            `- ${binding.need} -> ${binding.catalogRef}@${binding.versionRange}；路由：${binding.preferredRoute ?? "unknown"}；状态：${binding.status}；风险：${binding.riskLevel}；权限：${binding.permissions.join(", ") || "none"}`,
         )
       : ["- 暂无可绑定项。"]),
     "",
@@ -710,7 +910,7 @@ export function renderDijieRoleToolRequirementsMarkdown(input: {
     "## 安全边界",
     "- 平台业务数据库不是岗位工具，岗位不能直接访问平台订单、用户、钱包、审核、授权等业务表。",
     "- 独立数据库类 adapter 只有在独立数据源、独立权限、参数化调用和审计齐全时，才能作为平台 tool 进入 catalog。",
-    "- 平台统一安装、审核和维护 skill/tool；岗位按需绑定，运行时仍需用户授权、workspace 范围和风险策略校验。",
+    "- 平台统一审核 skill/tool/API/MCP/provider；通用能力可本地安装，岗位专属或重型能力默认远程路由，运行时仍需用户授权、workspace 范围和风险策略校验。",
   ];
   return `${lines.join("\n")}\n`;
 }

@@ -15,6 +15,24 @@ type DraftRecord = Record<string, unknown> & {
   owner_id: string;
 };
 
+const categoryRecord = {
+  category_ref: "category:ecommerce_art_designer@1",
+  name: "电商美工",
+  version: "1",
+  description: "电商视觉岗位品类。",
+  category_status: "approved",
+  reviewed_at: "2026-06-11T00:00:00.000Z",
+  reviewed_by: "admin",
+  pack_binding: {
+    categoryPackRef: "categorypack:ecommerce_art_designer@1",
+    skillPackRef: "skillpack:ecommerce_art_designer@1",
+    toolPackRef: "toolpack:ecommerce_art_designer@1",
+    catalogRefs: ["skill:visual.main_image.inspect@1", "tool:image.inspect@1"],
+    capabilityRefs: ["image.inspect", "image.generate", "human.confirm", "audit.record"],
+    permissionSummary: ["image.inspect", "image.generate", "human.confirm", "audit.record"],
+  },
+};
+
 function response(): TestResponse {
   return {
     statusCode: 200,
@@ -34,25 +52,15 @@ function generatedVisualRolePackageReply(overrides?: {
   omitPath?: string;
   manifestContent?: string;
   readmeContent?: string;
-  toolRequirementsContent?: string;
+  standardsContent?: string;
 }) {
   const manifestFiles = [
     "role_package/manifest.json",
     "role_package/README.md",
     "role_package/listing.md",
-    "role_package/tool_requirements.md",
-    "role_package/integrations/openclaw-wrapper.md",
-    "role_package/skills/main-image-inspection.md",
-    "role_package/skills/detail-page-inspection.md",
-    "role_package/skills/product-fidelity-self-check.md",
-    "role_package/skills/visual-issue-record.md",
-    "role_package/skills/design-standard-maintenance.md",
-    "role_package/knowledge/sop.md",
-    "role_package/knowledge/design-rules.md",
-    "role_package/templates/main-image-inspection-record.md",
-    "role_package/templates/detail-page-optimization-checklist.md",
-    "role_package/validation/smoke-test.md",
-    "role_package/validation/acceptance-samples.md",
+    "role_package/standards.md",
+    "role_package/cadence.md",
+    "role_package/validation.md",
   ];
   const files = [
     {
@@ -87,72 +95,28 @@ function generatedVisualRolePackageReply(overrides?: {
       path: "role_package/README.md",
       content:
         overrides?.readmeContent ??
-        "岗位定位：负责智能门锁电商视觉维护。任务型工作包括主图巡检、详情页巡检、产品保真自检、问题记录。日常型工作包括素材库维护和设计标准维护。",
+        "岗位名称：智能门锁电商美工岗位。\n岗位目标：帮助智能门锁商家完成电商视觉巡检并交付可执行的修改建议。\n服务对象：面向智能门锁品牌商家、运营团队和设计团队。\n平台品类：电商美工。\n输入：商品资料、主图、详情页素材、活动要求。输出：视觉巡检报告、问题清单、人工复核建议和交付结果。\n服务边界：不直接发布商品，不承诺替代人工最终审核。",
     },
     {
       path: "role_package/listing.md",
-      content: "智能门锁电商美工岗位，可进行主图巡检、详情页巡检、产品保真自检和问题记录。",
-    },
-    {
-      path: "role_package/tool_requirements.md",
       content:
-        overrides?.toolRequirementsContent ??
-        "只声明能力需求，不包含工具源码。需要 browser、image.inspect、image.generate、human.confirm、audit.record 和 AICS 商品图片 adapter。",
+        "智能门锁电商美工岗位面向智能门锁商家。岗位目标是发现主图、详情页和活动素材中的视觉风险。输入包括商品资料、图片素材和运营要求。输出包括巡检报告、问题清单和验收建议。服务标准要求问题可定位、建议可执行、发布前必须人工复核。",
     },
     {
-      path: "role_package/integrations/openclaw-wrapper.md",
-      content: "通过 requiredCapabilities 调用主系统工具，不包含实现代码。",
-    },
-    {
-      path: "role_package/skills/main-image-inspection.md",
+      path: "role_package/standards.md",
       content:
-        "主图巡检 skill。输入：商品主图和商品资料。检查产品主体是否突出、背景是否杂乱、卖点是否明显、文字是否遮挡产品、产品是否变形。输出：《主图巡检记录》。失败标准：缺少图片理解能力或没有主图时失败。",
+        overrides?.standardsContent ??
+        "服务标准：所有问题必须关联商品、图片位置、问题类型、严重程度和修改建议。质量标准：不得虚构商品功能，不能遮挡锁体、把手、屏幕、摄像头和指纹区。输入资料不足时必须标记存疑。输出物标准：巡检报告要包含通过、存疑、不通过三类结果。复核标准：发布前人工复核为最终边界。",
     },
     {
-      path: "role_package/skills/detail-page-inspection.md",
+      path: "role_package/cadence.md",
       content:
-        "详情页巡检 skill。检查模块顺序是否合理、风格统一、文案是否好读、卖点是否清楚、是否有重复低清空洞模块。输出：《详情页视觉优化清单》。失败标准：没有浏览器或图片理解能力时失败。",
+        "服务节奏：触发条件包括商品上新、活动素材更新和每周重点商品巡检。每日检查新上架和高风险商品；每周复盘问题清单和复核结果；每月整理常见失败标准。遇到资料缺失、合规风险或产品保真存疑时停等人工确认。",
     },
     {
-      path: "role_package/skills/product-fidelity-self-check.md",
+      path: "role_package/validation.md",
       content:
-        "产品保真自检 skill。输入标准产品图和生成图。输出通过/存疑/不通过、风险点、人工复核建议。人工复核为最终发布边界。",
-    },
-    {
-      path: "role_package/skills/visual-issue-record.md",
-      content:
-        "问题记录 skill。记录商品、图片或页面位置、问题类型、严重程度、修改建议、状态。没有问题台账 adapter 时只能输出清单。",
-    },
-    {
-      path: "role_package/skills/design-standard-maintenance.md",
-      content:
-        "设计标准维护 skill。反复出现的问题沉淀为规则，例如主图文字不得遮挡锁体、把手、屏幕、摄像头、指纹区。",
-    },
-    {
-      path: "role_package/knowledge/sop.md",
-      content:
-        "每日 SOP：巡检重点商品主图并记录问题。每周 SOP：复盘详情页视觉优化清单。每月 SOP：更新设计标准和验收样例。",
-    },
-    {
-      path: "role_package/knowledge/design-rules.md",
-      content:
-        "设计标准：主图文字不得遮挡锁体、把手、屏幕、摄像头、指纹区。AI 生成图必须经过产品保真自检和人工复核。",
-    },
-    {
-      path: "role_package/templates/main-image-inspection-record.md",
-      content: "《主图巡检记录》：商品、图片位置、问题、严重程度、修改建议、状态。",
-    },
-    {
-      path: "role_package/templates/detail-page-optimization-checklist.md",
-      content: "《详情页视觉优化清单》：模块顺序、风格统一、文案、卖点、低清重复模块。",
-    },
-    {
-      path: "role_package/validation/smoke-test.md",
-      content: "smoke 测试：主图巡检、详情页巡检、产品保真自检、问题记录。失败标准必须明确降级。",
-    },
-    {
-      path: "role_package/validation/acceptance-samples.md",
-      content: "验收样例：产品保真自检：存疑。风险点：把手边缘疑似被重绘。建议：提交人工复核。",
+        "验收标准：报告能说明输入、输出、问题位置、修改建议和人工复核建议即为通过。验收样例：主图遮挡锁体判定为不通过；图片来源不足判定为存疑。失败标准：无法识别商品主体、资料缺失、存在合规风险或输出不能定位问题时失败并降级为人工复核。",
     },
   ].filter((file) => file.path !== overrides?.omitPath);
 
@@ -206,8 +170,10 @@ function request(input: {
 }) {
   const drafts = input.drafts ?? [];
   return {
-    body: input.body ?? {
+    body: {
       message: "我要做一个智能门锁电商美工岗位，请生成完整 role_package。",
+      categoryRef: "category:ecommerce_art_designer@1",
+      ...(input.body ?? {}),
     },
     auth_context:
       input.actorId === null
@@ -251,6 +217,7 @@ function request(input: {
               drafts.find(
                 (draft) => draft.id === lookup.draftId && draft.owner_id === lookup.ownerId,
               ),
+            listDijieRoleCategoryRecords: async () => [categoryRecord],
           };
         }
         throw new Error("unknown service");
@@ -432,6 +399,41 @@ describe("POST /vendor/dijie/role-packages/generate", () => {
     expect(drafts).toHaveLength(2);
   });
 
+  it("honors request scoped stage timeout for long model stages", async () => {
+    const res = response();
+    let bridgeAborted = false;
+
+    await POST(
+      request({
+        body: {
+          message: "我要做一个电商美工岗位，请生成 role_package。",
+          maxStages: 1,
+          stageTimeoutMs: 50,
+        },
+        bridge: {
+          completeDijieDialogMessage: (input: { signal?: AbortSignal }) => {
+            input.signal?.addEventListener("abort", () => {
+              bridgeAborted = true;
+            });
+            return new Promise(() => {});
+          },
+        },
+      }) as never,
+      res as never,
+    );
+
+    expect(res.statusCode).toBe(504);
+    expect(res.body).toMatchObject({
+      ok: false,
+      issues: ["manifest: model_bridge_timeout"],
+      diagnostics: {
+        stageId: "manifest",
+        stageLabel: "manifest.json",
+      },
+    });
+    expect(bridgeAborted).toBe(true);
+  });
+
   it("generates and stores a validated role_package draft through the model bridge", async () => {
     const res = response();
     const drafts: DraftRecord[] = [];
@@ -472,7 +474,7 @@ describe("POST /vendor/dijie/role-packages/generate", () => {
       res as never,
     );
 
-    expect(bridgeCalls).toBe(16);
+    expect(bridgeCalls).toBe(6);
     expect(res.statusCode).toBe(200);
     expect(res.body).toMatchObject({
       ok: true,
@@ -483,7 +485,7 @@ describe("POST /vendor/dijie/role-packages/generate", () => {
         status: "ready",
         packageId: "visual_smart_lock_designer",
         packageVersion: "1.0.0",
-        fileCount: 16,
+        fileCount: 6,
         qualityReport: {
           ok: true,
           score: 100,
@@ -491,18 +493,9 @@ describe("POST /vendor/dijie/role-packages/generate", () => {
       },
       manifestSummary: {
         name: "智能门锁电商美工岗位",
-        requiredSkills: expect.arrayContaining([
-          expect.objectContaining({
-            catalogRef: "skill.platform.visual_main_image_inspection",
-            status: "bindable",
-          }),
-        ]),
-        requiredTools: expect.arrayContaining([
-          expect.objectContaining({
-            catalogRef: "tool.platform.image_inspector",
-            status: "bindable",
-          }),
-        ]),
+        categoryRef: "category:ecommerce_art_designer@1",
+        categoryName: "电商美工",
+        inheritedCapabilityRefs: expect.arrayContaining(["image.inspect", "image.generate"]),
       },
       roleCapabilityPlan: {
         status: "platform_ready",
@@ -519,20 +512,13 @@ describe("POST /vendor/dijie/role-packages/generate", () => {
         (file) => file.path === "role_package/manifest.json",
       )?.content ?? "{}",
     );
-    expect(manifest.requiredSkills).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          catalogRef: "skill.platform.visual_main_image_inspection",
-        }),
-      ]),
+    expect(manifest.categoryRef).toBe("category:ecommerce_art_designer@1");
+    expect(manifest.categoryName).toBe("电商美工");
+    expect(manifest.inheritedCapabilityRefs).toEqual(
+      expect.arrayContaining(["image.inspect", "image.generate"]),
     );
-    expect(manifest.requiredTools).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          catalogRef: "tool.platform.image_inspector",
-        }),
-      ]),
-    );
+    expect(manifest.requiredSkills).toBeUndefined();
+    expect(manifest.requiredTools).toBeUndefined();
     expect(JSON.stringify(res.body)).not.toContain("Bearer");
     expect(JSON.stringify(res.body)).not.toContain("API key");
   });
@@ -551,7 +537,7 @@ describe("POST /vendor/dijie/role-packages/generate", () => {
         requiredCapabilities: ["图片理解", "浏览器预览"],
         files: { readme: "role_package/README.md" },
       }),
-      toolRequirementsContent:
+      standardsContent:
         "只声明能力需求，不包含工具源码。不要写 provider_auth、access_token、backend ids、entitlementId、ent_01TESTBACKENDID 或 ord_01TESTBACKENDID。",
     });
 
@@ -578,7 +564,7 @@ describe("POST /vendor/dijie/role-packages/generate", () => {
       complete: true,
       draft: {
         status: "ready",
-        fileCount: 16,
+        fileCount: 6,
       },
       manifestSummary: {
         requiredCapabilities: expect.arrayContaining(["image.inspect", "human.confirm"]),
@@ -666,7 +652,7 @@ describe("POST /vendor/dijie/role-packages/generate", () => {
         bridge: {
           completeDijieDialogMessage: async () => ({
             reply: generatedVisualRolePackageReply({
-              omitPath: "role_package/skills/product-fidelity-self-check.md",
+              omitPath: "role_package/validation.md",
               readmeContent: "岗位介绍：做图片。",
             }),
             usage: { provider: "openai", model: "gpt-5.4" },
@@ -683,7 +669,7 @@ describe("POST /vendor/dijie/role-packages/generate", () => {
       modelCalled: true,
     });
     expect(JSON.stringify(res.body)).toContain(
-      "missing role_package/skills/product-fidelity-self-check.md",
+      "missing role_package/validation.md",
     );
     expect(drafts).toHaveLength(1);
     expect(drafts[0]).toMatchObject({

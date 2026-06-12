@@ -10,6 +10,26 @@ import {
   type TestDijieRoleReviewRepository,
 } from "./test-fixtures.test";
 
+const categoryRegistry = {
+  categories: [
+    {
+      categoryRef: "category:image_review@1",
+      name: "图片审核",
+      version: "1",
+      description: "测试用图片审核品类。",
+      status: "approved" as const,
+      packBinding: {
+        categoryPackRef: "categorypack:image_review@1",
+        skillPackRef: "skillpack:image_review@1",
+        toolPackRef: "toolpack:image_review@1",
+        capabilityRefs: ["workspace.read", "image.inspect"],
+        catalogRefs: ["skillpack:image_review@1", "toolpack:image_review@1"],
+        permissionSummary: ["workspace.read", "image.inspect"],
+      },
+    },
+  ],
+};
+
 function roleListing(
   overrides: Partial<DijieRoleListingStorageRecord & { id: string }> = {},
 ) {
@@ -23,13 +43,21 @@ function roleListing(
     billing_beneficiary_ref: "acct_dev",
     subtitle: "检查商品图是否清晰、合规、适合上架。",
     description: null,
-    category: "视觉设计",
+    category: "图片审核",
+    category_ref: "category:image_review@1",
     listing_status: "proposed",
     review_state: "submitted",
     capabilities: ["workspace.read"],
     manifest_summary: {
       entrypoint: "role_package/manifest.json",
       requiredCapabilities: ["workspace.read"],
+      requiredTools: [
+        {
+          need: "图片理解",
+          catalogRef: "tool.platform.image_inspector",
+          status: "bindable",
+        },
+      ],
       sandbox: "workspace-write",
     },
     confirmation_points: 2,
@@ -152,6 +180,7 @@ describe("Dijie role review store", () => {
       reviewerId: "admin_001",
       finalResult: "approved",
       summary: "三项评估通过。",
+      categoryRegistry,
     });
 
     expect(result).toMatchObject({
@@ -168,6 +197,40 @@ describe("Dijie role review store", () => {
         },
       },
     });
+  });
+
+  it("does not approve when category pack integration has not been completed", async () => {
+    const repo = repository({
+      listings: [
+        roleListing({
+          manifest_summary: {
+            entrypoint: "role_package/manifest.json",
+            requiredCapabilities: ["workspace.read"],
+            sandbox: "workspace-write",
+          },
+        }),
+      ],
+    });
+    await saveDijieRoleReviewEvaluationsWithRepository(repo, {
+      roleListingId: "djrole_image_review",
+      reviewerId: "admin_001",
+      roleStandardDecision: "pass",
+      safetyComplianceDecision: "pass",
+      pricingReasonabilityDecision: "pass",
+    });
+
+    const result = await finalizeDijieRoleReviewWithRepository(repo, {
+      roleListingId: "djrole_image_review",
+      reviewerId: "admin_001",
+      finalResult: "approved",
+      summary: "三项评估通过。",
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      status: 409,
+    });
+    expect(result.ok ? "" : result.error).toContain("品类");
   });
 
   it("returns a listing to draft when the reviewer requests changes", async () => {

@@ -1,11 +1,18 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { fetchQuery } from "../../lib/client";
+import { fetchQuery, streamDijieDialogMessageQuery } from "../../lib/client";
 import {
   fetchCatalogReview,
   fetchReviewCenter,
+  fetchRoleCategories,
+  bindRoleCategoryPack,
+  createRoleCategory,
+  disableRoleCategory,
   finalizeCatalogReview as finalizeCatalogReviewRequest,
+  finalizeRoleCategoryReview,
   finalizeReview as finalizeReviewRequest,
   saveReviewEvaluations,
+  submitRoleCategoryReview,
+  updateRoleCategory,
   type CatalogItem,
   type CatalogReviewFilter,
   type CatalogReviewRequest,
@@ -15,6 +22,7 @@ import {
   type ReviewPackageSummary,
   type ReviewPricingSummary,
   type ReviewQueueItem as ReviewCenterQueueItem,
+  type RoleCategoryAdminReadModel,
   type RoleStatus,
 } from "../../lib/dijie/review-center";
 
@@ -42,6 +50,7 @@ type RoleReviewItem = {
   confirmations: number;
   version: string;
   category: string;
+  categoryRef: string;
   riskLabel?: string;
   summary: string;
   listingStatus: string;
@@ -76,6 +85,11 @@ type DialogAction = {
   label: string;
   description?: string;
   requiresConfirmation?: boolean;
+};
+
+type DialogStreamStatus = {
+  message?: unknown;
+  text?: unknown;
 };
 
 const formatSubmittedAt = (value?: string | null) => {
@@ -126,6 +140,7 @@ const mapReviewQueueItem = (item: ReviewCenterQueueItem): RoleReviewItem => {
     confirmations: item.confirmationPoints ?? 0,
     version: item.packageVersion ? `v${item.packageVersion}` : "-",
     category: item.subtitle || item.packageId || "未分类",
+    categoryRef: item.categoryRef || "未绑定平台品类",
     summary:
       capabilities.length > 0
         ? `需要 ${capabilities.join("、")} 等能力。`
@@ -154,9 +169,9 @@ const mapReviewQueueItem = (item: ReviewCenterQueueItem): RoleReviewItem => {
 
 const navigationItems: Array<{ id: WorkbenchTab; label: string }> = [
   { id: "review", label: "岗位审核" },
-  { id: "catalog", label: "Skill/Tool 入库" },
+  { id: "catalog", label: "能力目录审核" },
   { id: "records", label: "审核记录" },
-  { id: "settings", label: "审核设置" },
+  { id: "settings", label: "品类管理" },
 ];
 
 const evaluationDefinitions: EvaluationDefinition[] = [
@@ -323,6 +338,23 @@ const formatAssistantResult = (
   return `${base}\n\n建议动作：\n${actionText}`;
 };
 
+const textFromDialogStreamStatus = (
+  data: Record<string, unknown>,
+  fallback: string,
+) => {
+  const status = data as DialogStreamStatus;
+  if (typeof status.message === "string" && status.message.trim()) {
+    return status.message.trim();
+  }
+  if (typeof status.text === "string" && status.text.trim()) {
+    return status.text.trim();
+  }
+  return fallback;
+};
+
+const textFromDialogStreamDelta = (data: Record<string, unknown>) =>
+  typeof data.text === "string" ? data.text : "";
+
 export const ReviewCenterWorkbench = () => {
   const [activeTab, setActiveTab] = useState<WorkbenchTab>("review");
   const [roles, setRoles] = useState<RoleReviewItem[]>([]);
@@ -338,6 +370,15 @@ export const ReviewCenterWorkbench = () => {
   const [catalogLoading, setCatalogLoading] = useState(false);
   const [catalogError, setCatalogError] = useState("");
   const [catalogFinalizingId, setCatalogFinalizingId] = useState("");
+  const [roleCategoryModel, setRoleCategoryModel] =
+    useState<RoleCategoryAdminReadModel>({
+      categories: [],
+      approvedCatalogItems: [],
+    });
+  const [roleCategoryLoading, setRoleCategoryLoading] = useState(false);
+  const [roleCategoryError, setRoleCategoryError] = useState("");
+  const [selectedCategoryRef, setSelectedCategoryRef] = useState("");
+  const [roleCategorySaving, setRoleCategorySaving] = useState("");
   const [assistantMessagesByRole, setAssistantMessagesByRole] = useState<
     Record<string, AssistantMessage[]>
   >({});
@@ -380,12 +421,35 @@ export const ReviewCenterWorkbench = () => {
       setCatalogRequests(result.reviewRequests);
     } catch (error) {
       setCatalogError(
-        error instanceof Error ? error.message : "Skill/Tool 入库审核暂时无法读取。",
+        error instanceof Error ? error.message : "能力目录审核暂时无法读取。",
       );
       setCatalogItems([]);
       setCatalogRequests([]);
     } finally {
       setCatalogLoading(false);
+    }
+  };
+
+  const refreshRoleCategories = async () => {
+    setRoleCategoryLoading(true);
+    setRoleCategoryError("");
+    try {
+      const result = await fetchRoleCategories();
+      setRoleCategoryModel(result);
+      setSelectedCategoryRef((current) => {
+        if (result.categories.some((category) => category.categoryRef === current)) {
+          return current;
+        }
+        return result.categories[0]?.categoryRef ?? "";
+      });
+    } catch (error) {
+      setRoleCategoryError(
+        error instanceof Error ? error.message : "岗位品类管理暂时无法读取。",
+      );
+      setRoleCategoryModel({ categories: [], approvedCatalogItems: [] });
+      setSelectedCategoryRef("");
+    } finally {
+      setRoleCategoryLoading(false);
     }
   };
 
@@ -396,6 +460,10 @@ export const ReviewCenterWorkbench = () => {
   useEffect(() => {
     void refreshCatalogReview(catalogStatusFilter);
   }, [catalogStatusFilter]);
+
+  useEffect(() => {
+    void refreshRoleCategories();
+  }, []);
 
   const filteredRoles = useMemo(() => {
     const normalizedSearch = queueSearch.trim().toLowerCase();
@@ -523,8 +591,37 @@ export const ReviewCenterWorkbench = () => {
     }));
   };
 
-  const callReviewAssistant = async (message: string) => {
+  const updateAssistantMessage = (id: number, body: string) => {
+    setAssistantMessagesByRole((current) => ({
+      ...current,
+      [assistantKey]: (current[assistantKey] ?? assistantMessages).map((message) =>
+        message.id === id ? { ...message, body } : message,
+      ),
+    }));
+  };
+
+  const selectedRoleDialogSubject = () => {
     if (!selectedRole) {
+      return undefined;
+    }
+    return {
+      roleListingId: selectedRole.id,
+      reviewId: selectedRole.reviewId,
+      title: selectedRole.title,
+      developer: selectedRole.developer,
+      category: selectedRole.category,
+      summary: selectedRole.summary,
+      status: selectedRole.status,
+      price: selectedRole.price,
+      confirmations: selectedRole.confirmations,
+      usageInstructions: selectedRole.usageInstructions,
+      evaluations: selectedRole.evaluations,
+    };
+  };
+
+  const callReviewAssistant = async (message: string) => {
+    const subject = selectedRoleDialogSubject();
+    if (!subject) {
       return undefined;
     }
     const result = (await fetchQuery("/admin/dijie/dialog/messages", {
@@ -532,21 +629,65 @@ export const ReviewCenterWorkbench = () => {
       body: {
         surface: "admin_review",
         message,
-        subject: {
-          roleListingId: selectedRole.id,
-          reviewId: selectedRole.reviewId,
-          title: selectedRole.title,
-          developer: selectedRole.developer,
-          category: selectedRole.category,
-          summary: selectedRole.summary,
-          status: selectedRole.status,
-          price: selectedRole.price,
-          confirmations: selectedRole.confirmations,
-          usageInstructions: selectedRole.usageInstructions,
-          evaluations: selectedRole.evaluations,
-        },
+        subject,
       },
     })) as DialogMessageResponse | undefined;
+
+    return result;
+  };
+
+  const streamReviewAssistant = async (
+    message: string,
+    assistantMessageId: number,
+    fallback: string,
+  ) => {
+    const subject = selectedRoleDialogSubject();
+    if (!subject) {
+      return undefined;
+    }
+
+    let streamedText = "";
+    const result = (await streamDijieDialogMessageQuery(
+      {
+        surface: "admin_review",
+        message,
+        subject,
+      },
+      {
+        onStatus: (data) => {
+          if (streamedText) {
+            return;
+          }
+          updateAssistantMessage(
+            assistantMessageId,
+            textFromDialogStreamStatus(data, "我在读取审核上下文，会先保持对话不断线。"),
+          );
+        },
+        onFallback: (data) => {
+          if (streamedText) {
+            return;
+          }
+          updateAssistantMessage(
+            assistantMessageId,
+            textFromDialogStreamStatus(data, "这个审核问题需要稍微分析，我会继续等模型完成。"),
+          );
+        },
+        onDelta: (data) => {
+          const delta = textFromDialogStreamDelta(data);
+          if (!delta) {
+            return;
+          }
+          streamedText += delta;
+          updateAssistantMessage(assistantMessageId, streamedText);
+        },
+        onFinal: (data) => {
+          updateAssistantMessage(
+            assistantMessageId,
+            formatAssistantResult(data as DialogMessageResponse, fallback),
+          );
+        },
+      },
+    )) as DialogMessageResponse | undefined;
 
     return result;
   };
@@ -557,22 +698,29 @@ export const ReviewCenterWorkbench = () => {
     }
     setAssistantRunning(true);
     const fallback = createAssistantReply(action, selectedRole);
-    let body = fallback;
+    const assistantMessageId = Date.now();
+    appendAssistantMessage({
+      id: assistantMessageId,
+      author: "AI助手",
+      body: "我在读取审核上下文，会先保持对话不断线。",
+    });
     try {
-      body = formatAssistantResult(
-        await callReviewAssistant(
-          `审核动作：${action}。请基于当前岗位审核对象给出辅助意见，不要自动给最终审核结论。`,
-        ),
+      await streamReviewAssistant(
+        `审核动作：${action}。请基于当前岗位审核对象给出辅助意见，不要自动给最终审核结论。`,
+        assistantMessageId,
         fallback,
       );
     } catch {
-      body = `${fallback}\n\n（云端模型暂不可用，已使用本地审核规则提示。）`;
+      updateAssistantMessage(
+        assistantMessageId,
+        formatAssistantResult(
+          await callReviewAssistant(
+            `审核动作：${action}。请基于当前岗位审核对象给出辅助意见，不要自动给最终审核结论。`,
+          ).catch(() => undefined),
+          `${fallback}\n\n（云端模型暂不可用，已使用本地审核规则提示。）`,
+        ),
+      );
     }
-    appendAssistantMessage({
-      id: Date.now(),
-      author: "AI助手",
-      body,
-    });
     updateSelectedRole((role) =>
       appendRecord(role, `AI审核助手执行：${action}。`),
     );
@@ -593,20 +741,27 @@ export const ReviewCenterWorkbench = () => {
     setAssistantRunning(true);
 
     const fallback = createAssistantQuestionReply(body, selectedRole);
-    let assistantBody = fallback;
+    const assistantMessageId = baseId + 1;
+    appendAssistantMessage({
+      id: assistantMessageId,
+      author: "AI助手",
+      body: "我在读取审核上下文，会先保持对话不断线。",
+    });
     try {
-      assistantBody = formatAssistantResult(
-        await callReviewAssistant(body),
+      await streamReviewAssistant(
+        body,
+        assistantMessageId,
         fallback,
       );
     } catch {
-      assistantBody = `${fallback}\n\n（云端模型暂不可用，已使用本地审核规则提示。）`;
+      updateAssistantMessage(
+        assistantMessageId,
+        formatAssistantResult(
+          await callReviewAssistant(body).catch(() => undefined),
+          `${fallback}\n\n（云端模型暂不可用，已使用本地审核规则提示。）`,
+        ),
+      );
     }
-    appendAssistantMessage({
-      id: baseId + 1,
-      author: "AI助手",
-      body: assistantBody,
-    });
     setAssistantRunning(false);
   };
 
@@ -647,18 +802,114 @@ export const ReviewCenterWorkbench = () => {
         result,
         reviewNote:
           result === "approved"
-            ? "平台审核通过，允许进入 Skill/Tool 目录。"
+            ? "平台审核通过，允许作为能力引用被岗位复用。"
             : result === "request_changes"
               ? "需要补充能力说明、风险边界或候选来源。"
-              : "平台审核拒绝，暂不允许进入 Skill/Tool 目录。",
+              : "平台审核拒绝，暂不允许作为能力引用复用。",
       });
       await refreshCatalogReview();
     } catch (error) {
       setCatalogError(
-        error instanceof Error ? error.message : "Skill/Tool 入库审核保存失败。",
+        error instanceof Error ? error.message : "能力目录审核保存失败。",
       );
     } finally {
       setCatalogFinalizingId("");
+    }
+  };
+
+  const saveRoleCategory = async (input: {
+    mode: "create" | "update";
+    categoryRef: string;
+    name: string;
+    version: string;
+    description?: string;
+  }) => {
+    if (roleCategorySaving) {
+      return;
+    }
+    setRoleCategorySaving(input.mode);
+    setRoleCategoryError("");
+    try {
+      if (input.mode === "create") {
+        await createRoleCategory(input);
+      } else {
+        await updateRoleCategory(input.categoryRef, {
+          name: input.name,
+          version: input.version,
+          description: input.description,
+        });
+      }
+      await refreshRoleCategories();
+      setSelectedCategoryRef(input.categoryRef);
+    } catch (error) {
+      setRoleCategoryError(
+        error instanceof Error ? error.message : "岗位品类保存失败。",
+      );
+    } finally {
+      setRoleCategorySaving("");
+    }
+  };
+
+  const saveRoleCategoryBinding = async (input: {
+    categoryRef: string;
+    categoryPackRef: string;
+    skillPackRef: string;
+    toolPackRef: string;
+    catalogRefs: string[];
+  }) => {
+    if (roleCategorySaving) {
+      return;
+    }
+    setRoleCategorySaving("bind_pack");
+    setRoleCategoryError("");
+    try {
+      await bindRoleCategoryPack(input.categoryRef, input);
+      await refreshRoleCategories();
+      setSelectedCategoryRef(input.categoryRef);
+    } catch (error) {
+      setRoleCategoryError(
+        error instanceof Error ? error.message : "品类包绑定保存失败。",
+      );
+    } finally {
+      setRoleCategorySaving("");
+    }
+  };
+
+  const runRoleCategoryAction = async (
+    categoryRef: string,
+    action: "submit" | "approve" | "request_changes" | "disable",
+  ) => {
+    if (roleCategorySaving) {
+      return;
+    }
+    setRoleCategorySaving(action);
+    setRoleCategoryError("");
+    try {
+      if (action === "submit") {
+        await submitRoleCategoryReview(categoryRef);
+      } else if (action === "approve") {
+        await finalizeRoleCategoryReview(categoryRef, {
+          result: "approved",
+          reviewNote: "平台审核通过，允许开发者岗位继承该品类包。",
+        });
+      } else if (action === "request_changes") {
+        await finalizeRoleCategoryReview(categoryRef, {
+          result: "request_changes",
+          reviewNote: "需要补充品类说明、能力绑定或风险边界。",
+        });
+      } else {
+        await disableRoleCategory(categoryRef, {
+          reason: "平台审核员在品类管理中禁用。",
+        });
+      }
+      await refreshRoleCategories();
+      setSelectedCategoryRef(categoryRef);
+    } catch (error) {
+      setRoleCategoryError(
+        error instanceof Error ? error.message : "岗位品类动作保存失败。",
+      );
+    } finally {
+      setRoleCategorySaving("");
     }
   };
 
@@ -690,7 +941,20 @@ export const ReviewCenterWorkbench = () => {
       return <RecordsPanel roles={roles} selectedRole={selectedRole} />;
     }
     if (activeTab === "settings") {
-      return <SettingsPanel />;
+      return (
+        <RoleCategoryManagementPanel
+          model={roleCategoryModel}
+          loading={roleCategoryLoading}
+          error={roleCategoryError}
+          selectedCategoryRef={selectedCategoryRef}
+          savingAction={roleCategorySaving}
+          onSelectCategory={setSelectedCategoryRef}
+          onSaveCategory={saveRoleCategory}
+          onSaveBinding={saveRoleCategoryBinding}
+          onRunAction={runRoleCategoryAction}
+          onRefresh={refreshRoleCategories}
+        />
+      );
     }
     return (
       <>
@@ -847,7 +1111,7 @@ const catalogStatusOptions: Array<{ value: CatalogReviewFilter; label: string }>
 ];
 
 const catalogActionLabel = {
-  approved: "批准入库",
+  approved: "批准引用",
   request_changes: "要求补充",
   rejected: "拒绝",
 } as const;
@@ -911,9 +1175,9 @@ const CatalogReviewPanel = ({
   <section className="col-span-full grid gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
     <div className="overflow-hidden rounded-lg border bg-ui-bg-base shadow-borders-base">
       <div className="border-b px-5 py-5">
-        <h2 className="txt-large-plus text-ui-fg-base">Skill/Tool 入库审核</h2>
+        <h2 className="txt-large-plus text-ui-fg-base">能力目录审核</h2>
         <p className="mt-2 txt-compact-small text-ui-fg-subtle">
-          处理岗位生成时发现的能力缺口；审核通过后进入平台目录，供岗位复用。
+          处理岗位生成时发现的能力缺口；审核通过后只允许能力引用复用，不代表云端安装实现。
         </p>
         <div className="mt-4 flex flex-wrap gap-2">
           {catalogStatusOptions.map((option) => (
@@ -934,13 +1198,13 @@ const CatalogReviewPanel = ({
       </div>
       {loading ? (
         <div className="px-5 py-10 txt-compact-small text-ui-fg-muted">
-          正在读取 Skill/Tool 审核队列...
+          正在读取能力目录审核队列...
         </div>
       ) : error ? (
         <div className="px-5 py-10 txt-compact-small text-red-600">{error}</div>
       ) : requests.length === 0 ? (
         <div className="px-5 py-10 txt-compact-small text-ui-fg-muted">
-          暂无{catalogStatusLabels[statusFilter]} Skill/Tool 请求。
+          暂无{catalogStatusLabels[statusFilter]}能力目录请求。
         </div>
       ) : (
         <div className="divide-y">
@@ -980,7 +1244,7 @@ const CatalogReviewPanel = ({
                 <div className="txt-compact-small text-ui-fg-subtle">
                   {candidateReason
                     ? candidateReason
-                    : "等待审核人员确认是否进入平台 Skill/Tool 目录。"}
+                    : "等待审核人员确认是否允许该能力引用被岗位复用。"}
                 </div>
                 <div className="grid gap-2 rounded-md border bg-ui-bg-subtle px-3 py-3 txt-compact-small text-ui-fg-subtle md:grid-cols-2">
                   {reviewKey ? <span>审核键：{reviewKey}</span> : null}
@@ -1017,7 +1281,7 @@ const CatalogReviewPanel = ({
       )}
     </div>
     <aside className="rounded-lg border bg-ui-bg-base px-5 py-5 shadow-borders-base">
-      <h3 className="txt-medium-plus text-ui-fg-base">平台目录概览</h3>
+      <h3 className="txt-medium-plus text-ui-fg-base">能力目录概览</h3>
       <div className="mt-4 grid gap-3">
         {[
           ["目录项", catalogItems.length],
@@ -1162,6 +1426,7 @@ const RoleHeader = ({ role }: { role: RoleReviewItem }) => (
       {[
         ["版本", role.version],
         ["分类", role.category],
+        ["平台品类", role.categoryRef],
         ["授权费", role.price],
         ["上线状态", `${role.statusNote} / ${role.listingStatus}`],
       ].map(([label, value]) => (
@@ -1296,7 +1561,7 @@ const RoleReviewFacts = ({ role }: { role: RoleReviewItem }) => {
           </div>
         </div>
       </section>
-      <ReviewCheckList title="能力声明" items={role.capabilityChecks} />
+      <ReviewCheckList title="品类 / 能力门禁" items={role.capabilityChecks} />
       <ReviewCheckList title="安全检查" items={role.safetyChecks} />
       <section className="rounded-lg border bg-ui-bg-base">
         <div className="border-b px-4 py-4">
@@ -1658,127 +1923,429 @@ const RecordsPanel = ({
   </section>
 );
 
-const SettingsPanel = () => {
-  const groups = [
-    {
-      title: "审核入口",
-      rows: [
-        ["审核中心", "查看 submitted 队列、三项评估、AI 辅助和最终人工动作。"],
-        [
-          "岗位商品列表",
-          "只展示岗位商品审核状态，不在列表页直接替人做最终审核。",
-        ],
-        [
-          "岗位详情",
-          "读取同一个 roleListing/review read model，按钮必须写入后端。",
-        ],
-        [
-          "审核助手",
-          "surface 固定 admin_review，必须绑定当前 roleListing/review。",
-        ],
-      ],
-    },
-    {
-      title: "人工动作",
-      rows: [
-        [
-          "通过 approved",
-          "三项评估均通过且无阻断检查后，标记为审核通过；开发者上架后才进入商城。",
-        ],
-        ["要求补充 needs_changes", "退回开发者修改，商城不可见，不能授权。"],
-        ["驳回 rejected", "保留审核记录，商城不可见，不能授权。"],
-        ["记录要求", "最终动作必须写 review/listing 状态，不能只 toast。"],
-      ],
-    },
-    {
-      title: "AI 助手权限",
-      rows: [
-        ["允许", "总结岗位、查缺失、评估安全、评估定价、起草补充或驳回意见。"],
-        ["禁止", "自动通过、自动驳回、自动发布、修改开发者岗位包。"],
-        ["数据边界", "只读取脱敏岗位包摘要、检查项、评估状态和审核记录。"],
-        [
-          "费用归属",
-          "审核助手按 admin_review_assist 记账，不按开发者岗位收益记账。",
-        ],
-      ],
-    },
-    {
-      title: "费用口径",
-      rows: [
-        [
-          "开发者中心",
-          "开发者可配置授权费和输入/输出 Token 使用费；Token 单价必须通过平台硬限制校验。",
-        ],
-        [
-          "审核中心",
-          "审核授权费、Token 使用费倍率、开发者收益、过高/过低定价和隐藏收费风险。",
-        ],
-        [
-          "使用者费用",
-          "商城和使用者中心明码标价；正式执行后从 ledger/readback 回读实际用量和费用。",
-        ],
-        [
-          "role_usage",
-          "岗位执行计费和审计统一按 role_usage，不按普通聊天计费。",
-        ],
-      ],
-    },
-    {
-      title: "美工岗位强制项",
-      rows: [
-        ["商品图输入", "没有商品图或主图输入说明，不能通过。"],
-        ["图片能力", "必须说明图片理解、图片生成或设计输出能力。"],
-        ["输出标准", "必须说明主图/详情页输出标准和人工确认点。"],
-        ["artifact 回写", "不能只有调度状态，必须能回读业务产物。"],
-      ],
-    },
-    {
-      title: "页面可见性",
-      rows: [
-        ["submitted", "只进审核队列，不进商城，不进使用者中心。"],
-        ["needs_changes / rejected", "保留审核记录，不允许购买授权。"],
-        ["approved + published", "商城可见，可购买或授权。"],
-        ["authorized", "使用者中心可见，本地端可同步执行入口。"],
-      ],
-    },
-  ];
+const categoryStatusColor: Record<string, string> = {
+  draft: "text-ui-fg-muted",
+  pending_review: "text-orange-600",
+  approved: "text-green-600",
+  disabled: "text-red-600",
+};
+
+const RoleCategoryManagementPanel = ({
+  model,
+  loading,
+  error,
+  selectedCategoryRef,
+  savingAction,
+  onSelectCategory,
+  onSaveCategory,
+  onSaveBinding,
+  onRunAction,
+  onRefresh,
+}: {
+  model: RoleCategoryAdminReadModel;
+  loading: boolean;
+  error: string;
+  selectedCategoryRef: string;
+  savingAction: string;
+  onSelectCategory: (categoryRef: string) => void;
+  onSaveCategory: (input: {
+    mode: "create" | "update";
+    categoryRef: string;
+    name: string;
+    version: string;
+    description?: string;
+  }) => void;
+  onSaveBinding: (input: {
+    categoryRef: string;
+    categoryPackRef: string;
+    skillPackRef: string;
+    toolPackRef: string;
+    catalogRefs: string[];
+  }) => void;
+  onRunAction: (
+    categoryRef: string,
+    action: "submit" | "approve" | "request_changes" | "disable",
+  ) => void;
+  onRefresh: () => void;
+}) => {
+  const selected =
+    model.categories.find((category) => category.categoryRef === selectedCategoryRef) ??
+    model.categories[0];
+  const [createDraft, setCreateDraft] = useState({
+    categoryRef: "",
+    name: "",
+    version: "1",
+    description: "",
+  });
+  const [editDraft, setEditDraft] = useState({
+    name: "",
+    version: "1",
+    description: "",
+  });
+  const [bindingDraft, setBindingDraft] = useState({
+    categoryPackRef: "",
+    skillPackRef: "",
+    toolPackRef: "",
+    catalogRefs: [] as string[],
+  });
+
+  useEffect(() => {
+    if (!selected) {
+      return;
+    }
+    setEditDraft({
+      name: selected.name,
+      version: selected.version,
+      description: selected.description,
+    });
+    setBindingDraft({
+      categoryPackRef: selected.packBinding?.categoryPackRef ?? "",
+      skillPackRef: selected.packBinding?.skillPackRef ?? "",
+      toolPackRef: selected.packBinding?.toolPackRef ?? "",
+      catalogRefs: selected.packBinding?.catalogRefs ?? [],
+    });
+  }, [selected]);
+
+  const toggleCatalogRef = (catalogRef: string) => {
+    setBindingDraft((current) => {
+      const exists = current.catalogRefs.includes(catalogRef);
+      return {
+        ...current,
+        catalogRefs: exists
+          ? current.catalogRefs.filter((item) => item !== catalogRef)
+          : [...current.catalogRefs, catalogRef],
+      };
+    });
+  };
 
   return (
-    <section className="rounded-lg border bg-ui-bg-base shadow-borders-base">
-      <div className="flex items-start justify-between gap-4 border-b px-6 py-5">
-        <div>
-          <h1 className="txt-large-plus text-ui-fg-base">审核设置</h1>
-          <p className="mt-2 txt-compact-small text-ui-fg-subtle">
-            当前生效的审核规则读模型。需要修改规则时必须接后端配置接口，不能只改页面状态。
-          </p>
+    <section className="col-span-full grid gap-5 lg:grid-cols-[320px_minmax(0,1fr)]">
+      <div className="overflow-hidden rounded-lg border bg-ui-bg-base shadow-borders-base">
+        <div className="border-b px-5 py-5">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h2 className="txt-large-plus text-ui-fg-base">品类管理</h2>
+              <p className="mt-2 txt-compact-small text-ui-fg-subtle">
+                管理平台品类、Skill/Tool 包绑定和上架门禁。
+              </p>
+            </div>
+            <button
+              className="h-8 rounded-md border px-3 txt-compact-small-plus"
+              type="button"
+              onClick={onRefresh}
+            >
+              刷新
+            </button>
+          </div>
         </div>
-        <div className="flex shrink-0 flex-wrap justify-end gap-2">
-          <StatusPill label="人工审核" />
-          <StatusPill label="admin_review" />
-        </div>
-      </div>
-      <div className="divide-y">
-        {groups.map((group) => (
-          <section key={group.title} className="px-6 py-5">
-            <h2 className="txt-medium-plus text-ui-fg-base">{group.title}</h2>
-            <div className="mt-4 divide-y border-t">
-              {group.rows.map(([label, value]) => (
-                <div
-                  key={label}
-                  className="grid gap-4 px-4 py-3"
-                  style={{ gridTemplateColumns: "170px minmax(0, 1fr)" }}
-                >
+        {loading ? (
+          <div className="px-5 py-8 txt-compact-small text-ui-fg-muted">
+            正在读取品类...
+          </div>
+        ) : (
+          <div className="divide-y">
+            {model.categories.map((category) => (
+              <button
+                key={category.categoryRef}
+                className={`grid w-full gap-2 px-5 py-4 text-left hover:bg-ui-bg-subtle ${
+                  selected?.categoryRef === category.categoryRef ? "bg-ui-bg-subtle" : ""
+                }`}
+                type="button"
+                onClick={() => onSelectCategory(category.categoryRef)}
+              >
+                <div className="flex items-start justify-between gap-3">
                   <span className="txt-compact-small-plus text-ui-fg-base">
-                    {label}
+                    {category.name}
                   </span>
-                  <span className="txt-compact-small text-ui-fg-subtle">
-                    {value}
+                  <span className={`txt-compact-small-plus ${categoryStatusColor[category.status]}`}>
+                    {category.status}
                   </span>
                 </div>
-              ))}
+                <span className="break-all txt-compact-small text-ui-fg-muted">
+                  {category.categoryRef}
+                </span>
+                <span className="txt-compact-small text-ui-fg-subtle">
+                  能力 {category.packBinding?.capabilityRefs.length ?? 0} · 岗位{" "}
+                  {category.usage?.roleListingCount ?? 0}
+                </span>
+              </button>
+            ))}
+            {model.categories.length === 0 ? (
+              <div className="px-5 py-8 txt-compact-small text-ui-fg-muted">
+                暂无品类。先创建 draft 品类，再绑定已审核能力引用。
+              </div>
+            ) : null}
+          </div>
+        )}
+      </div>
+
+      <div className="grid gap-5">
+        {error ? (
+          <div className="rounded-lg border border-red-200 bg-ui-bg-base px-5 py-4 txt-compact-small text-red-600">
+            {error}
+          </div>
+        ) : null}
+        <section className="rounded-lg border bg-ui-bg-base shadow-borders-base">
+          <div className="border-b px-5 py-5">
+            <h2 className="txt-medium-plus text-ui-fg-base">创建品类</h2>
+            <p className="mt-1 txt-compact-small text-ui-fg-subtle">
+              新品类先进入 draft，绑定能力包后再提交审核。
+            </p>
+          </div>
+          <div className="grid gap-3 px-5 py-5 md:grid-cols-2">
+            <input
+              className="h-10 rounded-lg border bg-ui-bg-base px-3 txt-compact-small outline-none"
+              placeholder="category:customer_ops@1"
+              value={createDraft.categoryRef}
+              onChange={(event) =>
+                setCreateDraft((current) => ({
+                  ...current,
+                  categoryRef: event.target.value,
+                }))
+              }
+            />
+            <input
+              className="h-10 rounded-lg border bg-ui-bg-base px-3 txt-compact-small outline-none"
+              placeholder="品类名称"
+              value={createDraft.name}
+              onChange={(event) =>
+                setCreateDraft((current) => ({ ...current, name: event.target.value }))
+              }
+            />
+            <input
+              className="h-10 rounded-lg border bg-ui-bg-base px-3 txt-compact-small outline-none"
+              placeholder="版本"
+              value={createDraft.version}
+              onChange={(event) =>
+                setCreateDraft((current) => ({ ...current, version: event.target.value }))
+              }
+            />
+            <button
+              className="h-10 rounded-md bg-ui-fg-base px-4 txt-compact-small-plus text-ui-bg-base disabled:opacity-40"
+              type="button"
+              disabled={
+                savingAction === "create" ||
+                !createDraft.categoryRef.trim() ||
+                !createDraft.name.trim()
+              }
+              onClick={() => onSaveCategory({ mode: "create", ...createDraft })}
+            >
+              {savingAction === "create" ? "创建中" : "创建 draft"}
+            </button>
+            <textarea
+              className="min-h-20 rounded-lg border bg-ui-bg-base px-3 py-2 txt-compact-small outline-none md:col-span-2"
+              placeholder="品类说明"
+              value={createDraft.description}
+              onChange={(event) =>
+                setCreateDraft((current) => ({
+                  ...current,
+                  description: event.target.value,
+                }))
+              }
+            />
+          </div>
+        </section>
+
+        {selected ? (
+          <section className="rounded-lg border bg-ui-bg-base shadow-borders-base">
+            <div className="flex flex-wrap items-start justify-between gap-4 border-b px-5 py-5">
+              <div>
+                <h2 className="txt-large-plus text-ui-fg-base">{selected.name}</h2>
+                <p className="mt-1 break-all txt-compact-small text-ui-fg-muted">
+                  {selected.categoryRef}
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {(selected.allowedActions ?? []).includes("submit_review") ? (
+                  <button
+                    className="h-9 rounded-md border px-3 txt-compact-small-plus"
+                    type="button"
+                    disabled={Boolean(savingAction)}
+                    onClick={() => onRunAction(selected.categoryRef, "submit")}
+                  >
+                    提交审核
+                  </button>
+                ) : null}
+                {(selected.allowedActions ?? []).includes("approve") ? (
+                  <button
+                    className="h-9 rounded-md bg-ui-fg-base px-3 txt-compact-small-plus text-ui-bg-base"
+                    type="button"
+                    disabled={Boolean(savingAction)}
+                    onClick={() => onRunAction(selected.categoryRef, "approve")}
+                  >
+                    审核通过
+                  </button>
+                ) : null}
+                {(selected.allowedActions ?? []).includes("request_changes") ? (
+                  <button
+                    className="h-9 rounded-md border px-3 txt-compact-small-plus"
+                    type="button"
+                    disabled={Boolean(savingAction)}
+                    onClick={() => onRunAction(selected.categoryRef, "request_changes")}
+                  >
+                    要求补充
+                  </button>
+                ) : null}
+                {(selected.allowedActions ?? []).includes("disable") ? (
+                  <button
+                    className="h-9 rounded-md bg-red-600 px-3 txt-compact-small-plus text-white"
+                    type="button"
+                    disabled={Boolean(savingAction)}
+                    onClick={() => onRunAction(selected.categoryRef, "disable")}
+                  >
+                    禁用
+                  </button>
+                ) : null}
+              </div>
+            </div>
+            <div className="grid gap-5 px-5 py-5">
+              <div className="grid gap-3 md:grid-cols-3">
+                {[
+                  ["状态", selected.status],
+                  ["能力引用", selected.packBinding?.capabilityRefs.length ?? 0],
+                  ["使用岗位", selected.usage?.roleListingCount ?? 0],
+                ].map(([label, value]) => (
+                  <div key={label} className="rounded-md border px-3 py-3">
+                    <div className="txt-compact-small text-ui-fg-muted">{label}</div>
+                    <div className="mt-1 txt-compact-large-plus text-ui-fg-base">
+                      {value}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {(selected.blockerReasons ?? []).length > 0 ? (
+                <div className="grid gap-2 rounded-md border border-orange-200 px-4 py-3">
+                  {(selected.blockerReasons ?? []).map((reason) => (
+                    <span key={reason} className="txt-compact-small text-orange-600">
+                      {reason}
+                    </span>
+                  ))}
+                </div>
+              ) : null}
+
+              <div className="grid gap-3 md:grid-cols-2">
+                <input
+                  className="h-10 rounded-lg border bg-ui-bg-base px-3 txt-compact-small outline-none"
+                  value={editDraft.name}
+                  onChange={(event) =>
+                    setEditDraft((current) => ({ ...current, name: event.target.value }))
+                  }
+                />
+                <input
+                  className="h-10 rounded-lg border bg-ui-bg-base px-3 txt-compact-small outline-none"
+                  value={editDraft.version}
+                  onChange={(event) =>
+                    setEditDraft((current) => ({
+                      ...current,
+                      version: event.target.value,
+                    }))
+                  }
+                />
+                <textarea
+                  className="min-h-20 rounded-lg border bg-ui-bg-base px-3 py-2 txt-compact-small outline-none md:col-span-2"
+                  value={editDraft.description}
+                  onChange={(event) =>
+                    setEditDraft((current) => ({
+                      ...current,
+                      description: event.target.value,
+                    }))
+                  }
+                />
+                <button
+                  className="h-10 rounded-md border px-4 txt-compact-small-plus disabled:opacity-40"
+                  type="button"
+                  disabled={
+                    Boolean(savingAction) ||
+                    !(selected.allowedActions ?? []).includes("update")
+                  }
+                  onClick={() =>
+                    onSaveCategory({
+                      mode: "update",
+                      categoryRef: selected.categoryRef,
+                      ...editDraft,
+                    })
+                  }
+                >
+                  保存基础信息
+                </button>
+              </div>
+
+              <div className="grid gap-3 border-t pt-5">
+                <h3 className="txt-medium-plus text-ui-fg-base">Skill/Tool 包绑定</h3>
+                <div className="grid gap-3 md:grid-cols-3">
+                  {[
+                    ["categoryPackRef", "categorypack:name@1"],
+                    ["skillPackRef", "skillpack:name@1"],
+                    ["toolPackRef", "toolpack:name@1"],
+                  ].map(([field, placeholder]) => (
+                    <input
+                      key={field}
+                      className="h-10 rounded-lg border bg-ui-bg-base px-3 txt-compact-small outline-none"
+                      placeholder={placeholder}
+                      value={bindingDraft[field as keyof typeof bindingDraft] as string}
+                      onChange={(event) =>
+                        setBindingDraft((current) => ({
+                          ...current,
+                          [field]: event.target.value,
+                        }))
+                      }
+                    />
+                  ))}
+                </div>
+                <div className="max-h-72 overflow-y-auto rounded-lg border">
+                  {model.approvedCatalogItems.map((item) => {
+                    const checked = bindingDraft.catalogRefs.includes(item.id);
+                    return (
+                      <label
+                        key={item.id}
+                        aria-label={`${item.name} / ${item.id}`}
+                        className="grid cursor-pointer gap-2 border-b px-4 py-3 last:border-b-0 hover:bg-ui-bg-subtle"
+                      >
+                        <div className="flex items-start gap-3">
+                          <input
+                            className="mt-1"
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => toggleCatalogRef(item.id)}
+                          />
+                          <div className="min-w-0">
+                            <div className="txt-compact-small-plus text-ui-fg-base">
+                              {item.name}
+                            </div>
+                            <div className="mt-1 break-all txt-compact-small text-ui-fg-muted">
+                              {item.id}
+                            </div>
+                            <div className="mt-1 txt-compact-small text-ui-fg-subtle">
+                              {item.kind} · {item.riskLevel ?? "unknown"} ·{" "}
+                              {(item.provides ?? []).join("、") || "-"}
+                            </div>
+                          </div>
+                        </div>
+                      </label>
+                    );
+                  })}
+                </div>
+                <button
+                  className="h-10 w-fit rounded-md bg-ui-fg-base px-4 txt-compact-small-plus text-ui-bg-base disabled:opacity-40"
+                  type="button"
+                  disabled={
+                    Boolean(savingAction) ||
+                    !(selected.allowedActions ?? []).includes("bind_pack")
+                  }
+                  onClick={() =>
+                    onSaveBinding({
+                      categoryRef: selected.categoryRef,
+                      ...bindingDraft,
+                    })
+                  }
+                >
+                  保存包绑定
+                </button>
+              </div>
             </div>
           </section>
-        ))}
+        ) : null}
       </div>
     </section>
   );

@@ -59,7 +59,7 @@ function storedRolePackage() {
     owner_id: "member_123",
     uploaded_at: new Date("2026-06-04T00:00:00.000Z"),
     manifest_summary: {
-      entrypoint: "role_package/adapters/openclaw-adapter.ts",
+      entrypoint: "role_package/README.md",
       manifestRef: "role_package/manifest.json",
       name: "商品图检查岗位",
       permissions: ["workspace.read", "workspace.write"],
@@ -89,7 +89,7 @@ function validManifest() {
     rolePackageId: "pkg_product_image_qc",
     version: "0.1.0",
     name: "商品图检查岗位",
-    entrypoint: "role_package/adapters/openclaw-adapter.ts",
+    entrypoint: "role_package/README.md",
     permissions: ["workspace.read", "workspace.write"],
     requiredCapabilities: ["workspace.read", "image.inspect", "document.write", "human.confirm"],
     files: [
@@ -114,20 +114,23 @@ function validFiles() {
     },
     {
       path: "role_package/README.md",
-      content: "# Role package\n",
-    },
-    {
-      path: "role_package/knowledge/business-workflow.md",
-      content: "# 业务流程\n先检查图片清晰度，再判断标题和图片是否一致，最后输出修改清单。\n",
-    },
-    {
-      path: "role_package/adapters/openclaw-adapter.ts",
       content:
-        "export const capabilityMapping = ['workspace.read', 'image.inspect', 'document.write'];\n",
+        "# 商品图检查岗位\n\n岗位名称：商品图检查岗位。岗位目标：检查商品图片质量。服务对象：面向商家运营团队。输入：商品图和商品资料。输出：问题清单和修改建议。\n",
     },
     {
-      path: "role_package/validation/smoke-test.md",
-      content: "# Smoke test\n",
+      path: "role_package/standards.md",
+      content:
+        "# 服务标准\n\n服务标准：问题必须可定位。质量标准：图片清晰、标题和图片一致。输出物标准：给出问题、严重程度和修改建议。\n",
+    },
+    {
+      path: "role_package/cadence.md",
+      content:
+        "# 服务节奏\n\n触发条件：商品上新或活动更新。每日检查重点商品；每周复盘问题；每月整理失败标准。\n",
+    },
+    {
+      path: "role_package/validation.md",
+      content:
+        "# 验收和失败标准\n\n验收标准：输出能说明输入、输出、问题位置和修改建议。失败标准：资料缺失或无法定位问题时失败并降级人工复核。\n",
     },
   ];
 }
@@ -162,7 +165,7 @@ describe("POST /vendor/dijie/role-packages", () => {
         packageId: "pkg_product_image_qc",
         packageVersion: "0.1.0",
         manifestSummary: {
-          entrypoint: "role_package/adapters/openclaw-adapter.ts",
+          entrypoint: "role_package/README.md",
           manifestRef: "role_package/manifest.json",
           name: "商品图检查岗位",
           permissions: ["workspace.read", "workspace.write"],
@@ -330,6 +333,14 @@ describe("POST /vendor/dijie/role-packages", () => {
             path: "role_package/tools/browser-tool.ts",
             content: "export async function browserTool() { return 'runs locally'; }\n",
           },
+          {
+            path: "role_package/skills/main-image-inspection.md",
+            content: "旧版 skill 文件不应进入岗位包。\n",
+          },
+          {
+            path: "role_package/tool_requirements.md",
+            content: "旧版工具需求文件不应进入岗位包。\n",
+          },
         ],
       }) as never,
       res as never,
@@ -338,6 +349,8 @@ describe("POST /vendor/dijie/role-packages", () => {
     expect(res.statusCode).toBe(400);
     expect(JSON.stringify(res.body)).toContain("toolDefinitions");
     expect(JSON.stringify(res.body)).toContain("must not ship implementation tools");
+    expect(JSON.stringify(res.body)).toContain("role_package/skills/main-image-inspection.md");
+    expect(JSON.stringify(res.body)).toContain("role_package/tool_requirements.md");
     expect(JSON.stringify(res.body)).toContain("requiredCapabilities");
   });
 });

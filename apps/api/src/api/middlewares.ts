@@ -92,6 +92,11 @@ export default defineMiddlewares({
             middlewares: [authenticate("customer", ["session", "bearer"])],
         },
         {
+            matcher: "/dijie/role-checkouts/cart",
+            method: ["POST"],
+            middlewares: [authenticate("customer", ["session", "bearer"])],
+        },
+        {
             matcher: "/dijie/my-roles",
             method: ["GET"],
             middlewares: [authenticate("customer", ["session", "bearer"])],

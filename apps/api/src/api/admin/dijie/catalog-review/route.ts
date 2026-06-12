@@ -53,20 +53,20 @@ export async function GET(req: MedusaRequest, res: MedusaResponse) {
   if (!access) {
     return res.status(401).json({
       ok: false,
-      error: "读取 Skill/Tool 入库审核需要平台审核账号登录。",
+      error: "读取能力目录审核需要平台审核账号登录。",
     });
   }
   if (!canReviewDijieRoles(access)) {
     return res.status(403).json({
       ok: false,
-      error: "当前账号没有 Skill/Tool 入库审核权限。",
+      error: "当前账号没有能力目录审核权限。",
     });
   }
   const catalogReader = resolveDijieCatalogReader(auditService);
   if (!catalogReader) {
     return res.status(503).json({
       ok: false,
-      error: "Skill/Tool 目录审核存储暂未配置。",
+      error: "能力目录审核存储暂未配置。",
     });
   }
 

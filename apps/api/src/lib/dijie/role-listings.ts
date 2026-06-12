@@ -7,6 +7,10 @@ import {
   isPublicDijieRoleProduct,
   normalizeDijieRoleProductMetadataFromProduct,
 } from "./role-product-metadata";
+import {
+  validateDijieRoleCategoryIntegration,
+  type DijieRoleCategoryRegistry,
+} from "./role-category-registry";
 
 export type DijieQueryGraph = (query: {
   entity: string;
@@ -22,6 +26,7 @@ export type DijieRoleListing = {
   description: string | null;
   usageInstructions: string | null;
   category: string | null;
+  categoryRef: string | null;
   handle: string | null;
   listingStatus: string;
   reviewState: string | null;
@@ -30,6 +35,7 @@ export type DijieRoleListing = {
   packageId: string | null;
   packageVersion: string | null;
   protocolVersion: string | null;
+  manifestSummary: unknown | null;
   capabilities: string[];
   pricing: DijieExecutionTokenPricing;
   roleTokenPricing: DijieRoleTokenPricing;
@@ -50,11 +56,25 @@ export type DijiePublicRoleListingReadModel = {
   description: string | null;
   usageInstructions: string | null;
   category: string | null;
+  categoryRef: string | null;
   handle: string | null;
   listingStatus: string;
   reviewState: string | null;
   developerName: string | null;
   capabilities: string[];
+  categoryName: string | null;
+  categoryPackRef: string | null;
+  skillPackRef: string | null;
+  toolPackRef: string | null;
+  inheritedCapabilityRefs: string[];
+  capabilityGateSummary: {
+    ok: boolean;
+    missing: string[];
+    blocked: string[];
+    inheritedCatalogRefCount: number;
+    inheritedCapabilityRefCount: number;
+    message: string | null;
+  };
   pricing: Pick<
     DijieExecutionTokenPricing,
     "kind" | "authorizationFeeCents" | "currency"
@@ -213,6 +233,10 @@ export function createDijieRoleListingFromProduct(
       nonEmptyString(role.description ?? product.description) ?? null,
     usageInstructions: nonEmptyString(role.usageInstructions) ?? null,
     category: nonEmptyString((role as { category?: unknown }).category) ?? null,
+    categoryRef:
+      nonEmptyString((role as { categoryRef?: unknown }).categoryRef) ??
+      nonEmptyString((role as { category_ref?: unknown }).category_ref) ??
+      null,
     handle: nonEmptyString(product.handle) ?? null,
     listingStatus: role.listingStatus,
     reviewState: role.reviewState,
@@ -222,6 +246,7 @@ export function createDijieRoleListingFromProduct(
     packageId: role.packageId,
     packageVersion: role.packageVersion,
     protocolVersion: role.protocolVersion,
+    manifestSummary: role.manifestSummary,
     capabilities,
     pricing: role.pricing,
     roleTokenPricing: role.roleTokenPricing,
@@ -276,6 +301,7 @@ export function createDijieRoleListingFromStoredRecord(
     description: nonEmptyString(record.description) ?? null,
     usageInstructions: nonEmptyString(record.usage_instructions) ?? null,
     category: nonEmptyString(record.category) ?? null,
+    categoryRef: nonEmptyString(record.category_ref) ?? null,
     handle: id,
     listingStatus: record.listing_status,
     reviewState: record.review_state,
@@ -284,6 +310,7 @@ export function createDijieRoleListingFromStoredRecord(
     packageId,
     packageVersion,
     protocolVersion: "2026-05",
+    manifestSummary,
     capabilities: capabilities.length > 0 ? capabilities : fallbackCapabilities,
     pricing,
     roleTokenPricing,
@@ -383,6 +410,34 @@ function tokenCentsPerMillionLabel(value: number): string {
   return `¥${(value / 100).toFixed(2)}/百万 Token`;
 }
 
+function categoryGateForListing(
+  listing: DijieRoleListing,
+  categoryRegistry?: DijieRoleCategoryRegistry,
+) {
+  const check = validateDijieRoleCategoryIntegration({
+    manifestSummary: listing.manifestSummary,
+    categoryRef: listing.categoryRef,
+    category: listing.category,
+    registry: categoryRegistry,
+  });
+  const binding = check.category?.packBinding ?? null;
+  return {
+    categoryName: check.category?.name ?? listing.category ?? null,
+    categoryPackRef: binding?.categoryPackRef ?? null,
+    skillPackRef: binding?.skillPackRef ?? null,
+    toolPackRef: binding?.toolPackRef ?? null,
+    inheritedCapabilityRefs: check.inheritedCapabilityRefs,
+    capabilityGateSummary: {
+      ok: check.ok,
+      missing: check.missing,
+      blocked: check.blocked,
+      inheritedCatalogRefCount: check.inheritedCatalogRefs.length,
+      inheritedCapabilityRefCount: check.inheritedCapabilityRefs.length,
+      message: check.error ?? null,
+    },
+  };
+}
+
 function roleProductCheckoutMappings(products: unknown[]) {
   const byRoleListingId = new Map<string, DijieRoleCheckoutReadModel>();
   const byPackageKey = new Map<string, DijieRoleCheckoutReadModel | null>();
@@ -441,7 +496,9 @@ function attachCheckoutMappingsToStoredListings(
 
 export function createDijiePublicRoleListingReadModel(
   listing: DijieRoleListing,
+  categoryRegistry?: DijieRoleCategoryRegistry,
 ): DijiePublicRoleListingReadModel {
+  const categoryGate = categoryGateForListing(listing, categoryRegistry);
   return {
     id: listing.id,
     title: listing.title,
@@ -449,11 +506,18 @@ export function createDijiePublicRoleListingReadModel(
     description: listing.description,
     usageInstructions: listing.usageInstructions,
     category: listing.category,
+    categoryRef: listing.categoryRef,
     handle: listing.handle,
     listingStatus: listing.listingStatus,
     reviewState: listing.reviewState,
     developerName: listing.developerName,
     capabilities: listing.capabilities,
+    categoryName: categoryGate.categoryName,
+    categoryPackRef: categoryGate.categoryPackRef,
+    skillPackRef: categoryGate.skillPackRef,
+    toolPackRef: categoryGate.toolPackRef,
+    inheritedCapabilityRefs: categoryGate.inheritedCapabilityRefs,
+    capabilityGateSummary: categoryGate.capabilityGateSummary,
     pricing: {
       kind: listing.pricing.kind,
       authorizationFeeCents: listing.pricing.authorizationFeeCents,
@@ -493,9 +557,10 @@ export function createDijiePublicRoleListingReadModel(
 export function createDijieRoleDetailReadModel(
   listing: DijieRoleListing,
   allListings: DijieRoleListing[],
+  categoryRegistry?: DijieRoleCategoryRegistry,
 ): DijieRoleDetailReadModel {
   return {
-    ...createDijiePublicRoleListingReadModel(listing),
+    ...createDijiePublicRoleListingReadModel(listing, categoryRegistry),
     detailSections: {
       roleDetails: createRoleDetails(listing),
       usageInstructions: createUsageInstructions(listing),
@@ -748,6 +813,7 @@ export async function listDijieRoleListings(
         "description",
         "usage_instructions",
         "category",
+        "category_ref",
         "listing_status",
         "review_state",
         "capabilities",
@@ -793,20 +859,26 @@ export async function listDijieRoleListings(
 
 export async function listDijiePublicRoleListingReadModels(
   queryGraph: DijieQueryGraph,
+  categoryRegistry?: DijieRoleCategoryRegistry,
 ): Promise<DijiePublicRoleListingReadModel[]> {
   const listings = await listDijieRoleListings(queryGraph);
-  return listings.map(createDijiePublicRoleListingReadModel);
+  return listings.map((listing) =>
+    createDijiePublicRoleListingReadModel(listing, categoryRegistry),
+  );
 }
 
 export async function getDijieRoleDetailReadModel(params: {
   roleListingId: string;
   queryGraph: DijieQueryGraph;
+  categoryRegistry?: DijieRoleCategoryRegistry;
 }): Promise<DijieRoleDetailReadModel | null> {
   const listings = await listDijieRoleListings(params.queryGraph);
   const listing = listings.find(
     (candidate) => candidate.id === params.roleListingId,
   );
-  return listing ? createDijieRoleDetailReadModel(listing, listings) : null;
+  return listing
+    ? createDijieRoleDetailReadModel(listing, listings, params.categoryRegistry)
+    : null;
 }
 
 export async function listDijieInstalledRoles(params: {
@@ -826,6 +898,7 @@ export async function listDijieInstalledRoles(params: {
         "description",
         "usage_instructions",
         "category",
+        "category_ref",
         "listing_status",
         "review_state",
         "capabilities",

@@ -52,7 +52,34 @@ describe("Dijie role skill/tool planner", () => {
       expect.arrayContaining([
         "skill.platform.visual_main_image_inspection",
         "tool.platform.image_inspector",
+        "api.opencloud.image_generation",
         "adapter.platform.aics_product_query",
+      ]),
+    );
+    expect(plan.catalogBindings.flatMap((binding) => binding.catalogRefs ?? [])).toEqual(
+      expect.arrayContaining(["api:image.generate@1.0.0", "capability:image.generate@1.0.0"]),
+    );
+  });
+
+  it("routes heavy and niche generation or automation needs to API catalog items", () => {
+    const plan = createDijieRoleCapabilityPlan({
+      message: "这个岗位需要图片生成、视频生成、Apify actor 抓取和 SaaS 自动化。",
+    });
+
+    expect(plan.status).toBe("platform_ready");
+    expect(plan.gaps).toEqual([]);
+    expect(plan.catalogBindings.map((binding) => [binding.catalogRef, binding.kind])).toEqual(
+      expect.arrayContaining([
+        ["api.opencloud.image_generation", "api"],
+        ["api.opencloud.video_generation", "api"],
+        ["api.opencloud.actor_run", "api"],
+      ]),
+    );
+    expect(plan.catalogBindings.map((binding) => [binding.catalogRef, binding.preferredRoute])).toEqual(
+      expect.arrayContaining([
+        ["api.opencloud.image_generation", "remote_api"],
+        ["api.opencloud.video_generation", "remote_api"],
+        ["api.opencloud.actor_run", "remote_api"],
       ]),
     );
   });

@@ -306,19 +306,9 @@ function generatedVisualRolePackageReply() {
     "role_package/manifest.json",
     "role_package/README.md",
     "role_package/listing.md",
-    "role_package/tool_requirements.md",
-    "role_package/integrations/openclaw-wrapper.md",
-    "role_package/skills/main-image-inspection.md",
-    "role_package/skills/detail-page-inspection.md",
-    "role_package/skills/product-fidelity-self-check.md",
-    "role_package/skills/visual-issue-record.md",
-    "role_package/skills/design-standard-maintenance.md",
-    "role_package/knowledge/sop.md",
-    "role_package/knowledge/design-rules.md",
-    "role_package/templates/main-image-inspection-record.md",
-    "role_package/templates/detail-page-optimization-checklist.md",
-    "role_package/validation/smoke-test.md",
-    "role_package/validation/acceptance-samples.md",
+    "role_package/standards.md",
+    "role_package/cadence.md",
+    "role_package/validation.md",
   ];
   const files = [
     {
@@ -353,71 +343,27 @@ function generatedVisualRolePackageReply() {
     {
       path: "role_package/README.md",
       content:
-        "岗位定位：负责智能门锁电商视觉维护。任务型工作包括主图巡检、详情页巡检、产品保真自检、问题记录。日常型工作包括素材库维护和设计标准维护。",
+        "岗位名称：智能门锁电商美工岗位。\n岗位目标：帮助智能门锁商家完成电商视觉巡检并交付可执行的修改建议。\n服务对象：面向智能门锁品牌商家、运营团队和设计团队。\n平台品类：电商美工。\n输入：商品资料、主图、详情页素材、活动要求。输出：视觉巡检报告、问题清单、人工复核建议和交付结果。\n服务边界：不直接发布商品，不承诺替代人工最终审核。",
     },
     {
       path: "role_package/listing.md",
-      content: "智能门锁电商美工岗位，可进行主图巡检、详情页巡检、产品保真自检和问题记录。",
-    },
-    {
-      path: "role_package/tool_requirements.md",
       content:
-        "只声明能力需求，不包含工具源码。需要 browser、image.inspect、image.generate、human.confirm、audit.record 和 AICS 商品图片 adapter。",
+        "智能门锁电商美工岗位面向智能门锁商家。岗位目标是发现主图、详情页和活动素材中的视觉风险。输入包括商品资料、图片素材和运营要求。输出包括巡检报告、问题清单和验收建议。服务标准要求问题可定位、建议可执行、发布前必须人工复核。",
     },
     {
-      path: "role_package/integrations/openclaw-wrapper.md",
-      content: "OpenClaw 集成示例：通过 requiredCapabilities 调用主系统工具，不包含实现代码。",
-    },
-    {
-      path: "role_package/skills/main-image-inspection.md",
+      path: "role_package/standards.md",
       content:
-        "主图巡检 skill。输入：商品主图和商品资料。检查项：产品主体是否突出、背景是否杂乱、卖点是否明显、文字是否遮挡产品、产品是否变形。输出：《主图巡检记录》。失败标准：缺少图片理解能力或没有主图时失败。",
+        "服务标准：所有问题必须关联商品、图片位置、问题类型、严重程度和修改建议。质量标准：不得虚构商品功能，不能遮挡锁体、把手、屏幕、摄像头和指纹区。输入资料不足时必须标记存疑。输出物标准：巡检报告要包含通过、存疑、不通过三类结果。复核标准：发布前人工复核为最终边界。",
     },
     {
-      path: "role_package/skills/detail-page-inspection.md",
+      path: "role_package/cadence.md",
       content:
-        "详情页巡检 skill。输入：详情页图片。检查项：模块顺序是否合理、风格统一、文案是否好读、卖点是否清楚、是否有重复低清空洞模块。输出：《详情页视觉优化清单》。失败标准：没有浏览器或图片理解能力时失败。",
+        "服务节奏：触发条件包括商品上新、活动素材更新和每周重点商品巡检。每日检查新上架和高风险商品；每周复盘问题清单和复核结果；每月整理常见失败标准。遇到资料缺失、合规风险或产品保真存疑时停等人工确认。",
     },
     {
-      path: "role_package/skills/product-fidelity-self-check.md",
+      path: "role_package/validation.md",
       content:
-        "产品保真自检 skill。输入：标准产品图和生成图。输出：通过/存疑/不通过、风险点、人工复核建议。人工复核为最终发布边界。",
-    },
-    {
-      path: "role_package/skills/visual-issue-record.md",
-      content:
-        "问题记录 skill。记录商品、图片或页面位置、问题类型、严重程度、修改建议、状态。没有问题台账 adapter 时只能输出清单，不能声称已写入。",
-    },
-    {
-      path: "role_package/skills/design-standard-maintenance.md",
-      content:
-        "设计标准维护 skill。反复出现的问题沉淀为规则，例如主图文字不得遮挡锁体、把手、屏幕、摄像头、指纹区。",
-    },
-    {
-      path: "role_package/knowledge/sop.md",
-      content:
-        "每日 SOP：巡检重点商品主图并记录问题。每周 SOP：复盘详情页视觉优化清单。每月 SOP：更新设计标准和验收样例。",
-    },
-    {
-      path: "role_package/knowledge/design-rules.md",
-      content:
-        "设计标准：主图文字不得遮挡锁体、把手、屏幕、摄像头、指纹区。AI 生成图必须经过产品保真自检和人工复核。",
-    },
-    {
-      path: "role_package/templates/main-image-inspection-record.md",
-      content: "《主图巡检记录》：商品、图片位置、问题、严重程度、修改建议、状态。",
-    },
-    {
-      path: "role_package/templates/detail-page-optimization-checklist.md",
-      content: "《详情页视觉优化清单》：模块顺序、风格统一、文案、卖点、低清重复模块。",
-    },
-    {
-      path: "role_package/validation/smoke-test.md",
-      content: "smoke 测试：主图巡检、详情页巡检、产品保真自检、问题记录。失败标准必须明确降级。",
-    },
-    {
-      path: "role_package/validation/acceptance-samples.md",
-      content: "验收样例：产品保真自检：存疑。风险点：把手边缘疑似被重绘。建议：提交人工复核。",
+        "验收标准：报告能说明输入、输出、问题位置、修改建议和人工复核建议即为通过。验收样例：主图遮挡锁体判定为不通过；图片来源不足判定为存疑。失败标准：无法识别商品主体、资料缺失、存在合规风险或输出不能定位问题时失败并降级为人工复核。",
     },
   ];
   return JSON.stringify({ files });
@@ -645,6 +591,67 @@ describe("POST /dijie/dialog/messages", () => {
     expect(completeCalls).toBe(0);
   });
 
+  for (const surface of ["buyer_storefront", "user_center", "admin_review"] as const) {
+    it(`streams ${surface} ordinary dialog through the unified SSE protocol`, async () => {
+      const res = streamResponse();
+      let streamCalls = 0;
+
+      await POST_STREAM(
+        request(
+          {
+            surface,
+            message: "你好，帮我解释一下现在这里能做什么",
+          },
+          { actor_id: "acct_user", actor_type: surface === "admin_review" ? "user" : "customer" },
+          {
+            streamDijieDialogMessage: async (
+              input: { latencyClass?: string; context: { surface: string } },
+              handlers?: { onDelta?: (text: string) => void },
+            ) => {
+              streamCalls += 1;
+              expect(input.context.surface).toBe(surface);
+              expect(input.latencyClass).toBe("fast_interaction");
+              handlers?.onDelta?.(`${surface} 第一段`);
+              return {
+                reply: `${surface} 第一段`,
+                usage: {
+                  provider: "openai",
+                  model: "gpt-fast",
+                  promptTokens: 100,
+                  completionTokens: 20,
+                  totalTokens: 120,
+                  pricing: {
+                    pricingKnown: true,
+                    pricingSource: "platform_review_config",
+                    grossAmountCents: 1,
+                    platformReceivableCents: 1,
+                    developerReceivableCents: 0,
+                  },
+                },
+              };
+            },
+            completeDijieDialogMessage: async () => {
+              throw new Error("stream-capable bridge should be used");
+            },
+          },
+        ) as never,
+        res as never,
+      );
+
+      const stream = res.chunks.join("");
+      expect(res.statusCode).toBe(200);
+      expect(stream).toContain("event: status");
+      expect(stream).toContain("event: delta");
+      expect(stream).toContain("event: metrics");
+      expect(stream).toContain("event: final");
+      expect(stream.indexOf("event: status")).toBeLessThan(stream.indexOf("event: delta"));
+      expect(stream.indexOf("event: metrics")).toBeLessThan(stream.indexOf("event: final"));
+      expect(stream).toContain(`"${surface} 第一段"`);
+      expect(stream).toContain("\"streamPath\":\"true_stream\"");
+      expect(streamCalls).toBe(1);
+    });
+  }
+
   it("falls back to complete response when developer dialog streaming fails", async () => {
     const res = streamResponse();
     let streamCalls = 0;
@@ -697,7 +704,7 @@ describe("POST /dijie/dialog/messages", () => {
     expect(completeCalls).toBe(1);
   });
 
-  it("returns developer navigation actions without spending a model call for pure navigation", async () => {
+  it("returns developer navigation actions while still using the model for natural language", async () => {
     const res = response();
     let bridgeCalls = 0;
 
@@ -709,11 +716,25 @@ describe("POST /dijie/dialog/messages", () => {
         },
         { actor_id: "acct_dev" },
         {
-          completeDijieDialogMessage: async () => {
+          completeDijieDialogMessage: async (input: { latencyClass?: string }) => {
             bridgeCalls += 1;
+            expect(input.latencyClass).toBe("fast_interaction");
             return {
-              reply: "不应该调用模型。",
-              usage: null,
+              reply: "我已识别为上传岗位包导航请求，会保持最终提交前人工确认。",
+              usage: {
+                provider: "openai",
+                model: "gpt-fast",
+                promptTokens: 80,
+                completionTokens: 18,
+                totalTokens: 98,
+                pricing: {
+                  pricingKnown: true,
+                  pricingSource: "platform_review_config",
+                  grossAmountCents: 1,
+                  platformReceivableCents: 1,
+                  developerReceivableCents: 0,
+                },
+              },
             };
           },
         },
@@ -722,9 +743,12 @@ describe("POST /dijie/dialog/messages", () => {
     );
 
     expect(res.statusCode).toBe(200);
-    expect(bridgeCalls).toBe(0);
+    expect(bridgeCalls).toBe(1);
     expect(res.body).toMatchObject({
-      modelCalled: false,
+      modelCalled: true,
+      message: {
+        content: "我已识别为上传岗位包导航请求，会保持最终提交前人工确认。",
+      },
       actions: [
         {
           kind: "navigate",
@@ -736,7 +760,7 @@ describe("POST /dijie/dialog/messages", () => {
     });
   });
 
-  it("answers developer delist navigation without spending a model call", async () => {
+  it("answers developer delist navigation with model wording and safe action metadata", async () => {
     const res = response();
     let bridgeCalls = 0;
 
@@ -748,11 +772,25 @@ describe("POST /dijie/dialog/messages", () => {
         },
         { actor_id: "acct_dev" },
         {
-          completeDijieDialogMessage: async () => {
+          completeDijieDialogMessage: async (input: { latencyClass?: string }) => {
             bridgeCalls += 1;
+            expect(input.latencyClass).toBe("fast_interaction");
             return {
-              reply: "不应该调用模型。",
-              usage: null,
+              reply: "下架入口在岗位商品列表，但真正下架前仍需要你手动确认。",
+              usage: {
+                provider: "openai",
+                model: "gpt-fast",
+                promptTokens: 80,
+                completionTokens: 18,
+                totalTokens: 98,
+                pricing: {
+                  pricingKnown: true,
+                  pricingSource: "platform_review_config",
+                  grossAmountCents: 1,
+                  platformReceivableCents: 1,
+                  developerReceivableCents: 0,
+                },
+              },
             };
           },
         },
@@ -761,11 +799,11 @@ describe("POST /dijie/dialog/messages", () => {
     );
 
     expect(res.statusCode).toBe(200);
-    expect(bridgeCalls).toBe(0);
+    expect(bridgeCalls).toBe(1);
     expect(res.body).toMatchObject({
-      modelCalled: false,
+      modelCalled: true,
       message: {
-        content: expect.stringContaining("下架岗位请进入岗位商品列表"),
+        content: "下架入口在岗位商品列表，但真正下架前仍需要你手动确认。",
       },
       actions: [
         {

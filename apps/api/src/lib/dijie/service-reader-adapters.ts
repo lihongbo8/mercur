@@ -3,6 +3,11 @@ import type {
   DijieAccountAccessProfileStore,
 } from "./account-access-store";
 import type { DijieCatalogReader } from "./catalog-store";
+import {
+  createDijieRoleCategoryRegistry,
+  type DijieRoleCategoryReader,
+} from "./role-category-registry";
+import type { DijieRoleCategoryStore } from "./role-category-store";
 import type { DijieRoleListingReader } from "./role-listing-store";
 import type {
   DijieRolePackageDraftReader,
@@ -191,17 +196,32 @@ export function resolveDijieCatalogReader(value: unknown): DijieCatalogReader | 
     return {
       listDijieEffectiveCatalogItems: listItems,
       listDijieCatalogReviewRequests: listRecordRequests,
+      listDijieSpecialCapabilityBindings:
+        bindMethod<DijieCatalogReader["listDijieSpecialCapabilityBindings"]>(
+          value,
+          "listDijieSpecialCapabilityBindingRecords",
+        ) ?? (async () => []),
     };
   }
 
   const listLegacyRequests = bindMethod<
     DijieCatalogReader["listDijieCatalogReviewRequests"]
   >(value, "listDijieCatalogReviewRequests");
+  const listBindings =
+    bindMethod<DijieCatalogReader["listDijieSpecialCapabilityBindings"]>(
+      value,
+      "listDijieSpecialCapabilityBindingRecords",
+    ) ??
+    bindMethod<DijieCatalogReader["listDijieSpecialCapabilityBindings"]>(
+      value,
+      "listDijieSpecialCapabilityBindings",
+    );
   return listItems
     ? {
         listDijieEffectiveCatalogItems: listItems,
         listDijieCatalogReviewRequests: listLegacyRequests ?? (async () => []),
-    }
+        listDijieSpecialCapabilityBindings: listBindings ?? (async () => []),
+      }
     : undefined;
 }
 
@@ -220,5 +240,59 @@ export function resolveDijieCatalogReviewRequestReader(
   >(value, "listDijieCatalogReviewRequests");
   return listLegacyRequests
     ? { listDijieCatalogReviewRequests: listLegacyRequests }
+    : undefined;
+}
+
+export function resolveDijieRoleCategoryReader(
+  value: unknown,
+): DijieRoleCategoryReader | undefined {
+  const list =
+    bindMethod<() => Promise<unknown[]>>(value, "listDijieRoleCategoryRecords") ??
+    bindMethod<() => Promise<unknown[]>>(value, "listDijieRoleCategories");
+  return list
+    ? {
+        listDijieRoleCategories: async () =>
+          createDijieRoleCategoryRegistry(await list()).categories,
+      }
+    : undefined;
+}
+
+export function resolveDijieRoleCategoryStore(
+  value: unknown,
+): DijieRoleCategoryStore | undefined {
+  const createCategory = bindMethod<
+    DijieRoleCategoryStore["createDijieRoleCategoryRecord"]
+  >(value, "createDijieRoleCategoryRecord");
+  const updateCategory = bindMethod<
+    DijieRoleCategoryStore["updateDijieRoleCategoryRecord"]
+  >(value, "updateDijieRoleCategoryRecord");
+  const bindPack = bindMethod<DijieRoleCategoryStore["bindDijieRoleCategoryPack"]>(
+    value,
+    "bindDijieRoleCategoryPack",
+  );
+  const submitReview = bindMethod<
+    DijieRoleCategoryStore["submitDijieRoleCategoryReview"]
+  >(value, "submitDijieRoleCategoryReview");
+  const finalizeReview = bindMethod<
+    DijieRoleCategoryStore["finalizeDijieRoleCategoryReview"]
+  >(value, "finalizeDijieRoleCategoryReview");
+  const disableCategory = bindMethod<
+    DijieRoleCategoryStore["disableDijieRoleCategory"]
+  >(value, "disableDijieRoleCategory");
+
+  return createCategory &&
+    updateCategory &&
+    bindPack &&
+    submitReview &&
+    finalizeReview &&
+    disableCategory
+    ? {
+        createDijieRoleCategoryRecord: createCategory,
+        updateDijieRoleCategoryRecord: updateCategory,
+        bindDijieRoleCategoryPack: bindPack,
+        submitDijieRoleCategoryReview: submitReview,
+        finalizeDijieRoleCategoryReview: finalizeReview,
+        disableDijieRoleCategory: disableCategory,
+      }
     : undefined;
 }

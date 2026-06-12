@@ -3,7 +3,7 @@ import { model } from "@medusajs/framework/utils";
 const DijieCatalogItem = model.define("dijie_catalog_item", {
   id: model.id({ prefix: "djcat" }).primaryKey(),
   catalog_ref: model.text().searchable(),
-  kind: model.enum(["skill", "tool", "mcp", "adapter", "capability"]),
+  kind: model.enum(["skill", "tool", "api", "mcp", "provider", "adapter", "capability"]),
   name: model.text().searchable(),
   version: model.text().searchable(),
   description: model.text(),
@@ -25,8 +25,6 @@ const DijieCatalogItem = model.define("dijie_catalog_item", {
   provides: model.json(),
   keywords: model.json(),
   payload: model.json(),
-  created_at: model.dateTime(),
-  updated_at: model.dateTime(),
   reviewed_at: model.dateTime().nullable(),
   reviewed_by: model.text().searchable().nullable(),
 });

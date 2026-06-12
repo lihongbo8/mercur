@@ -50,6 +50,9 @@ const SAVE_DRAFT_BUTTON = "save-draft-button";
 const SEC_CAT_PRODUCT_KEY = "sec_cat_product_key";
 const DEFAULT_ROLE_SCOPES = ["role.execute"];
 const DIJIE_ROLE_PROTOCOL_VERSION = "2026-05";
+const DIJIE_ECOMMERCE_ART_DESIGNER_CATEGORY_REF =
+  "category:ecommerce_art_designer@1";
+const DIJIE_ECOMMERCE_ART_DESIGNER_CATEGORY_NAME = "电商美工";
 
 const TAB_ORDER: Tab[] = [Tab.DETAILS, Tab.ORGANIZE];
 
@@ -242,6 +245,12 @@ export const ProductCreateForm = ({
         subtitle: aicsValues.subtitle || undefined,
         description: aicsValues.description || undefined,
         usageInstructions: aicsValues.role_usage_instructions,
+        category:
+          aicsValues.role_category_name ||
+          DIJIE_ECOMMERCE_ART_DESIGNER_CATEGORY_NAME,
+        categoryRef:
+          aicsValues.role_category_ref ||
+          DIJIE_ECOMMERCE_ART_DESIGNER_CATEGORY_REF,
         pricing: {
           kind: "one_time_authorization",
           authorizationFeeCents,
@@ -283,6 +292,8 @@ export const ProductCreateForm = ({
       role_output_token_price_cents_per_million,
       role_package_id,
       role_package_version,
+      role_category_ref: _role_category_ref,
+      role_category_name: _role_category_name,
       role_required_capabilities,
       ...rest
     } = values as any;

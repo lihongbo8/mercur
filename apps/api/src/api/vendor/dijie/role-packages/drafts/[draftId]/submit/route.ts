@@ -1,9 +1,14 @@
 import type { MedusaRequest, MedusaResponse } from "@medusajs/framework/http";
 import { createDijieCapabilityMatchReport } from "../../../../../../../lib/dijie/capability-bridge";
+import {
+  createDijieRoleCategoryRegistry,
+  validateDijieRoleCategoryIntegration,
+} from "../../../../../../../lib/dijie/role-category-registry";
 import { createDijieRolePackageDraftReadModel } from "../../../../../../../lib/dijie/role-package-draft-store";
 import {
   actorIdFromRequest,
   resolveCatalogReader,
+  resolveRoleCategoryReader,
   resolveRolePackageDraftStore,
   resolveRolePackageStore,
 } from "../../../route-utils";
@@ -62,17 +67,47 @@ export async function POST(req: MedusaRequest, res: MedusaResponse) {
     },
     { catalogItems },
   );
-  const capabilityPlan = capabilityReport.capabilityPlan;
-  if (!capabilityReport.ok || !capabilityPlan || capabilityPlan.status !== "platform_ready") {
+  const roleCategoryReader = resolveRoleCategoryReader(req);
+  if (!roleCategoryReader) {
+    return res.status(503).json({
+      ok: false,
+      error: "平台岗位品类存储暂未配置，不能提交岗位包。",
+    });
+  }
+  const categoryRegistry = createDijieRoleCategoryRegistry(
+    await roleCategoryReader.listDijieRoleCategories(),
+  );
+  const categoryCheck = validateDijieRoleCategoryIntegration({
+    manifestSummary: draft.manifest_summary,
+    registry: categoryRegistry,
+  });
+  if (!categoryCheck.ok) {
     return res.status(409).json({
       ok: false,
-      error: "岗位包草稿存在未通过审核的 Skill/Tool 绑定，不能提交。",
+      error: categoryCheck.error ?? "岗位包草稿的平台品类和能力门禁未通过，不能提交。",
       draft: createDijieRolePackageDraftReadModel({
         ...draft,
         capability_report: capabilityReport,
       }),
-      roleCapabilityPlan: capabilityPlan,
-      blockedReasons: capabilityReport.reviewBlockers ?? capabilityReport.blockedReasons,
+      roleCapabilityPlan: capabilityReport.capabilityPlan,
+      blockedReasons: [
+        ...categoryCheck.missing,
+        ...categoryCheck.blocked,
+        ...(capabilityReport.reviewBlockers ?? capabilityReport.blockedReasons ?? []),
+      ],
+    });
+  }
+  const hardReviewBlockers = capabilityReport.reviewBlockers ?? [];
+  if (hardReviewBlockers.length > 0) {
+    return res.status(409).json({
+      ok: false,
+      error: "岗位包草稿包含平台禁止的能力需求，不能提交。",
+      draft: createDijieRolePackageDraftReadModel({
+        ...draft,
+        capability_report: capabilityReport,
+      }),
+      roleCapabilityPlan: capabilityReport.capabilityPlan,
+      blockedReasons: hardReviewBlockers,
     });
   }
 

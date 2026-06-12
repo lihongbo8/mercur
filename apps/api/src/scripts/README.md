@@ -61,3 +61,56 @@ Then, pass the arguments in the `exec` command after the file path:
 ```bash
 npx medusa exec ./src/scripts/my-script.ts arg1 arg2
 ```
+
+## Dijie Role Category Seed
+
+Use this repeatable seed to upsert the first approved platform role category:
+`电商美工` / `category:ecommerce_art_designer@1`.
+
+```bash
+npx medusa exec ./src/scripts/dijie-seed-ecommerce-art-designer-category.ts
+```
+
+The seed stores category/package refs, capability refs, permission summaries,
+and review facts only. It must not store Skill/Tool implementations, MCP server
+code, provider keys, OAuth tokens, raw API payloads, or local filesystem paths.
+
+## Dijie Role Capability Legacy Report
+
+Use this read-only report before final role marketplace acceptance to find
+already-approved role listings that do not yet carry the required Skill/Tool
+capability integration facts.
+
+```bash
+npx medusa exec ./src/scripts/dijie-role-capability-legacy-report.ts
+```
+
+The script prints JSON with `checked`, `issueCount`, and `issues`. It does not
+mutate data. To make legacy issues fail the command in CI, pass
+`--fail-on-issues`.
+
+## Dijie Legacy Role Cleanup
+
+Use this development-only script to retire known legacy role listings before
+rerunning the role marketplace acceptance flow. The default mode is dry-run.
+
+```bash
+npx medusa exec ./src/scripts/dijie-role-legacy-cleanup.ts
+```
+
+Apply cleanup:
+
+```bash
+npx medusa exec ./src/scripts/dijie-role-legacy-cleanup.ts --apply
+```
+
+If your Medusa CLI version treats `--apply` as its own option, use the
+positional form:
+
+```bash
+npx medusa exec ./src/scripts/dijie-role-legacy-cleanup.ts apply
+```
+
+The cleanup archives and soft-deletes the role listings, soft-deletes matching
+role product projections, and revokes active entitlements. It preserves audit
+and ledger facts.

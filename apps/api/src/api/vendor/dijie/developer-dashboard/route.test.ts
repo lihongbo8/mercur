@@ -26,7 +26,7 @@ function response(): TestResponse {
 
 function manifestSummary() {
   return {
-    entrypoint: "role_package/adapters/openclaw-adapter.ts",
+    entrypoint: "role_package/README.md",
     manifestRef: "role_package/manifest.json",
     name: "智能门锁电商美工岗位",
     permissions: ["workspace.read"],

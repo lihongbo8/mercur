@@ -62,7 +62,7 @@ export async function POST(req: MedusaRequest, res: MedusaResponse) {
   if (!reviewerId) {
     return res.status(401).json({
       ok: false,
-      error: "完成 Skill/Tool 入库审核需要平台审核账号登录。",
+      error: "完成能力目录审核需要平台审核账号登录。",
     });
   }
 
@@ -70,7 +70,7 @@ export async function POST(req: MedusaRequest, res: MedusaResponse) {
   if (!reviewId) {
     return res.status(400).json({
       ok: false,
-      error: "Skill/Tool 入库审核单编号不能为空。",
+      error: "能力目录审核单编号不能为空。",
     });
   }
 
@@ -82,13 +82,13 @@ export async function POST(req: MedusaRequest, res: MedusaResponse) {
   if (!access || !canReviewDijieRoles(access)) {
     return res.status(403).json({
       ok: false,
-      error: "当前账号没有 Skill/Tool 入库审核权限。",
+      error: "当前账号没有能力目录审核权限。",
     });
   }
   if (!isCatalogReviewStore(auditService)) {
     return res.status(503).json({
       ok: false,
-      error: "Skill/Tool 目录审核存储暂未配置。",
+      error: "能力目录审核存储暂未配置。",
     });
   }
 

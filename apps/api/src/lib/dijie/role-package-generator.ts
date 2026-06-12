@@ -5,6 +5,8 @@ import {
   normalizeDijieDialogModelUsage,
   type DijieDialogModelUsage,
   type DijieOpenClawDialogModelBridge,
+  type DijieOpenClawDialogModelInput,
+  type DijieOpenClawDialogModelResult,
 } from "./dialog-model-bridge";
 import {
   readDijieRolePackageUploadFilesForStorage,
@@ -18,11 +20,10 @@ import {
 } from "./role-package-quality";
 import {
   createDijieRoleCapabilityPlan,
-  createDijieRoleRequirementSpec,
-  renderDijieRoleToolRequirementsMarkdown,
   type DijieCatalogItem,
   type DijieRoleCapabilityPlan,
 } from "./role-skill-tool-planner";
+import type { DijieRoleCategory } from "./role-category-registry";
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -42,6 +43,29 @@ type DijieRolePackageGenerationDiagnostics = {
   repairReplyPreview?: string;
 };
 
+export type DijieRolePackageGenerationCategoryContext = {
+  category: DijieRoleCategory;
+  inheritedCatalogRefs: string[];
+  inheritedCapabilityRefs: string[];
+};
+
+class DijieRolePackageStageTimeoutError extends Error {
+  constructor(
+    readonly stage: RolePackageGenerationStage,
+    readonly timeoutMs: number,
+  ) {
+    super(`role_package generation stage timed out after ${timeoutMs}ms`);
+    this.name = "DijieRolePackageStageTimeoutError";
+  }
+}
+
+class DijieRolePackageStageAbortError extends Error {
+  constructor(readonly stage: RolePackageGenerationStage) {
+    super("role_package generation stage aborted");
+    this.name = "DijieRolePackageStageAbortError";
+  }
+}
+
 export type DijieRolePackageGenerationResult =
   | { ok: true; complete: boolean; value: DijieGeneratedRolePackageDraft }
   | {
@@ -58,19 +82,9 @@ export const DIJIE_ROLE_PACKAGE_REQUIRED_OUTPUT_PATHS = [
   "role_package/manifest.json",
   "role_package/README.md",
   "role_package/listing.md",
-  "role_package/tool_requirements.md",
-  "role_package/integrations/openclaw-wrapper.md",
-  "role_package/skills/main-image-inspection.md",
-  "role_package/skills/detail-page-inspection.md",
-  "role_package/skills/product-fidelity-self-check.md",
-  "role_package/skills/visual-issue-record.md",
-  "role_package/skills/design-standard-maintenance.md",
-  "role_package/knowledge/sop.md",
-  "role_package/knowledge/design-rules.md",
-  "role_package/templates/main-image-inspection-record.md",
-  "role_package/templates/detail-page-optimization-checklist.md",
-  "role_package/validation/smoke-test.md",
-  "role_package/validation/acceptance-samples.md",
+  "role_package/standards.md",
+  "role_package/cadence.md",
+  "role_package/validation.md",
 ];
 
 export type RolePackageGenerationStage = {
@@ -89,108 +103,41 @@ const GENERATION_FILE_STAGES: Array<Omit<RolePackageGenerationStage, "outputPath
     label: "manifest.json",
     outputPath: "role_package/manifest.json",
     guidance:
-      "manifest.json 的 permissions 必须是字符串数组，例如 [\"image.inspect\", \"browser.review\", \"audit.record\", \"human.confirm\", \"template.render\"]。OpenClaw wrapper 只描述平台注入能力，不写任何鉴权字段名或内部编号字段名。",
+      "manifest.json 的 permissions 必须是字符串数组。manifest 只保存岗位身份、平台品类绑定、抽象能力引用和文件清单，不写 requiredSkills、requiredTools、specialCapabilityRequests、工具源码、OpenClaw wrapper 或任何鉴权字段名。",
   },
   {
     id: "readme",
     label: "岗位 README",
     outputPath: "role_package/README.md",
     guidance:
-      "README 必须写清岗位定位、任务型工作、日常型工作、每日/每周/每月 SOP、人工确认点和失败降级策略。",
+      "README 必须写清岗位名称、岗位目标、服务对象、服务边界、输入输出概览、人工确认点和失败降级原则。",
   },
   {
     id: "listing",
     label: "商城展示说明",
     outputPath: "role_package/listing.md",
-    guidance: "listing 必须面向开发者商城展示，说明适用商家、核心能力、输入输出和上架边界。",
+    guidance: "listing 必须面向开发者商城展示，说明适用商家、岗位能解决的业务问题、输入输出、服务标准摘要和上架边界。",
   },
   {
-    id: "tool_requirements",
-    label: "能力要求说明",
-    outputPath: "role_package/tool_requirements.md",
+    id: "standards",
+    label: "服务标准",
+    outputPath: "role_package/standards.md",
     guidance:
-      "只声明 requiredCapabilities 和 adapter 需求，不写工具源码、MCP server、鉴权字段或内部编号字段名。",
+      "standards.md 只描述岗位服务标准、质量标准、输入资料要求、输出物标准、人工复核标准和不能承诺的边界；不得写 Skill/Tool 实现。",
   },
   {
-    id: "openclaw_wrapper",
-    label: "OpenClaw wrapper 说明",
-    outputPath: "role_package/integrations/openclaw-wrapper.md",
+    id: "cadence",
+    label: "服务节奏",
+    outputPath: "role_package/cadence.md",
     guidance:
-      "只描述平台如何注入能力和人工确认边界，不写任何鉴权字段名、token、backend id 或本地路径。",
+      "cadence.md 必须描述任务触发条件、日常节奏、每日/每周/每月工作安排、例外处理和停等人工确认的节奏。",
   },
   {
-    id: "sop",
-    label: "知识库 SOP",
-    outputPath: "role_package/knowledge/sop.md",
-    guidance: "必须包含每日、每周、每月 SOP，以及资料不足、合规风险、平台限制时的处理流程。",
-  },
-  {
-    id: "design_rules",
-    label: "设计规则知识库",
-    outputPath: "role_package/knowledge/design-rules.md",
+    id: "validation",
+    label: "验收和失败标准",
+    outputPath: "role_package/validation.md",
     guidance:
-      "必须覆盖智能门锁主图、详情页、海报的视觉规范、合规词规则、产品保真和人工复核规则。",
-  },
-  {
-    id: "main_image_skill",
-    label: "主图巡检 skill",
-    outputPath: "role_package/skills/main-image-inspection.md",
-    guidance:
-      "必须写清输入、步骤、输出、失败处理和人工确认点。重点检查产品主体、背景、卖点、遮挡、变形和平台合规。",
-  },
-  {
-    id: "detail_page_skill",
-    label: "详情页巡检 skill",
-    outputPath: "role_package/skills/detail-page-inspection.md",
-    guidance:
-      "必须写清输入、步骤、输出、失败处理和人工确认点。重点检查模块顺序、风格统一、文案可读性、卖点表达和低清重复模块。",
-  },
-  {
-    id: "product_fidelity_skill",
-    label: "产品保真自检 skill",
-    outputPath: "role_package/skills/product-fidelity-self-check.md",
-    guidance:
-      "每个 skill 必须写清输入、步骤、输出、失败处理和人工确认点。product-fidelity-self-check 必须明确输出“通过 / 存疑 / 不通过”，并要求存疑时人工复核。",
-  },
-  {
-    id: "visual_issue_skill",
-    label: "问题记录 skill",
-    outputPath: "role_package/skills/visual-issue-record.md",
-    guidance:
-      "必须写清如何记录商品、图片位置、问题类型、严重程度、修改建议、状态和人工确认边界。",
-  },
-  {
-    id: "design_standard_skill",
-    label: "设计标准维护 skill",
-    outputPath: "role_package/skills/design-standard-maintenance.md",
-    guidance:
-      "必须写清如何把反复出现的问题沉淀为设计规则，以及写入标准库前的人工确认点。",
-  },
-  {
-    id: "main_image_template",
-    label: "主图巡检记录模板",
-    outputPath: "role_package/templates/main-image-inspection-record.md",
-    guidance: "模板必须包含商品、图片位置、问题、严重程度、修改建议、状态和人工确认字段。",
-  },
-  {
-    id: "detail_page_template",
-    label: "详情页视觉优化清单模板",
-    outputPath: "role_package/templates/detail-page-optimization-checklist.md",
-    guidance: "模板必须包含模块顺序、风格统一、文案、卖点、低清重复模块和验收结果字段。",
-  },
-  {
-    id: "smoke_test",
-    label: "smoke test",
-    outputPath: "role_package/validation/smoke-test.md",
-    guidance:
-      "validation 必须包含主图巡检、详情页巡检、产品保真自检、问题记录的 smoke test 和失败标准。",
-  },
-  {
-    id: "acceptance_samples",
-    label: "验收样例",
-    outputPath: "role_package/validation/acceptance-samples.md",
-    guidance:
-      "必须包含至少两个验收样例，并明确通过、存疑、不通过三类结果和人工复核建议。不要写英文 token、bearer、secret 或 backend id 字段名。",
+      "validation.md 必须描述通过、存疑、不通过、失败标准、降级动作、验收样例和人工复核建议；不要写英文 token、bearer、secret 或 backend id 字段名。",
   },
 ];
 
@@ -203,6 +150,8 @@ const GENERATION_STAGES: RolePackageGenerationStage[] = GENERATION_FILE_STAGES.m
     final: index === GENERATION_FILE_STAGES.length - 1,
   }),
 );
+const MIN_STAGE_TIMEOUT_MS = 50;
+const MAX_STAGE_TIMEOUT_MS = 15 * 60_000;
 
 function asRecord(value: unknown): UnknownRecord {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -225,6 +174,66 @@ function createReplyPreview(text: string): string {
     .replace(/\s+/gu, " ")
     .trim()
     .slice(0, 800);
+}
+
+function normalizeStageTimeoutMs(value: unknown): number | null {
+  const parsed =
+    typeof value === "number"
+      ? value
+      : typeof value === "string" && /^\d+$/u.test(value)
+        ? Number.parseInt(value, 10)
+        : undefined;
+  if (!parsed || !Number.isFinite(parsed)) {
+    return null;
+  }
+  return Math.min(Math.max(parsed, MIN_STAGE_TIMEOUT_MS), MAX_STAGE_TIMEOUT_MS);
+}
+
+async function completeDijieRolePackageStage(input: {
+  bridge: DijieOpenClawDialogModelBridge;
+  modelInput: DijieOpenClawDialogModelInput;
+  stage: RolePackageGenerationStage;
+  timeoutMs: number | null;
+}): Promise<DijieOpenClawDialogModelResult> {
+  if (input.modelInput.signal?.aborted) {
+    throw new DijieRolePackageStageAbortError(input.stage);
+  }
+
+  const controller = new AbortController();
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    const abort = () => {
+      controller.abort(input.modelInput.signal?.reason);
+      finish(() => reject(new DijieRolePackageStageAbortError(input.stage)));
+    };
+    const finish = (callback: () => void) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      if (timeout) {
+        clearTimeout(timeout);
+      }
+      input.modelInput.signal?.removeEventListener("abort", abort);
+      callback();
+    };
+    if (input.timeoutMs !== null) {
+      timeout = setTimeout(() => {
+        controller.abort();
+        finish(() => reject(new DijieRolePackageStageTimeoutError(input.stage, input.timeoutMs ?? 0)));
+      }, input.timeoutMs);
+    }
+
+    input.modelInput.signal?.addEventListener("abort", abort, { once: true });
+    input.bridge
+      .completeDijieDialogMessage({
+        ...input.modelInput,
+        signal: controller.signal,
+      })
+      .then((result) => finish(() => resolve(result)))
+      .catch((error) => finish(() => reject(error)));
+  });
 }
 
 function decodeEscapedJsonObjectText(text: string): string | undefined {
@@ -346,22 +355,35 @@ export function createDijieRolePackageGenerationInstruction(input: {
   message: string;
   previousDraftSummary?: string;
   stage?: RolePackageGenerationStage;
+  categoryContext?: DijieRolePackageGenerationCategoryContext;
 }): string {
   const previous = input.previousDraftSummary
     ? `\n已有草稿摘要：\n${input.previousDraftSummary}\n`
     : "";
   const requiredPaths = input.stage?.outputPaths ?? DIJIE_ROLE_PACKAGE_REQUIRED_OUTPUT_PATHS;
+  const category = input.categoryContext;
+  const categoryLines = category
+    ? [
+        `已选平台品类：${category.category.name} / ${category.category.categoryRef}。`,
+        `继承品类包：${category.category.packBinding?.categoryPackRef ?? "未绑定"}；Skill 包：${category.category.packBinding?.skillPackRef ?? "未绑定"}；Tool 包：${category.category.packBinding?.toolPackRef ?? "未绑定"}。`,
+        `继承能力引用：${category.inheritedCapabilityRefs.join("、") || "无"}。`,
+        "岗位包只能写岗位说明、服务标准、日常管理、验收标准和业务知识；不得自造 Skill/Tool/MCP/API/provider 实现，不得把外部工具源码写入岗位包。",
+        "如果开发者要求超出当前品类包的能力，只描述业务诉求，不要写 specialCapabilityRequests；开发者必须通过独立申请入口申请，由平台审核/建设品类包后再绑定。",
+      ].join("\n")
+    : "未提供平台品类上下文时不得猜测品类包或能力包。";
   return [
-    "你是迭界AI开发者中心的岗位包开发助手。必须生成可上传的 role_package 文件内容。",
+    "你是迭界AI开发者中心的岗位包开发助手。必须生成可上传的最小 role_package 文件内容。",
     "只返回 JSON，不要返回 Markdown 解释。JSON 结构必须是 { \"files\": [{ \"path\": string, \"content\": string }] }。",
     "岗位包不能包含 API key、数据库连接、MCP server、工具源码、店铺后台账号、用户私有数据、本地绝对路径或 raw metadata。",
     "生成的文件内容里不要出现这些英文敏感词或字段名：api_key、secret、provider_auth、access_token、refresh_token、bearer、raw_token、execution_token、actorId、deviceId、entitlementId、executionId、orderId、roleListingId、walletId、workspaceRef。需要表达时只用中文泛称“平台临时凭证”或“平台内部编号”。",
-    "岗位包只声明 requiredCapabilities，真实工具由 AICS / OpenClaw 主系统提供。",
+    "岗位包只描述岗位本身：岗位目标、服务对象、品类绑定、输入输出、服务标准、节奏、验收和失败标准。Skill、Tool、MCP、API、provider 和特殊能力申请都不属于岗位包。",
+    "manifest 里的 requiredCapabilities 只能是平台品类包继承或能力规划得到的抽象能力引用，不得出现 requiredSkills、requiredTools、toolDefinitions、specialCapabilityRequests。",
+    categoryLines,
     input.stage
       ? `本阶段只生成“${input.stage.label}”，必须且只需包含这些文件：${requiredPaths.join(", ")}。`
       : `必须包含这些文件：${requiredPaths.join(", ")}。`,
     "manifest.json 必须包含 manifestVersion:1、rolePackageId、version、name、entrypoint、permissions、requiredCapabilities、files。",
-    "智能门锁电商美工岗位必须覆盖：岗位定位、任务型工作、日常型工作、每日/每周/每月 SOP、主图巡检、详情页巡检、产品保真自检、问题记录、设计标准维护、输出模板、验收样例、失败标准。",
+    "岗位包必须覆盖这些业务块：岗位名称、岗位目标、服务对象、平台品类、输入输出、服务标准、服务节奏、验收标准、失败标准。",
     input.stage?.guidance ?? "",
     previous,
     `开发者需求：\n${input.message}`,
@@ -410,21 +432,6 @@ function createRolePackageUploadFile(path: string, content: string): DijieRolePa
   };
 }
 
-function catalogBindingsForManifest(plan: DijieRoleCapabilityPlan, kind: "skill" | "tool") {
-  return plan.catalogBindings
-    .filter((binding) =>
-      kind === "skill"
-        ? binding.kind === "skill"
-        : ["tool", "mcp", "adapter", "capability"].includes(binding.kind),
-    )
-    .map((binding) => ({
-      need: binding.need,
-      catalogRef: binding.catalogRef,
-      versionRange: binding.versionRange,
-      status: binding.status,
-    }));
-}
-
 function sanitizeGeneratedRolePackageText(content: string): string {
   return content
     .replace(/api[_-]?key/giu, "接口密钥字段")
@@ -470,6 +477,7 @@ function repairGeneratedManifest(
   manifestFile: DijieRolePackageUploadFile | undefined,
   files: DijieRolePackageUploadFile[],
   plan?: DijieRoleCapabilityPlan,
+  categoryContext?: DijieRolePackageGenerationCategoryContext,
 ): DijieRolePackageUploadFile | undefined {
   if (!manifestFile?.content) {
     return manifestFile;
@@ -485,19 +493,47 @@ function repairGeneratedManifest(
   const packagePaths = files.map((file) => file.path);
   const capabilities = [
     ...stableCapabilities(manifest.requiredCapabilities ?? manifest.required_capabilities),
+    ...stableCapabilities(categoryContext?.inheritedCapabilityRefs),
     ...stableCapabilities(plan?.requiredCapabilities),
     ...DEFAULT_REQUIRED_CAPABILITIES,
   ];
   const entrypoint = stringField(manifest, "entrypoint");
+  const categoryBinding = categoryContext?.category.packBinding ?? null;
+  const inheritedCatalogRefs = categoryContext?.inheritedCatalogRefs ?? [];
+  const inheritedCapabilityRefs = categoryContext?.inheritedCapabilityRefs ?? [];
+  const safeManifest = { ...manifest };
+  delete safeManifest.specialCapabilityRequests;
+  delete safeManifest.special_capability_requests;
+  delete safeManifest.specialCapabilities;
+  delete safeManifest.special_capabilities;
+  delete safeManifest.requiredSkills;
+  delete safeManifest.required_skills;
+  delete safeManifest.requiredTools;
+  delete safeManifest.required_tools;
+  delete safeManifest.toolDefinitions;
+  delete safeManifest.tool_definitions;
+  delete safeManifest.capabilityPlanStatus;
+  delete safeManifest.capability_plan_status;
   const repaired = {
-    ...manifest,
+    ...safeManifest,
     manifestVersion: 1,
+    ...(categoryContext
+      ? {
+          categoryRef: categoryContext.category.categoryRef,
+          categoryName: categoryContext.category.name,
+          categoryPackRef: categoryBinding?.categoryPackRef ?? null,
+          skillPackRef: categoryBinding?.skillPackRef ?? null,
+          toolPackRef: categoryBinding?.toolPackRef ?? null,
+          inheritedCatalogRefs,
+          inheritedCapabilityRefs,
+        }
+      : {}),
     rolePackageId:
       stringField(manifest, "rolePackageId") ??
       stringField(manifest, "packageId") ??
-      "smart_lock_ecommerce_visual_designer",
+      "generated_role_package",
     version: stringField(manifest, "version") ?? "1.0.0",
-    name: stringField(manifest, "name") ?? "智能门锁电商美工岗位",
+    name: stringField(manifest, "name") ?? `${categoryContext?.category.name ?? "平台品类"}岗位`,
     entrypoint: entrypoint?.startsWith("role_package/") ? entrypoint : "role_package/README.md",
     permissions: Array.isArray(manifest.permissions)
       ? manifest.permissions.filter(
@@ -505,13 +541,6 @@ function repairGeneratedManifest(
         )
       : ["role.execute", "audit.record", "human.confirm"],
     requiredCapabilities: [...new Set(capabilities)],
-    ...(plan
-      ? {
-          requiredSkills: catalogBindingsForManifest(plan, "skill"),
-          requiredTools: catalogBindingsForManifest(plan, "tool"),
-          capabilityPlanStatus: plan.status,
-        }
-      : {}),
     files: packagePaths,
   };
 
@@ -521,6 +550,7 @@ function repairGeneratedManifest(
 function repairGeneratedFilesForUpload(
   files: DijieRolePackageUploadFile[],
   plan?: DijieRoleCapabilityPlan,
+  categoryContext?: DijieRolePackageGenerationCategoryContext,
 ): DijieRolePackageUploadFile[] {
   const sanitizedFiles = files.map((file) => {
     if (!file.content || file.path.endsWith(".json")) {
@@ -533,6 +563,7 @@ function repairGeneratedFilesForUpload(
     sanitizedFiles.find((file) => file.path === "role_package/manifest.json"),
     sanitizedFiles,
     plan,
+    categoryContext,
   );
   if (!manifestFile) {
     return sanitizedFiles;
@@ -542,15 +573,12 @@ function repairGeneratedFilesForUpload(
   );
 }
 
-function applySkillToolPlanToGeneratedFiles(input: {
+function applyCapabilityPlanToGeneratedFiles(input: {
   files: DijieRolePackageUploadFile[];
   message: string;
   catalogItems?: DijieCatalogItem[];
+  categoryContext?: DijieRolePackageGenerationCategoryContext;
 }) {
-  const requirementSpec = createDijieRoleRequirementSpec({
-    files: input.files,
-    message: input.message,
-  });
   const capabilityPlan = createDijieRoleCapabilityPlan(
     {
       files: input.files,
@@ -560,21 +588,8 @@ function applySkillToolPlanToGeneratedFiles(input: {
       catalogItems: input.catalogItems,
     },
   );
-  const toolRequirements = createRolePackageUploadFile(
-    "role_package/tool_requirements.md",
-    renderDijieRoleToolRequirementsMarkdown({ requirementSpec, capabilityPlan }),
-  );
-  const withToolRequirements = input.files.map((file) =>
-    file.path === "role_package/tool_requirements.md" ? toolRequirements : file,
-  );
-  const hasToolRequirements = withToolRequirements.some(
-    (file) => file.path === "role_package/tool_requirements.md",
-  );
-  const plannedFiles = hasToolRequirements
-    ? withToolRequirements
-    : [...withToolRequirements, toolRequirements];
 
-  return repairGeneratedFilesForUpload(plannedFiles, capabilityPlan);
+  return repairGeneratedFilesForUpload(input.files, capabilityPlan, input.categoryContext);
 }
 
 function createDijieRolePackageJsonRepairInstruction(input: {
@@ -673,8 +688,11 @@ export async function generateDijieRolePackageDraftWithModel(input: {
   billingPolicy: DijieDialogBillingPolicy;
   message: string;
   catalogItems?: DijieCatalogItem[];
+  categoryContext?: DijieRolePackageGenerationCategoryContext;
   initialFiles?: DijieRolePackageUploadFile[];
   maxStages?: number;
+  stageTimeoutMs?: number;
+  signal?: AbortSignal;
   previousDraftSummary?: string;
   onStageFiles?: (input: {
     stage: RolePackageGenerationStage;
@@ -691,6 +709,9 @@ export async function generateDijieRolePackageDraftWithModel(input: {
       : 1;
   let processedStages = 0;
   let stoppedAfterMaxStages = false;
+  const stageTimeoutMs = normalizeStageTimeoutMs(
+    input.stageTimeoutMs ?? process.env.DIJIE_ROLE_PACKAGE_STAGE_TIMEOUT_MS,
+  );
 
   for (const stage of GENERATION_STAGES) {
     const existingPaths = new Set(generatedFiles.map((file) => file.path));
@@ -706,18 +727,51 @@ export async function generateDijieRolePackageDraftWithModel(input: {
       message: input.message,
       previousDraftSummary: input.previousDraftSummary,
       stage,
+      categoryContext: input.categoryContext,
     });
     let modelResult;
     try {
       // oxlint-disable-next-line no-await-in-loop -- Each generation stage depends on the previous staged draft.
-      modelResult = await input.bridge.completeDijieDialogMessage({
-        context: input.context,
-        billingPolicy: input.billingPolicy,
-        message: instruction,
-        fallbackReply: `请生成${stage.label} role_package JSON。`,
-        roles: [],
+      modelResult = await completeDijieRolePackageStage({
+        bridge: input.bridge,
+        stage,
+        timeoutMs: stageTimeoutMs,
+        modelInput: {
+          context: input.context,
+          billingPolicy: input.billingPolicy,
+          message: instruction,
+          fallbackReply: `请生成${stage.label} role_package JSON。`,
+          roles: [],
+          signal: input.signal,
+        },
       });
     } catch (error) {
+      if (error instanceof DijieRolePackageStageAbortError) {
+        return {
+          ok: false,
+          status: 499,
+          error: `AI开发助手生成 ${stage.label} 已取消。`,
+          issues: [`${stage.id}: model_bridge_aborted`],
+          modelUsage: combineDijieDialogModelUsages(modelUsages),
+          diagnostics: {
+            stageId: stage.id,
+            stageLabel: stage.label,
+          },
+        };
+      }
+      if (error instanceof DijieRolePackageStageTimeoutError) {
+        return {
+          ok: false,
+          status: 504,
+          error: `AI开发助手生成 ${stage.label} 超过 ${Math.ceil(error.timeoutMs / 1000)} 秒，已停止本阶段。`,
+          issues: [`${stage.id}: model_bridge_timeout`],
+          modelUsage: combineDijieDialogModelUsages(modelUsages),
+          diagnostics: {
+            stageId: stage.id,
+            stageLabel: stage.label,
+          },
+        };
+      }
       return {
         ok: false,
         status: 503,
@@ -740,17 +794,51 @@ export async function generateDijieRolePackageDraftWithModel(input: {
       let repairResult;
       try {
         // oxlint-disable-next-line no-await-in-loop -- JSON repair is scoped to the current staged model reply.
-        repairResult = await input.bridge.completeDijieDialogMessage({
-          context: input.context,
-          billingPolicy: input.billingPolicy,
-          message: createDijieRolePackageJsonRepairInstruction({
-            stage,
-            reply: modelResult.reply,
-          }),
-          fallbackReply: `请把${stage.label}转换为 role_package JSON。`,
-          roles: [],
+        repairResult = await completeDijieRolePackageStage({
+          bridge: input.bridge,
+          stage,
+          timeoutMs: stageTimeoutMs,
+          modelInput: {
+            context: input.context,
+            billingPolicy: input.billingPolicy,
+            message: createDijieRolePackageJsonRepairInstruction({
+              stage,
+              reply: modelResult.reply,
+            }),
+            fallbackReply: `请把${stage.label}转换为 role_package JSON。`,
+            roles: [],
+            signal: input.signal,
+          },
         });
       } catch (error) {
+        if (error instanceof DijieRolePackageStageAbortError) {
+          return {
+            ok: false,
+            status: 499,
+            error: `AI开发助手修复 ${stage.label} JSON 已取消。`,
+            issues: [`${stage.id}: model_bridge_aborted`],
+            modelUsage: combineDijieDialogModelUsages(modelUsages),
+            diagnostics: {
+              stageId: stage.id,
+              stageLabel: stage.label,
+              replyPreview: createReplyPreview(modelResult.reply),
+            },
+          };
+        }
+        if (error instanceof DijieRolePackageStageTimeoutError) {
+          return {
+            ok: false,
+            status: 504,
+            error: `AI开发助手修复 ${stage.label} JSON 超过 ${Math.ceil(error.timeoutMs / 1000)} 秒，已停止本阶段。`,
+            issues: [`${stage.id}: model_bridge_timeout`],
+            modelUsage: combineDijieDialogModelUsages(modelUsages),
+            diagnostics: {
+              stageId: stage.id,
+              stageLabel: stage.label,
+              replyPreview: createReplyPreview(modelResult.reply),
+            },
+          };
+        }
         return {
           ok: false,
           status: 503,
@@ -833,10 +921,11 @@ export async function generateDijieRolePackageDraftWithModel(input: {
 
   const files =
     missingPaths.length === 0
-      ? applySkillToolPlanToGeneratedFiles({
+      ? applyCapabilityPlanToGeneratedFiles({
           files: mergedFiles,
           message: input.message,
           catalogItems: input.catalogItems,
+          categoryContext: input.categoryContext,
         })
       : mergedFiles;
   const uploadBody = { files };

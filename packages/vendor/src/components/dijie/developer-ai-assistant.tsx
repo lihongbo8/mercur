@@ -4,10 +4,13 @@ import { ChatBubbleLeftRight, XMark } from "@medusajs/icons";
 import { Button, Container, Heading, IconButton, StatusBadge, Text, Textarea } from "@medusajs/ui";
 
 import {
+  fetchDijieRoleCategoriesQuery,
   fetchLatestDijieRolePackageDraftQuery,
   generateDijieRolePackageDraftQuery,
+  requestDijieSpecialCapabilityPackQuery,
   sendDijieDeveloperDialogMessageQuery,
   streamDijieDeveloperDialogMessageQuery,
+  type DijieVendorRoleCategoryOption,
 } from "@lib/client";
 
 type RolePackageDraftSummary = {
@@ -27,6 +30,14 @@ type RolePackageDraftSummary = {
   roleCapabilityPlan?: RoleCapabilityPlan;
   catalogReviewRequests?: CatalogReviewRequest[];
   reviewBlockers?: string[];
+  manifestSummary?: {
+    categoryRef?: string;
+    categoryName?: string;
+    categoryPackRef?: string;
+    skillPackRef?: string;
+    toolPackRef?: string;
+    inheritedCapabilityRefs?: string[];
+  } | null;
 };
 
 type DeveloperMessage = {
@@ -100,6 +111,10 @@ type RoleCapabilityPlan = {
     catalogRef?: string;
     kind?: string;
     status?: string;
+    catalogRefs?: string[];
+    routeKind?: string;
+    preferredRoute?: string;
+    permissionSummary?: string[];
   }>;
   gaps?: Array<{
     need?: string;
@@ -120,6 +135,7 @@ type CatalogReviewRequest = {
   status?: string;
   review_status?: string;
   rolePackageId?: string | null;
+  roleListingId?: string | null;
 };
 
 type RoleGenerationInsight = {
@@ -129,29 +145,26 @@ type RoleGenerationInsight = {
   blockedReasons?: string[];
 };
 
-const ROLE_PACKAGE_REQUIRED_FILE_COUNT = 16;
-const ROLE_PACKAGE_STAGES_PER_SUBMIT = ROLE_PACKAGE_REQUIRED_FILE_COUNT;
-const ROLE_PACKAGE_EXPECTED_SECONDS_PER_FILE_MIN = 60;
-const ROLE_PACKAGE_EXPECTED_SECONDS_PER_FILE_MAX = 95;
+type SpecialCapabilityRequestInput = {
+  need: string;
+  kind?: string;
+  reason?: string;
+};
+
+const ROLE_PACKAGE_REQUIRED_BUSINESS_BLOCK_COUNT = 6;
+const ROLE_PACKAGE_STAGES_PER_SUBMIT = 3;
+const ROLE_PACKAGE_STAGE_TIMEOUT_MS = 10 * 60_000;
+const ROLE_PACKAGE_EXPECTED_SECONDS_PER_BLOCK_MIN = 120;
+const ROLE_PACKAGE_EXPECTED_SECONDS_PER_BLOCK_MAX = 300;
 const DIALOG_REQUEST_TIMEOUT_MS = 60_000;
 
-const rolePackageOutputPaths = [
+const rolePackageBusinessBlocks = [
   "role_package/manifest.json",
   "role_package/README.md",
   "role_package/listing.md",
-  "role_package/tool_requirements.md",
-  "role_package/integrations/openclaw-wrapper.md",
-  "role_package/skills/main-image-inspection.md",
-  "role_package/skills/detail-page-inspection.md",
-  "role_package/skills/product-fidelity-self-check.md",
-  "role_package/skills/visual-issue-record.md",
-  "role_package/skills/design-standard-maintenance.md",
-  "role_package/knowledge/sop.md",
-  "role_package/knowledge/design-rules.md",
-  "role_package/templates/main-image-inspection-record.md",
-  "role_package/templates/detail-page-optimization-checklist.md",
-  "role_package/validation/smoke-test.md",
-  "role_package/validation/acceptance-samples.md",
+  "role_package/standards.md",
+  "role_package/cadence.md",
+  "role_package/validation.md",
 ];
 
 const requirementFields = [
@@ -172,12 +185,6 @@ const requirementFields = [
     label: "SOP / 工作流程",
     question: "它从拿到资料到输出结果，中间要按什么步骤走？",
     pattern: /sop|流程|步骤|先|然后|每日|每周|每月|巡检|复盘|维护|处理/u,
-  },
-  {
-    key: "skills_tools",
-    label: "skill / 工具能力",
-    question: "它需要哪些 skill、工具或外部能力，比如图片理解、浏览器检查、文案审核、人工确认？",
-    pattern: /skill|能力|工具|浏览器|browser|图片|图像|文案|审核|生成|检查|adapter|provider|human|confirm/u,
   },
   {
     key: "inputs_outputs",
@@ -211,7 +218,7 @@ const initialMessages: DeveloperMessage[] = [
   {
     id: "devmsg_intro",
     role: "assistant",
-    text: "说一下你要开发的岗位。复杂岗位请包含业务场景、SOP、skill、工具能力、验收标准和失败标准。",
+    text: "先选择平台品类，再说你要开发的岗位。复杂岗位请包含业务场景、SOP、服务标准、验收标准和失败标准；超出品类包的能力需要走独立申请入口。",
   },
 ];
 
@@ -235,10 +242,10 @@ const formatDurationRange = (minSeconds: number, maxSeconds: number) => {
   return minText === maxText ? minText : `${minText}-${maxText}`;
 };
 
-const estimateRemainingGenerationTime = (remainingFiles: number) =>
+const estimateRemainingGenerationTime = (remainingBlocks: number) =>
   formatDurationRange(
-    remainingFiles * ROLE_PACKAGE_EXPECTED_SECONDS_PER_FILE_MIN,
-    remainingFiles * ROLE_PACKAGE_EXPECTED_SECONDS_PER_FILE_MAX,
+    remainingBlocks * ROLE_PACKAGE_EXPECTED_SECONDS_PER_BLOCK_MIN,
+    remainingBlocks * ROLE_PACKAGE_EXPECTED_SECONDS_PER_BLOCK_MAX,
   );
 
 const isNegatedGenerationIntent = (text: string) =>
@@ -385,8 +392,15 @@ const RolePackageDraftPanel = ({ draft }: { draft: RolePackageDraftSummary }) =>
       <div>
         <Text className="txt-compact-medium-plus text-ui-fg-base">岗位包草稿</Text>
         <Text className="mt-1 txt-compact-small text-ui-fg-subtle">
-          {draft.packageId ?? draft.draftId ?? "未命名草稿"} · {draft.fileCount ?? 0} 个文件
+          {draft.packageId ?? draft.draftId ?? "未命名草稿"} · 业务块完整度{" "}
+          {Math.min(draft.fileCount ?? 0, ROLE_PACKAGE_REQUIRED_BUSINESS_BLOCK_COUNT)}/
+          {ROLE_PACKAGE_REQUIRED_BUSINESS_BLOCK_COUNT}
         </Text>
+        {draft.manifestSummary?.categoryRef ? (
+          <Text className="mt-1 txt-compact-small text-ui-fg-muted">
+            平台品类：{draft.manifestSummary.categoryName ?? draft.manifestSummary.categoryRef}
+          </Text>
+        ) : null}
       </div>
       <StatusBadge color={draft.status === "ready" ? "green" : "orange"}>
         {draft.status === "ready" ? "可上传" : "待处理"}
@@ -430,13 +444,13 @@ const capabilityStatusColor = (status?: string) => {
 
 const planStatusLabel = (status?: string) => {
   if (status === "platform_ready") {
-    return "平台能力就绪";
+    return "能力引用就绪";
   }
   if (status === "waiting_skill_tool_review") {
     return "等待能力审核";
   }
   if (status === "waiting_internal_build") {
-    return "等待平台自造";
+    return "等待能力补齐";
   }
   if (status === "needs_more_input") {
     return "需要补充信息";
@@ -481,13 +495,46 @@ const insightFromResponse = (response?: RoleGenerationInsight | null): RoleGener
   return response;
 };
 
-const RoleGenerationInsightPanel = ({ insight }: { insight: RoleGenerationInsight }) => {
+const catalogReviewRequestKey = (request: CatalogReviewRequest) =>
+  request.reviewId ??
+  request.reviewKey ??
+  request.id ??
+  `${request.kind ?? "capability"}:${request.need ?? "unknown"}`;
+
+const mergeCatalogReviewRequest = (
+  insight: RoleGenerationInsight,
+  request?: CatalogReviewRequest,
+): RoleGenerationInsight => {
+  if (!request) {
+    return insight;
+  }
+  const existing = insight.catalogReviewRequests ?? [];
+  const nextKey = catalogReviewRequestKey(request);
+  return {
+    ...insight,
+    catalogReviewRequests: [
+      request,
+      ...existing.filter((item) => catalogReviewRequestKey(item) !== nextKey),
+    ],
+  };
+};
+
+const RoleGenerationInsightPanel = ({
+  insight,
+  onRequestSpecialCapability,
+  requestingNeed,
+}: {
+  insight: RoleGenerationInsight;
+  onRequestSpecialCapability?: (input: SpecialCapabilityRequestInput) => void;
+  requestingNeed?: string;
+}) => {
   const spec = insight.roleRequirementSpec;
   const plan = insight.roleCapabilityPlan;
   const bindings = plan?.catalogBindings ?? [];
   const gaps = plan?.gaps ?? [];
   const reviewRequests = insight.catalogReviewRequests ?? [];
   const blockedReasons = insight.blockedReasons ?? plan?.reviewBlockers ?? [];
+  const requestedNeeds = new Set(reviewRequests.map((request) => request.need).filter(Boolean));
 
   return (
     <div className="rounded-md border bg-ui-bg-base p-4">
@@ -526,19 +573,29 @@ const RoleGenerationInsightPanel = ({ insight }: { insight: RoleGenerationInsigh
 
       {bindings.length > 0 ? (
         <div className="mt-4">
-          <Text className="txt-compact-small-plus text-ui-fg-base">平台能力匹配</Text>
+          <Text className="txt-compact-small-plus text-ui-fg-base">能力路由建议</Text>
           <div className="mt-2 grid gap-2">
             {bindings.slice(0, 5).map((binding) => (
               <div
                 key={`${binding.catalogRef ?? binding.need}-${binding.kind ?? "catalog"}`}
-                className="flex items-center justify-between gap-3 rounded-md border px-3 py-2"
+                className="grid gap-2 rounded-md border px-3 py-2 md:grid-cols-[minmax(0,1fr)_auto]"
               >
-                <Text className="min-w-0 truncate txt-compact-small text-ui-fg-base">
-                  {binding.need ?? binding.catalogRef ?? "未命名能力"}
-                </Text>
-                <StatusBadge color={capabilityStatusColor(binding.status)}>
-                  {binding.status ?? "unknown"}
-                </StatusBadge>
+                <div className="min-w-0">
+                  <Text className="truncate txt-compact-small text-ui-fg-base">
+                    {binding.need ?? binding.catalogRef ?? "未命名能力"}
+                  </Text>
+                  <Text className="mt-1 truncate txt-compact-small text-ui-fg-muted">
+                    {binding.preferredRoute ?? binding.routeKind ?? binding.kind ?? "route"} ·{" "}
+                    {(binding.catalogRefs ?? []).slice(0, 2).join("、") ||
+                      binding.catalogRef ||
+                      "等待能力引用"}
+                  </Text>
+                </div>
+                <div className="flex items-center gap-2">
+                  <StatusBadge color={capabilityStatusColor(binding.status)}>
+                    {binding.status ?? "unknown"}
+                  </StatusBadge>
+                </div>
               </div>
             ))}
           </div>
@@ -548,14 +605,44 @@ const RoleGenerationInsightPanel = ({ insight }: { insight: RoleGenerationInsigh
       {gaps.length > 0 || reviewRequests.length > 0 ? (
         <div className="mt-4 rounded-md border border-ui-border-warning bg-ui-bg-subtle px-3 py-3">
           <Text className="txt-compact-small-plus text-ui-fg-base">待审核能力</Text>
-          {[...gaps.map((gap) => gap.need), ...reviewRequests.map((request) => request.need)]
-            .filter(Boolean)
-            .slice(0, 6)
-            .map((need) => (
-              <Text key={need} className="mt-1 txt-compact-small text-ui-fg-subtle">
-                {need}
-              </Text>
-            ))}
+          {gaps.slice(0, 4).map((gap) => {
+            const need = gap.need ?? "未命名能力";
+            const alreadyRequested = requestedNeeds.has(gap.need);
+            return (
+              <div
+                key={`${gap.kind ?? "capability"}:${need}`}
+                className="mt-2 grid gap-2 rounded-md border bg-ui-bg-base px-3 py-2 md:grid-cols-[minmax(0,1fr)_auto]"
+              >
+                <div className="min-w-0">
+                  <Text className="truncate txt-compact-small text-ui-fg-base">
+                    {need}
+                  </Text>
+                  <Text className="mt-1 truncate txt-compact-small text-ui-fg-muted">
+                    {gap.kind ?? "capability"} · {gap.reason ?? gap.nextAction ?? "等待平台审核"}
+                  </Text>
+                </div>
+                <Button
+                  size="small"
+                  type="button"
+                  variant="secondary"
+                  disabled={!onRequestSpecialCapability || alreadyRequested || requestingNeed === need}
+                  onClick={() =>
+                    onRequestSpecialCapability?.({
+                      need,
+                      kind: gap.kind,
+                      reason: gap.reason,
+                    })
+                  }
+                >
+                  {alreadyRequested
+                    ? "已申请"
+                    : requestingNeed === need
+                      ? "申请中"
+                      : "申请特殊能力包"}
+                </Button>
+              </div>
+            );
+          })}
           {reviewRequests.slice(0, 4).map((request) => (
             <Text
               key={request.reviewId ?? request.reviewKey ?? request.need}
@@ -632,25 +719,52 @@ export const DeveloperAiPanel = ({ compact = false }: { compact?: boolean }) => 
   const [rolePackageDraft, setRolePackageDraft] = useState<RolePackageDraftSummary | null>(null);
   const [roleGenerationInsight, setRoleGenerationInsight] =
     useState<RoleGenerationInsight | null>(null);
+  const [roleCategories, setRoleCategories] = useState<DijieVendorRoleCategoryOption[]>([]);
+  const [selectedCategoryRef, setSelectedCategoryRef] = useState("");
+  const [categoryLoadError, setCategoryLoadError] = useState("");
+  const [capabilityRequestingNeed, setCapabilityRequestingNeed] = useState("");
+  const [capabilityRequestError, setCapabilityRequestError] = useState("");
   const [requirementNotes, setRequirementNotes] = useState<string[]>([]);
   const [skippedRequirementFields, setSkippedRequirementFields] = useState<string[]>([]);
   const [activeController, setActiveController] = useState<AbortController | null>(null);
+  const activeControllerRef = useRef<AbortController | null>(null);
   const abortReasonRef = useRef<"manual" | "timeout" | null>(null);
 
   useEffect(() => {
     let active = true;
+    fetchDijieRoleCategoriesQuery()
+      .then((result) => {
+        if (!active) {
+          return;
+        }
+        const categories = result.categories ?? [];
+        setRoleCategories(categories);
+        setSelectedCategoryRef((current) => current || categories[0]?.categoryRef || "");
+        setCategoryLoadError(categories.length > 0 ? "" : "暂无已审核平台品类，不能生成岗位包。");
+      })
+      .catch((error) => {
+        if (!active) {
+          return;
+        }
+        setCategoryLoadError(
+          error instanceof Error && error.message ? error.message : "平台品类读取失败。",
+        );
+      });
     fetchLatestDijieRolePackageDraftQuery()
       .then((result) => {
         const latestDraft = (result as { draft?: RolePackageDraftSummary | null })?.draft ?? null;
         if (active && latestDraft) {
           setRolePackageDraft(latestDraft);
           setRoleGenerationInsight(insightFromDraft(latestDraft));
+          setSelectedCategoryRef((current) =>
+            latestDraft.manifestSummary?.categoryRef ?? current,
+          );
           setMessages((current) => [
             ...current,
             {
               id: createMessageId(),
               role: "system",
-              text: `已读取最近岗位包草稿：${latestDraft.packageId ?? latestDraft.draftId ?? "未命名草稿"}，${latestDraft.fileCount ?? 0} 个文件。`,
+              text: `已读取最近岗位包草稿：${latestDraft.packageId ?? latestDraft.draftId ?? "未命名草稿"}，业务块完整度 ${Math.min(latestDraft.fileCount ?? 0, ROLE_PACKAGE_REQUIRED_BUSINESS_BLOCK_COUNT)}/${ROLE_PACKAGE_REQUIRED_BUSINESS_BLOCK_COUNT}。`,
             },
           ]);
         }
@@ -702,6 +816,11 @@ export const DeveloperAiPanel = ({ compact = false }: { compact?: boolean }) => 
     return () => window.clearInterval(timer);
   }, [running, runningMode]);
 
+  const selectedCategory = useMemo(
+    () => roleCategories.find((category) => category.categoryRef === selectedCategoryRef),
+    [roleCategories, selectedCategoryRef],
+  );
+
   const stageText = useMemo(() => {
     if (!running) {
       return "待命";
@@ -709,19 +828,22 @@ export const DeveloperAiPanel = ({ compact = false }: { compact?: boolean }) => 
     if (runningMode === "dialog") {
       return "正在理解并生成回答；模型慢时会先显示等待状态。";
     }
-    const savedFiles = Math.min(rolePackageDraft?.fileCount ?? 0, ROLE_PACKAGE_REQUIRED_FILE_COUNT);
-    const remainingFiles = Math.max(ROLE_PACKAGE_REQUIRED_FILE_COUNT - savedFiles, 0);
-    const currentPath = rolePackageOutputPaths[savedFiles] ?? "剩余岗位包文件";
-    if (remainingFiles === 0 || rolePackageDraft?.status === "ready") {
-      return "岗位包文件已生成完成，正在收尾校验 ready 草稿。";
+    const savedBlocks = Math.min(
+      rolePackageDraft?.fileCount ?? 0,
+      ROLE_PACKAGE_REQUIRED_BUSINESS_BLOCK_COUNT,
+    );
+    const remainingBlocks = Math.max(ROLE_PACKAGE_REQUIRED_BUSINESS_BLOCK_COUNT - savedBlocks, 0);
+    const currentBlock = rolePackageBusinessBlocks[savedBlocks] ?? "剩余岗位业务块";
+    if (remainingBlocks === 0 || rolePackageDraft?.status === "ready") {
+      return "岗位业务块已生成完成，正在收尾校验 ready 草稿。";
     }
     if (elapsedSeconds >= 600) {
-      return `正在等待模型生成第 ${savedFiles + 1}/${ROLE_PACKAGE_REQUIRED_FILE_COUNT} 个文件：${currentPath}。预计剩余 ${estimateRemainingGenerationTime(remainingFiles)}，已完成 ${savedFiles} 个文件会保留。`;
+      return `正在等待模型生成第 ${savedBlocks + 1}/${ROLE_PACKAGE_REQUIRED_BUSINESS_BLOCK_COUNT} 个业务块：${currentBlock}。预计剩余 ${estimateRemainingGenerationTime(remainingBlocks)}，已完成 ${savedBlocks} 个业务块会保留。`;
     }
     if (elapsedSeconds >= 60) {
-      return `当前文件较复杂，仍在生成第 ${savedFiles + 1}/${ROLE_PACKAGE_REQUIRED_FILE_COUNT} 个文件：${currentPath}。预计剩余 ${estimateRemainingGenerationTime(remainingFiles)}。`;
+      return `当前业务块较复杂，仍在生成第 ${savedBlocks + 1}/${ROLE_PACKAGE_REQUIRED_BUSINESS_BLOCK_COUNT} 个业务块：${currentBlock}。预计剩余 ${estimateRemainingGenerationTime(remainingBlocks)}。`;
     }
-    return `正在生成第 ${savedFiles + 1}/${ROLE_PACKAGE_REQUIRED_FILE_COUNT} 个文件：${currentPath}。预计剩余 ${estimateRemainingGenerationTime(remainingFiles)}。`;
+    return `正在生成第 ${savedBlocks + 1}/${ROLE_PACKAGE_REQUIRED_BUSINESS_BLOCK_COUNT} 个业务块：${currentBlock}。预计剩余 ${estimateRemainingGenerationTime(remainingBlocks)}。`;
   }, [elapsedSeconds, rolePackageDraft, running, runningMode]);
 
   const appendMessage = (message: Omit<DeveloperMessage, "id">) => {
@@ -740,7 +862,13 @@ export const DeveloperAiPanel = ({ compact = false }: { compact?: boolean }) => 
 
   const handleCancel = () => {
     abortReasonRef.current = "manual";
-    activeController?.abort();
+    const controller = activeControllerRef.current ?? activeController;
+    controller?.abort();
+    activeControllerRef.current = null;
+    setActiveController(null);
+    setStartedAt(null);
+    setRunning(false);
+    setRunningMode(null);
   };
 
   const runLowRiskAction = (path: string, message: string) => {
@@ -759,6 +887,44 @@ export const DeveloperAiPanel = ({ compact = false }: { compact?: boolean }) => 
     });
     navigate(action.path);
     return true;
+  };
+
+  const requestSpecialCapabilityPack = async (input: SpecialCapabilityRequestInput) => {
+    if (!selectedCategoryRef || !input.need || capabilityRequestingNeed) {
+      return;
+    }
+    setCapabilityRequestError("");
+    setCapabilityRequestingNeed(input.need);
+    try {
+      const result = (await requestDijieSpecialCapabilityPackQuery({
+        need: input.need,
+        kind: input.kind ?? "capability",
+        reason: input.reason,
+        categoryRef: selectedCategoryRef,
+        rolePackageId: rolePackageDraft?.packageId ?? rolePackageDraft?.draftId ?? null,
+        businessScenario: roleGenerationInsight?.roleRequirementSpec?.businessScenario ?? null,
+        expectedInput: compactList(roleGenerationInsight?.roleCapabilityPlan?.requiredCapabilities),
+        expectedOutput: compactList(roleGenerationInsight?.roleRequirementSpec?.acceptanceStandards),
+        reviewBoundary: "平台审核/建设特殊能力包，岗位包只保留岗位业务描述。",
+      })) as { request?: CatalogReviewRequest };
+      setRoleGenerationInsight((current) =>
+        current ? mergeCatalogReviewRequest(current, result.request) : current,
+      );
+      appendMessage({
+        role: "system",
+        text: `已提交特殊能力包申请：${input.need}。平台审核通过后会作为能力引用绑定，不会写入岗位包 manifest。`,
+      });
+    } catch (error) {
+      const message =
+        error instanceof Error && error.message ? error.message : "特殊能力包申请提交失败。";
+      setCapabilityRequestError(message);
+      appendMessage({
+        role: "assistant",
+        text: `特殊能力包申请失败：${message}`,
+      });
+    } finally {
+      setCapabilityRequestingNeed("");
+    }
   };
 
   const handleSubmit = async () => {
@@ -785,6 +951,14 @@ export const DeveloperAiPanel = ({ compact = false }: { compact?: boolean }) => 
       requirementContinuation ||
       (generationIntent && !navigationTarget)
     ) {
+      if (!selectedCategoryRef || !selectedCategory) {
+        appendMessage({
+          role: "assistant",
+          text: categoryLoadError || "生成岗位包前必须先选择平台已审核品类。",
+        });
+        setDraft("");
+        return;
+      }
       const nextNotes = shouldResumeRolePackage
         ? requirementNotes
         : [...requirementNotes, text];
@@ -833,19 +1007,24 @@ export const DeveloperAiPanel = ({ compact = false }: { compact?: boolean }) => 
         : buildGenerationMessage(nextNotes, nextSkippedFields);
       const shouldStartNewDraft = rolePackageDraft?.status === "ready" && isRequirementChangeIntent(text);
       const controller = new AbortController();
+      activeControllerRef.current = controller;
       setActiveController(controller);
       setRunning(true);
       setRunningMode("generation");
       setStartedAt(Date.now());
       const startingFileCount = shouldStartNewDraft ? 0 : (rolePackageDraft?.fileCount ?? 0);
-      const estimatedRemainingFiles = Math.max(ROLE_PACKAGE_REQUIRED_FILE_COUNT - startingFileCount, 1);
+      const estimatedRemainingBlocks = Math.max(
+        ROLE_PACKAGE_REQUIRED_BUSINESS_BLOCK_COUNT - startingFileCount,
+        1,
+      );
+      const thisRoundBlockLimit = Math.min(ROLE_PACKAGE_STAGES_PER_SUBMIT, estimatedRemainingBlocks);
       appendMessage({
         role: "assistant",
         text: shouldStartNewDraft
-          ? `已收到新增需求，将基于新的完整规格重新生成一个 role_package 草稿。本轮会逐个生成 ${ROLE_PACKAGE_REQUIRED_FILE_COUNT} 个文件，预计 ${estimateRemainingGenerationTime(ROLE_PACKAGE_REQUIRED_FILE_COUNT)}；耗时长是正常的，完成一个文件就保存一次。`
+          ? `已收到新增需求，将基于平台品类「${selectedCategory.name}」重新生成一个 role_package 草稿。本次最多推进 ${thisRoundBlockLimit} 个业务块，预计 ${estimateRemainingGenerationTime(thisRoundBlockLimit)}；完成一个业务块就保存一次，剩余业务块可继续生成。`
           : shouldResumeRolePackage
-            ? `继续生成已有 partial 岗位包草稿，本轮会逐个生成剩余 ${estimatedRemainingFiles} 个文件，预计 ${estimateRemainingGenerationTime(estimatedRemainingFiles)}；耗时长是正常的，完成一个文件就保存一次。`
-            : `已收到岗位开发规格，本轮会逐个生成剩余 ${estimatedRemainingFiles} 个文件，预计 ${estimateRemainingGenerationTime(estimatedRemainingFiles)}；耗时长是正常的，完成一个文件就保存一次，全部校验通过后才变成可上传 ready。`,
+            ? `继续生成已有 partial 岗位包草稿，平台品类「${selectedCategory.name}」。本次最多推进 ${thisRoundBlockLimit} 个业务块，预计 ${estimateRemainingGenerationTime(thisRoundBlockLimit)}；完成一个业务块就保存一次。`
+            : `已收到岗位开发规格，平台品类「${selectedCategory.name}」。本次最多推进 ${thisRoundBlockLimit} 个业务块，预计 ${estimateRemainingGenerationTime(thisRoundBlockLimit)}；完成一个业务块就保存一次，全部业务块校验通过后才变成可上传 ready。`,
       });
       try {
         let currentDraft: RolePackageDraftSummary | null =
@@ -859,8 +1038,10 @@ export const DeveloperAiPanel = ({ compact = false }: { compact?: boolean }) => 
           }
           const previousFileCount = currentDraft?.fileCount ?? 0;
           const result = await generateDijieRolePackageDraftQuery(generationMessage, {
+            categoryRef: selectedCategoryRef,
             draftId: currentDraft?.draftId,
             maxStages: 1,
+            stageTimeoutMs: ROLE_PACKAGE_STAGE_TIMEOUT_MS,
             signal: controller.signal,
             startNew: shouldStartNewDraft && !currentDraft?.draftId && !startNewConsumed,
           }) as {
@@ -871,6 +1052,9 @@ export const DeveloperAiPanel = ({ compact = false }: { compact?: boolean }) => 
             catalogReviewRequests?: CatalogReviewRequest[];
             blockedReasons?: string[];
           };
+          if (controller.signal.aborted) {
+            break;
+          }
           setRoleGenerationInsight(
             (current) => insightFromResponse(result) ?? insightFromDraft(result.draft) ?? current,
           );
@@ -881,7 +1065,7 @@ export const DeveloperAiPanel = ({ compact = false }: { compact?: boolean }) => 
             setRolePackageDraft(generatedDraft);
             appendMessage({
               role: "system",
-              text: `已保存阶段草稿：${generatedDraft.fileCount ?? 0}/${ROLE_PACKAGE_REQUIRED_FILE_COUNT} 个文件，状态 ${generatedDraft.status ?? "partial"}；预计剩余 ${estimateRemainingGenerationTime(Math.max(ROLE_PACKAGE_REQUIRED_FILE_COUNT - (generatedDraft.fileCount ?? 0), 0))}。`,
+              text: `已保存阶段草稿：业务块完整度 ${Math.min(generatedDraft.fileCount ?? 0, ROLE_PACKAGE_REQUIRED_BUSINESS_BLOCK_COUNT)}/${ROLE_PACKAGE_REQUIRED_BUSINESS_BLOCK_COUNT}，状态 ${generatedDraft.status ?? "partial"}；预计剩余 ${estimateRemainingGenerationTime(Math.max(ROLE_PACKAGE_REQUIRED_BUSINESS_BLOCK_COUNT - (generatedDraft.fileCount ?? 0), 0))}。`,
             });
           }
 
@@ -893,7 +1077,7 @@ export const DeveloperAiPanel = ({ compact = false }: { compact?: boolean }) => 
           if ((generatedDraft?.fileCount ?? previousFileCount) <= previousFileCount) {
             appendMessage({
               role: "assistant",
-              text: "当前阶段没有新增可保存文件，已暂停自动继续。你可以查看失败提示后发送“继续生成”重试当前文件。",
+              text: "当前阶段没有新增可保存业务块，已暂停自动继续。你可以查看失败提示后发送“继续生成”重试当前业务块。",
             });
             break;
           }
@@ -906,9 +1090,9 @@ export const DeveloperAiPanel = ({ compact = false }: { compact?: boolean }) => 
           role: "assistant",
           text:
             generatedDraft?.status === "ready"
-              ? `已生成 ready 岗位包草稿，包含 ${generatedDraft.fileCount ?? 0} 个文件，质量评分 ${generatedDraft.qualityReport?.score ?? 0}。可以去上传岗位页承接。`
+              ? `已生成 ready 岗位包草稿，业务块完整度 ${Math.min(generatedDraft.fileCount ?? 0, ROLE_PACKAGE_REQUIRED_BUSINESS_BLOCK_COUNT)}/${ROLE_PACKAGE_REQUIRED_BUSINESS_BLOCK_COUNT}，质量评分 ${generatedDraft.qualityReport?.score ?? 0}。可以去上传岗位页承接。`
               : generatedDraft
-                ? `已保存 partial 岗位包草稿，包含 ${generatedDraft.fileCount ?? 0} 个文件；发送“继续生成”可以从未完成文件接着生成。`
+                ? `已保存 partial 岗位包草稿，业务块完整度 ${Math.min(generatedDraft.fileCount ?? 0, ROLE_PACKAGE_REQUIRED_BUSINESS_BLOCK_COUNT)}/${ROLE_PACKAGE_REQUIRED_BUSINESS_BLOCK_COUNT}；发送“继续生成”可以从未完成业务块接着生成。`
                 : "本次没有形成可保存的岗位包草稿，请补充岗位规格后重试。",
         });
       } catch (error) {
@@ -929,22 +1113,26 @@ export const DeveloperAiPanel = ({ compact = false }: { compact?: boolean }) => 
               : "当前生成请求被浏览器或网络中断；已保存的 partial 草稿会保留，可以发送“继续生成”接着跑。"
             : `${formatGenerationErrorMessage(error)}${
                 partialDraft
-                  ? `\n已保留 partial 草稿：${partialDraft.fileCount ?? 0}/${ROLE_PACKAGE_REQUIRED_FILE_COUNT} 个文件。你可以继续生成未完成阶段。`
+                  ? `\n已保留 partial 草稿：业务块完整度 ${Math.min(partialDraft.fileCount ?? 0, ROLE_PACKAGE_REQUIRED_BUSINESS_BLOCK_COUNT)}/${ROLE_PACKAGE_REQUIRED_BUSINESS_BLOCK_COUNT}。你可以继续生成未完成阶段。`
                   : ""
               }`,
         });
       } finally {
         abortReasonRef.current = null;
-        setActiveController(null);
-        setRunning(false);
-        setRunningMode(null);
-        setStartedAt(null);
+        if (activeControllerRef.current === controller) {
+          activeControllerRef.current = null;
+          setActiveController(null);
+          setRunning(false);
+          setRunningMode(null);
+          setStartedAt(null);
+        }
         setDraft("");
       }
       return;
     }
 
     const controller = new AbortController();
+    activeControllerRef.current = controller;
     setActiveController(controller);
     setRunning(true);
     setRunningMode("dialog");
@@ -1041,10 +1229,13 @@ export const DeveloperAiPanel = ({ compact = false }: { compact?: boolean }) => 
       }
     } finally {
       abortReasonRef.current = null;
-      setActiveController(null);
-      setRunning(false);
-      setRunningMode(null);
-      setStartedAt(null);
+      if (activeControllerRef.current === controller) {
+        activeControllerRef.current = null;
+        setActiveController(null);
+        setRunning(false);
+        setRunningMode(null);
+        setStartedAt(null);
+      }
     }
 
     setDraft("");
@@ -1079,10 +1270,52 @@ export const DeveloperAiPanel = ({ compact = false }: { compact?: boolean }) => 
         ))}
         {rolePackageDraft ? <RolePackageDraftPanel draft={rolePackageDraft} /> : null}
         {roleGenerationInsight ? (
-          <RoleGenerationInsightPanel insight={roleGenerationInsight} />
+          <>
+            <RoleGenerationInsightPanel
+              insight={roleGenerationInsight}
+              onRequestSpecialCapability={requestSpecialCapabilityPack}
+              requestingNeed={capabilityRequestingNeed}
+            />
+            {capabilityRequestError ? (
+              <div className="max-w-[640px] rounded-md border border-ui-border-error bg-ui-bg-base px-4 py-3">
+                <Text className="txt-compact-small text-red-600">
+                  {capabilityRequestError}
+                </Text>
+              </div>
+            ) : null}
+          </>
         ) : null}
       </div>
       <div className="grid gap-y-3 border-t p-4">
+        <div className="grid gap-2 rounded-md border bg-ui-bg-base px-4 py-3">
+          <div className="flex items-center justify-between gap-3">
+            <Text className="txt-compact-small-plus text-ui-fg-base">平台品类</Text>
+            <StatusBadge color={selectedCategory ? "green" : "orange"}>
+              {selectedCategory ? "已选择" : "待选择"}
+            </StatusBadge>
+          </div>
+          <select
+            className="h-8 rounded-md border bg-ui-bg-base px-2 txt-compact-small text-ui-fg-base"
+            value={selectedCategoryRef}
+            onChange={(event) => setSelectedCategoryRef(event.target.value)}
+            disabled={running || roleCategories.length === 0}
+            aria-label="选择平台品类"
+          >
+            {roleCategories.length === 0 ? (
+              <option value="">暂无已审核品类</option>
+            ) : null}
+            {roleCategories.map((category) => (
+              <option key={category.categoryRef} value={category.categoryRef}>
+                {category.name} / {category.categoryRef}
+              </option>
+            ))}
+          </select>
+          <Text className="txt-compact-small text-ui-fg-subtle">
+            {selectedCategory
+              ? `${selectedCategory.categoryRef} · 继承 ${selectedCategory.packBinding?.inheritedCapabilityRefCount ?? 0} 项能力引用；额外能力会进入平台审核。`
+              : categoryLoadError || "生成岗位包前必须先选择平台已审核品类。"}
+          </Text>
+        </div>
         <div className="flex items-center justify-between rounded-md border bg-ui-bg-subtle px-4 py-3">
           <Text className="txt-compact-small-plus text-ui-fg-base">{stageText}</Text>
           <StatusBadge color={running ? "orange" : "grey"}>
@@ -1101,7 +1334,7 @@ export const DeveloperAiPanel = ({ compact = false }: { compact?: boolean }) => 
             {running
               ? runningMode === "dialog"
                 ? "普通对话会先保持连接，模型完成后补全回答；可停止。"
-                : "岗位包生成是长任务，可能需要十几到二十多分钟；完成一个文件就保存一次，可停止后继续。"
+                : "岗位包生成是长任务；完成一个业务块就保存一次，可停止后继续。"
               : "长规格会作为岗位包生成输入，不会只做关键词导航。"}
           </Text>
           <Button

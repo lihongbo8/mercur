@@ -69,6 +69,7 @@ describe("POST /vendor/dijie/role-listings/:roleListingId/submit-review", () => 
               roleListingId: "djrole_123",
               ownerId: "member_123",
               sellerId: "sel_001",
+              categoryRegistry: { categories: [] },
             });
             return {
               ok: true,

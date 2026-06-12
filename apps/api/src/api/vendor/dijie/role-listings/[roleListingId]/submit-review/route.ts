@@ -1,6 +1,7 @@
 import type { MedusaRequest, MedusaResponse } from "@medusajs/framework/http";
 import { DIJIE_AUDIT_MODULE } from "../../../../../../lib/dijie/audit-store";
 import type { DijieRoleListingStore } from "../../../../../../lib/dijie/role-listing-store";
+import { resolveDijieRoleCategoryReader } from "../../../../../../lib/dijie/service-reader-adapters";
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -37,6 +38,17 @@ function resolveRoleListingStore(req: MedusaRequest): DijieRoleListingStore | un
   }
 }
 
+async function resolveCategoryRegistry(req: MedusaRequest) {
+  try {
+    const service = req.scope.resolve(DIJIE_AUDIT_MODULE) as unknown;
+    const reader = resolveDijieRoleCategoryReader(service);
+    const categories = reader ? await reader.listDijieRoleCategories() : [];
+    return { categories };
+  } catch {
+    return { categories: [] };
+  }
+}
+
 export async function POST(req: MedusaRequest, res: MedusaResponse) {
   const actorId = actorIdFromRequest(req);
   const sellerId = sellerIdFromRequest(req);
@@ -64,10 +76,12 @@ export async function POST(req: MedusaRequest, res: MedusaResponse) {
   }
 
   try {
+    const categoryRegistry = await resolveCategoryRegistry(req);
     const result = await store.submitDijieRoleListingForReview({
       roleListingId: roleListingId.trim(),
       ownerId: actorId,
       sellerId,
+      categoryRegistry,
     });
     if (!result.ok) {
       return res.status(result.status).json({

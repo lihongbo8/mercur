@@ -1,4 +1,8 @@
 import { describe, expect, it } from "bun:test";
+import {
+  DIJIE_ECOMMERCE_ART_DESIGNER_CATEGORY_REF,
+  createDijieEcommerceArtDesignerCategory,
+} from "./ecommerce-art-designer-category";
 import { createDijieReviewCenterReadModel } from "./role-review-center";
 
 function roleProduct(overrides: Record<string, unknown> = {}) {
@@ -23,6 +27,13 @@ function roleProduct(overrides: Record<string, unknown> = {}) {
         manifestSummary: {
           entrypoint: "role_package/manifest.json",
           requiredCapabilities: ["workspace.read", "browser.use"],
+          requiredTools: [
+            {
+              need: "浏览器审核",
+              catalogRef: "tool.platform.browser_review",
+              status: "bindable",
+            },
+          ],
           sandbox: "workspace-write",
         },
         pricing: {
@@ -62,6 +73,13 @@ describe("Dijie review center read model", () => {
             "使用者需要上传商品图、说明品牌卖点、目标平台、风格限制和人工确认标准。",
           manifest_summary: {
             requiredCapabilities: ["workspace.read", "browser.use"],
+            requiredTools: [
+              {
+                need: "浏览器审核",
+                catalogRef: "tool.platform.browser_review",
+                status: "bindable",
+              },
+            ],
           },
           pricing: { currency: "CNY" },
           confirmation_points: 2,
@@ -92,6 +110,50 @@ describe("Dijie review center read model", () => {
     });
   });
 
+  it("shows ecommerce art designer category and inherited capability gate", () => {
+    const model = createDijieReviewCenterReadModel(
+      [
+        {
+          id: "djrole_ecommerce_art",
+          package_id: "djpkg_ecommerce_art",
+          package_version: "1.0.0",
+          developer_ref: "acct_dev",
+          title: "智能门锁电商美工岗位",
+          subtitle: "生成和检查电商商品图组。",
+          category: "电商美工",
+          category_ref: DIJIE_ECOMMERCE_ART_DESIGNER_CATEGORY_REF,
+          listing_status: "proposed",
+          review_state: "submitted",
+          usage_instructions:
+            "使用者需要提供商品资料、目标平台、风格限制和人工确认标准。",
+          manifest_summary: {
+            requiredCapabilities: ["image.inspect", "image.generate"],
+          },
+          pricing: { currency: "CNY" },
+        },
+      ],
+      {
+        categoryRegistry: {
+          categories: [createDijieEcommerceArtDesignerCategory()],
+        },
+      },
+    );
+
+    const categoryGate = model.queue[0].capabilityChecks.find(
+      (item) => item.id === "platform_category",
+    );
+
+    expect(model.queue[0]).toMatchObject({
+      categoryRef: DIJIE_ECOMMERCE_ART_DESIGNER_CATEGORY_REF,
+    });
+    expect(categoryGate).toMatchObject({
+      status: "pass",
+      label: "平台品类",
+    });
+    expect(categoryGate?.note).toContain("电商美工");
+    expect(categoryGate?.note).toContain("继承");
+  });
+
   it("keeps a stable action review id after a stored review exists", () => {
     const model = createDijieReviewCenterReadModel(
       [
@@ -105,6 +167,13 @@ describe("Dijie review center read model", () => {
           review_state: "submitted",
           manifest_summary: {
             requiredCapabilities: ["workspace.read", "browser.use"],
+            requiredTools: [
+              {
+                need: "浏览器审核",
+                catalogRef: "tool.platform.browser_review",
+                status: "bindable",
+              },
+            ],
           },
         },
       ],
@@ -164,7 +233,7 @@ describe("Dijie review center read model", () => {
     expect(model.queue[0].statusReason).not.toContain("图片理解");
   });
 
-  it("blocks catalog bindings that are no longer approved in the platform catalog", () => {
+  it("blocks category pack integration that is no longer approved in the platform catalog", () => {
     const model = createDijieReviewCenterReadModel(
       [
         {
@@ -212,8 +281,8 @@ describe("Dijie review center read model", () => {
       },
     );
 
-    const catalogCheck = model.queue[0].safetyChecks.find(
-      (item) => item.id === "catalog_binding_review",
+    const catalogCheck = model.queue[0].capabilityChecks.find(
+      (item) => item.id === "platform_category",
     );
 
     expect(catalogCheck).toMatchObject({
@@ -259,6 +328,68 @@ describe("Dijie review center read model", () => {
 
     expect(model.queue[0].statusReason).toContain("需处理");
     expect(model.queue[0].allowedActions).toContain("save_evaluations");
+    expect(model.queue[0].allowedActions).not.toContain("finalize_approved");
+  });
+
+  it("requires completed category pack integration before approval", () => {
+    const model = createDijieReviewCenterReadModel(
+      [
+        {
+          id: "djrole_missing_integration",
+          package_id: "djpkg_missing_integration",
+          package_version: "1.0.0",
+          developer_ref: "acct_dev",
+          title: "智能门锁电商美工岗位",
+          description: "提供主图巡检、商品图检查和详情页优化清单。",
+          listing_status: "proposed",
+          review_state: "submitted",
+          usage_instructions:
+            "使用者需要上传商品图、目标平台、风格限制和人工确认标准。",
+          manifest_summary: {
+            requiredCapabilities: ["image.inspect", "audit.record"],
+          },
+          pricing: {
+            authorizationFeeCents: 39900,
+            currency: "CNY",
+            platformFeeBps: 0,
+            developerReceivableCents: 39900,
+            developerReceivableBps: 10000,
+          },
+          role_token_pricing: {
+            inputTokenCentsPerMillion: 120,
+            outputTokenCentsPerMillion: 360,
+            currency: "CNY",
+            developerReceivableBps: 10000,
+            platformFeeBps: 0,
+          },
+        },
+      ],
+      {
+        reviews: [
+          {
+            id: "djreview_missing_integration",
+            role_listing_id: "djrole_missing_integration",
+            reviewer_id: "admin_001",
+            role_standard_decision: "pass",
+            safety_compliance_decision: "pass",
+            pricing_reasonability_decision: "pass",
+            final_result: "pending",
+            summary: null,
+            records: [],
+            finalized_at: null,
+          },
+        ],
+      },
+    );
+
+    const catalogCheck = model.queue[0].safetyChecks.find(
+      (item) => item.id === "catalog_binding_review",
+    );
+
+    expect(catalogCheck).toMatchObject({
+      status: "blocked",
+    });
+    expect(catalogCheck?.note).toContain("品类");
     expect(model.queue[0].allowedActions).not.toContain("finalize_approved");
   });
 

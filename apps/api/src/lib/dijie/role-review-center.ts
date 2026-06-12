@@ -3,15 +3,17 @@ import {
   type DijieRoleReviewState,
   type DijieRoleListingStatus,
 } from "./role-product-metadata";
+import { validateDijieRoleCapabilityIntegration } from "./role-capability-integration";
+import {
+  validateDijieRoleCategoryIntegration,
+  type DijieRoleCategoryRegistry,
+} from "./role-category-registry";
 import type {
   DijieRoleListingStorageRecord,
   DijieStoredRoleReviewState,
 } from "./role-listing-store";
 import type { DijieRolePackageStorageRecord } from "./role-package-store";
-import {
-  DIJIE_PLATFORM_SKILL_TOOL_CATALOG,
-  type DijieCatalogItem,
-} from "./role-skill-tool-planner";
+import type { DijieCatalogItem } from "./role-skill-tool-planner";
 import {
   createDijieAdminReviewDialogContext,
   type DijieDialogContext,
@@ -91,6 +93,7 @@ export type DijieReviewQueueItem = {
   title: string;
   subtitle: string | null;
   usageInstructions: string | null;
+  categoryRef: string | null;
   developerName: string | null;
   packageId: string | null;
   packageVersion: string | null;
@@ -617,18 +620,23 @@ function safetyChecks(input: {
   packageRecord?: DijieRolePackageStorageRecord;
   requiredCapabilities: string[];
   catalogItems?: DijieCatalogItem[];
+  categoryRegistry?: DijieRoleCategoryRegistry;
 }): DijieReviewCheckItem[] {
   const roleManifest = asRecord(input.role.manifest_summary);
   const packageManifest = asRecord(input.packageRecord?.manifest_summary);
-  const catalogBindings = [
-    ...catalogBindingSummaries(roleManifest.requiredSkills, input.catalogItems),
-    ...catalogBindingSummaries(roleManifest.requiredTools, input.catalogItems),
-    ...catalogBindingSummaries(packageManifest.requiredSkills, input.catalogItems),
-    ...catalogBindingSummaries(packageManifest.requiredTools, input.catalogItems),
-  ];
-  const unapprovedBindings = catalogBindings.filter(
-    (binding) => binding.status && binding.status !== "bindable",
-  );
+  const roleCategoryRef =
+    nonEmptyString(input.role.category_ref) ??
+    nonEmptyString(roleManifest.categoryRef) ??
+    nonEmptyString(roleManifest.category_ref) ??
+    nonEmptyString(packageManifest.categoryRef) ??
+    nonEmptyString(packageManifest.category_ref);
+  const capabilityIntegration = validateDijieRoleCapabilityIntegration({
+    categoryRef: roleCategoryRef,
+    category: nonEmptyString(input.role.category),
+    manifestSummary:
+      Object.keys(roleManifest).length > 0 ? roleManifest : packageManifest,
+    categoryRegistry: input.categoryRegistry,
+  });
   const scanTarget = {
     listing: input.role,
     manifest: input.packageRecord?.manifest_summary,
@@ -696,51 +704,48 @@ function safetyChecks(input: {
         : "未请求平台业务数据库直连能力。",
     ),
     check(
-      unapprovedBindings.length > 0 ? "blocked" : "pass",
+      capabilityIntegration.ok ? "pass" : "blocked",
       "catalog_binding_review",
-      "Skill/Tool 绑定审核",
-      unapprovedBindings.length > 0
-        ? `存在未通过绑定：${unapprovedBindings
-            .map((binding) => binding.catalogRef ?? binding.need)
-            .join("、")}`
-        : catalogBindings.length > 0
-          ? `已声明 ${catalogBindings.length} 个平台 catalog 引用。`
-          : "未声明平台 catalogRef；旧包可继续复核，新包应由开发者中心生成绑定计划。",
+      "基础品类包审核",
+      capabilityIntegration.ok
+        ? `已继承 ${capabilityIntegration.inheritedCatalogRefs?.length ?? 0} 个平台能力引用。`
+        : capabilityIntegration.error ??
+          "岗位上架前必须绑定 approved 平台品类和基础品类包。",
     ),
   ];
 }
 
-function catalogBindingSummaries(
-  value: unknown,
-  catalogItems?: DijieCatalogItem[],
-): Array<{
-  need?: string;
-  catalogRef?: string;
-  status?: string;
-}> {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-  const catalogByRef = new Map(
-    (catalogItems ?? DIJIE_PLATFORM_SKILL_TOOL_CATALOG).map((item) => [item.id, item]),
-  );
-  return value.flatMap((entry) => {
-    const record = asRecord(entry);
-    const need = nonEmptyString(record.need);
-    const catalogRef = nonEmptyString(record.catalogRef) ?? nonEmptyString(record.catalog_ref);
-    const catalogItem = catalogRef ? catalogByRef.get(catalogRef) : undefined;
-    const status = catalogItem
-      ? catalogItem.status === "approved"
-        ? "bindable"
-        : catalogItem.status
-      : catalogRef
-        ? "missing"
-        : nonEmptyString(record.status);
-    if (!need && !catalogRef && !status) {
-      return [];
-    }
-    return [{ need, catalogRef, status }];
+function categoryCapabilityChecks(input: {
+  role: UnknownRecord;
+  packageRecord?: DijieRolePackageStorageRecord;
+  categoryRegistry?: DijieRoleCategoryRegistry;
+}): DijieReviewCheckItem[] {
+  const roleManifest = asRecord(input.role.manifest_summary);
+  const packageManifest = asRecord(input.packageRecord?.manifest_summary);
+  const roleCategoryRef =
+    nonEmptyString(input.role.category_ref) ??
+    nonEmptyString(roleManifest.categoryRef) ??
+    nonEmptyString(roleManifest.category_ref) ??
+    nonEmptyString(packageManifest.categoryRef) ??
+    nonEmptyString(packageManifest.category_ref);
+  const categoryGate = validateDijieRoleCategoryIntegration({
+    categoryRef: roleCategoryRef,
+    category: nonEmptyString(input.role.category),
+    manifestSummary:
+      Object.keys(roleManifest).length > 0 ? roleManifest : packageManifest,
+    registry: input.categoryRegistry,
   });
+
+  return [
+    check(
+      categoryGate.ok ? "pass" : "blocked",
+      "platform_category",
+      "平台品类",
+      categoryGate.ok
+        ? `已绑定平台品类：${categoryGate.category?.name ?? roleCategoryRef ?? "unknown"}；继承 ${categoryGate.inheritedCatalogRefs.length} 个能力引用。`
+        : categoryGate.error ?? "岗位必须先选择平台已启用的品类。",
+    ),
+  ];
 }
 
 function pricingSummary(role: UnknownRecord): DijieReviewPricingSummary {
@@ -1179,7 +1184,10 @@ function createStoredReviewQueueItem(
     string,
     DijieRolePackageStorageRecord
   > = new Map(),
-  options: { catalogItems?: DijieCatalogItem[] } = {},
+  options: {
+    catalogItems?: DijieCatalogItem[];
+    categoryRegistry?: DijieRoleCategoryRegistry;
+  } = {},
 ): DijieReviewQueueItem | undefined {
   const role = asRecord(roleInput);
   if (!isStoredRoleListing(role)) {
@@ -1201,16 +1209,24 @@ function createStoredReviewQueueItem(
     `${role.package_id}:${role.package_version}`,
   );
   const pkgSummary = packageSummary({ role, packageRecord });
-  const capChecks = capabilityChecks(
-    requiredCapabilities,
-    asStringArray(role.capabilities),
-    usageInstructions,
-  );
+  const capChecks = [
+    ...categoryCapabilityChecks({
+      role,
+      packageRecord,
+      categoryRegistry: options.categoryRegistry,
+    }),
+    ...capabilityChecks(
+      requiredCapabilities,
+      asStringArray(role.capabilities),
+      usageInstructions,
+    ),
+  ];
   const secChecks = safetyChecks({
     role,
     packageRecord,
     requiredCapabilities,
     catalogItems: options.catalogItems,
+    categoryRegistry: options.categoryRegistry,
   });
   const priceSummary = pricingSummary(role);
   const designChecks = specialtyChecks({
@@ -1254,6 +1270,11 @@ function createStoredReviewQueueItem(
     title: role.title,
     subtitle: nonEmptyString(role.subtitle) ?? null,
     usageInstructions,
+    categoryRef:
+      nonEmptyString(role.category_ref) ??
+      nonEmptyString(manifest.categoryRef) ??
+      nonEmptyString(manifest.category_ref) ??
+      null,
     developerName: nonEmptyString(role.developer_ref) ?? null,
     packageId: role.package_id,
     packageVersion: role.package_version,
@@ -1301,7 +1322,10 @@ function createReviewQueueItem(
     string,
     DijieRolePackageStorageRecord
   > = new Map(),
-  options: { catalogItems?: DijieCatalogItem[] } = {},
+  options: {
+    catalogItems?: DijieCatalogItem[];
+    categoryRegistry?: DijieRoleCategoryRegistry;
+  } = {},
 ): DijieReviewQueueItem | undefined {
   const storedItem = createStoredReviewQueueItem(
     productInput,
@@ -1363,16 +1387,24 @@ function createReviewQueueItem(
   };
   const usageInstructions = usageInstructionText(roleForSummary);
   const pkgSummary = packageSummary({ role: roleForSummary, packageRecord });
-  const capChecks = capabilityChecks(
-    requiredCapabilities,
-    asStringArray(roleForSummary.capabilities),
-    usageInstructions,
-  );
+  const capChecks = [
+    ...categoryCapabilityChecks({
+      role: roleForSummary,
+      packageRecord,
+      categoryRegistry: options.categoryRegistry,
+    }),
+    ...capabilityChecks(
+      requiredCapabilities,
+      asStringArray(roleForSummary.capabilities),
+      usageInstructions,
+    ),
+  ];
   const secChecks = safetyChecks({
     role: roleForSummary,
     packageRecord,
     requiredCapabilities,
     catalogItems: options.catalogItems,
+    categoryRegistry: options.categoryRegistry,
   });
   const priceSummary = pricingSummary(roleForSummary);
   const designChecks = specialtyChecks({
@@ -1433,6 +1465,10 @@ function createReviewQueueItem(
       nonEmptyString(product.subtitle) ??
       null,
     usageInstructions,
+    categoryRef:
+      (normalized.ok
+        ? normalized.value.manifestSummary.categoryRef
+        : nonEmptyString(role.categoryRef) ?? nonEmptyString(role.category_ref)) ?? null,
     developerName: sellerName(product),
     packageId,
     packageVersion,
@@ -1471,6 +1507,7 @@ export function createDijieReviewCenterReadModel(
     reviews?: unknown[];
     packages?: Array<DijieRolePackageStorageRecord>;
     catalogItems?: DijieCatalogItem[];
+    categoryRegistry?: DijieRoleCategoryRegistry;
   } = {},
 ): DijieReviewCenterReadModel {
   const reviewsByRoleId = new Map(
@@ -1495,6 +1532,7 @@ export function createDijieReviewCenterReadModel(
     .map((product) =>
       createReviewQueueItem(product, reviewsByRoleId, packagesByListingPackage, {
         catalogItems: options.catalogItems,
+        categoryRegistry: options.categoryRegistry,
       }),
     )
     .filter((item): item is DijieReviewQueueItem => Boolean(item));
@@ -1549,7 +1587,11 @@ export function createDijieReviewCenterReadModel(
 
 export async function getDijieReviewCenterReadModel(
   queryGraph: DijieReviewCenterQueryGraph,
-  options: { adminAccountId?: string; catalogItems?: DijieCatalogItem[] } = {},
+  options: {
+    adminAccountId?: string;
+    catalogItems?: DijieCatalogItem[];
+    categoryRegistry?: DijieRoleCategoryRegistry;
+  } = {},
 ): Promise<DijieReviewCenterReadModel> {
   const storedListings = await queryGraph({
     entity: "dijie_role_listing",
@@ -1574,7 +1616,7 @@ export async function getDijieReviewCenterReadModel(
       "submitted_at",
     ],
     pagination: { take: 100 },
-  });
+  }).catch(() => ({ data: [] }));
   const storedReviews = await queryGraph({
     entity: "dijie_role_review",
     fields: [
@@ -1589,7 +1631,7 @@ export async function getDijieReviewCenterReadModel(
       "finalized_at",
     ],
     pagination: { take: 100 },
-  });
+  }).catch(() => ({ data: [] }));
   const storedPackages = await queryGraph({
     entity: "dijie_role_package",
     fields: [
@@ -1604,7 +1646,7 @@ export async function getDijieReviewCenterReadModel(
       "validation_issues",
     ],
     pagination: { take: 100 },
-  });
+  }).catch(() => ({ data: [] }));
   const storedQueue = createDijieReviewCenterReadModel(
     storedListings.data ?? [],
     {

@@ -12,7 +12,7 @@ const summary: DijieRolePackageUploadSummary = {
   packageId: "pkg_product_image_qc",
   packageVersion: "0.1.0",
   manifestSummary: {
-    entrypoint: "role_package/adapters/openclaw-adapter.ts",
+    entrypoint: "role_package/README.md",
     manifestRef: "role_package/manifest.json",
     name: "商品图检查岗位",
     permissions: ["workspace.read"],

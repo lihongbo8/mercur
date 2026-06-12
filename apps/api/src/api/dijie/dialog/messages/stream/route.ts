@@ -56,7 +56,7 @@ function createCapturedResponse(): CapturedResponse {
 
 function writeSseEvent(
   res: WritableMedusaResponse,
-  event: "status" | "fallback" | "delta" | "final" | "error",
+  event: "status" | "fallback" | "delta" | "final" | "error" | "metrics",
   data: UnknownRecord,
 ) {
   res.write?.(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
@@ -74,7 +74,10 @@ function shouldAttemptTrueStreaming(body: UnknownRecord) {
   const surface = stringField(body, "surface") ?? "developer_center";
   const message = stringField(body, "message") ?? "";
   return (
-    surface === "developer_center" &&
+    (surface === "buyer_storefront" ||
+      surface === "user_center" ||
+      surface === "developer_center" ||
+      surface === "admin_review") &&
     Boolean(message) &&
     !isDijieRolePackageGenerationIntent(message)
   );
@@ -83,6 +86,10 @@ function shouldAttemptTrueStreaming(body: UnknownRecord) {
 function createStreamingBridge(
   req: MedusaRequest,
   res: WritableMedusaResponse,
+  metrics: {
+    markDelta: () => void;
+    markStreamFallback: () => void;
+  },
 ): DijieOpenClawDialogModelBridge | undefined {
   const baseBridge = resolveDijieOpenClawDialogModelBridge(req);
   const streamBridge = hasStreamMethod(baseBridge)
@@ -103,10 +110,12 @@ function createStreamingBridge(
             if (!text) {
               return;
             }
+            metrics.markDelta();
             writeSseEvent(res, "delta", { ok: true, text });
           },
         });
       } catch {
+        metrics.markStreamFallback();
         writeSseEvent(res, "fallback", {
           ok: true,
           phase: "stream_fallback",
@@ -162,11 +171,17 @@ export async function POST(req: MedusaRequest, res: MedusaResponse) {
 
   const body = asRecord(req.body);
   const surface = stringField(body, "surface") ?? "developer_center";
+  const startedAt = Date.now();
+  let firstDeltaAt: number | undefined;
+  let deltaCount = 0;
+  let fallbackSent = false;
+  let streamPath: "true_stream" | "complete" | "stream_fallback" = "complete";
   let settled = false;
   const fallbackTimer = setTimeout(() => {
     if (settled) {
       return;
     }
+    fallbackSent = true;
     writeSseEvent(streamRes, "fallback", {
       ok: true,
       phase: "model_waiting",
@@ -185,14 +200,40 @@ export async function POST(req: MedusaRequest, res: MedusaResponse) {
 
     const captured = createCapturedResponse();
     const streamingBridge = shouldAttemptTrueStreaming(body)
-      ? createStreamingBridge(req, streamRes)
+      ? createStreamingBridge(req, streamRes, {
+          markDelta: () => {
+            deltaCount += 1;
+            firstDeltaAt ??= Date.now();
+            streamPath = "true_stream";
+          },
+          markStreamFallback: () => {
+            fallbackSent = true;
+            streamPath = "stream_fallback";
+          },
+        })
       : undefined;
+    if (streamingBridge) {
+      streamPath = "true_stream";
+    }
     const requestForDialog = streamingBridge
       ? requestWithModelBridge(req, streamingBridge)
       : req;
     await postDialogMessage(requestForDialog, captured as unknown as MedusaResponse);
     settled = true;
     clearTimeout(fallbackTimer);
+
+    const finishedAt = Date.now();
+    writeSseEvent(streamRes, "metrics", {
+      ok: true,
+      surface,
+      streamPath,
+      firstResponseMs: firstDeltaAt ? firstDeltaAt - startedAt : finishedAt - startedAt,
+      firstDeltaMs: firstDeltaAt ? firstDeltaAt - startedAt : null,
+      finalMs: finishedAt - startedAt,
+      deltaCount,
+      fallbackSent,
+      terminalBeforeDelta: deltaCount === 0,
+    });
 
     if (captured.statusCode >= 400) {
       writeSseEvent(streamRes, "error", {
@@ -211,6 +252,18 @@ export async function POST(req: MedusaRequest, res: MedusaResponse) {
   } catch (error) {
     settled = true;
     clearTimeout(fallbackTimer);
+    const finishedAt = Date.now();
+    writeSseEvent(streamRes, "metrics", {
+      ok: false,
+      surface,
+      streamPath,
+      firstResponseMs: firstDeltaAt ? firstDeltaAt - startedAt : finishedAt - startedAt,
+      firstDeltaMs: firstDeltaAt ? firstDeltaAt - startedAt : null,
+      finalMs: finishedAt - startedAt,
+      deltaCount,
+      fallbackSent,
+      terminalBeforeDelta: deltaCount === 0,
+    });
     writeSseEvent(streamRes, "error", {
       ok: false,
       error:

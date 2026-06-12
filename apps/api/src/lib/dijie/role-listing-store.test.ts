@@ -10,7 +10,7 @@ import {
 } from "./role-listing-store";
 
 const manifestSummary = {
-  entrypoint: "role_package/adapters/openclaw-adapter.ts",
+  entrypoint: "role_package/README.md",
   requiredCapabilities: ["workspace.read", "image.inspect"],
   permissions: ["workspace.read"],
 };
@@ -26,6 +26,26 @@ const roleTokenPricing = {
 const usageInstructions =
   "使用者需要提供商品图、目标平台、品牌卖点和人工确认标准后再发起任务。";
 
+const categoryRegistry = {
+  categories: [
+    {
+      categoryRef: "category:image_review@1",
+      name: "图片审核",
+      version: "1",
+      description: "测试用图片审核品类。",
+      status: "approved" as const,
+      packBinding: {
+        categoryPackRef: "categorypack:image_review@1",
+        skillPackRef: "skillpack:image_review@1",
+        toolPackRef: "toolpack:image_review@1",
+        capabilityRefs: ["workspace.read", "image.inspect"],
+        catalogRefs: ["skillpack:image_review@1", "toolpack:image_review@1"],
+        permissionSummary: ["workspace.read", "image.inspect"],
+      },
+    },
+  ],
+};
+
 function draftListing(overrides: Partial<DijieRoleListingStorageRecord> = {}) {
   return {
     id: "djrole_123",
@@ -39,7 +59,8 @@ function draftListing(overrides: Partial<DijieRoleListingStorageRecord> = {}) {
     subtitle: null,
     description: null,
     usage_instructions: usageInstructions,
-    category: null,
+    category: "图片审核",
+    category_ref: "category:image_review@1",
     listing_status: "draft" as const,
     review_state: "draft" as const,
     capabilities: ["workspace.read", "image.inspect"],
@@ -178,6 +199,7 @@ describe("Dijie role listing store", () => {
       {
         roleListingId: "djrole_123",
         ownerId: "member_123",
+        categoryRegistry,
       },
     );
 
@@ -216,6 +238,7 @@ describe("Dijie role listing store", () => {
       {
         roleListingId: "djrole_123",
         ownerId: "member_123",
+        categoryRegistry,
       },
     );
 
@@ -228,6 +251,38 @@ describe("Dijie role listing store", () => {
         },
       },
     });
+  });
+
+  it("rejects publishing when category pack integration has not been completed", async () => {
+    const result = await publishDijieRoleListingWithRepository(
+      {
+        async listDijieRoleListings() {
+          return [
+            draftListing({
+              listing_status: "delisted",
+              review_state: "approved",
+              manifest_summary: {
+                entrypoint: "role_package/manifest.json",
+                requiredCapabilities: ["workspace.read", "image.inspect"],
+              },
+            }),
+          ];
+        },
+        async updateDijieRoleListings(data) {
+          return { ...draftListing(), ...data };
+        },
+      },
+      {
+        roleListingId: "djrole_123",
+        ownerId: "member_123",
+      },
+    );
+
+    expect(result).toMatchObject({
+      ok: false,
+      status: 409,
+    });
+    expect(result.ok ? "" : result.error).toContain("品类");
   });
 
   it("delists a published approved listing", async () => {

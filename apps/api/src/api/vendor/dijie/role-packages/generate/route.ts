@@ -3,6 +3,7 @@ import {
   createDijieDeveloperDialogContext,
   getDijieDialogBillingPolicy,
 } from "../../../../../lib/dijie/dialog-context";
+import { createDijieRoleCategoryRegistry, validateDijieRoleCategoryIntegration } from "../../../../../lib/dijie/role-category-registry";
 import {
   generateDijieRolePackageDraftWithModel,
 } from "../../../../../lib/dijie/role-package-generator";
@@ -15,6 +16,7 @@ import {
   resolveCatalogReviewStore,
   resolveOpenClawDialogModelBridge,
   resolveRolePackageDraftStore,
+  resolveRoleCategoryReader,
   stringField,
 } from "../route-utils";
 
@@ -40,6 +42,44 @@ function compactText(value: string, maxLength = 2_400): string {
   return compacted.length > maxLength ? `${compacted.slice(0, maxLength)}...` : compacted;
 }
 
+function createRequestAbortSignal(req: MedusaRequest, res: MedusaResponse) {
+  const controller = new AbortController();
+  const request = req as MedusaRequest & {
+    aborted?: boolean;
+    on?: (event: "aborted" | "close", listener: () => void) => void;
+    off?: (event: "aborted" | "close", listener: () => void) => void;
+  };
+  const response = res as MedusaResponse & {
+    writableEnded?: boolean;
+    on?: (event: "close", listener: () => void) => void;
+    off?: (event: "close", listener: () => void) => void;
+  };
+  const abort = () => {
+    if (!controller.signal.aborted) {
+      controller.abort();
+    }
+  };
+  const abortIfResponseClosed = () => {
+    if (!response.writableEnded) {
+      abort();
+    }
+  };
+
+  if (request.aborted) {
+    abort();
+  }
+  request.on?.("aborted", abort);
+  response.on?.("close", abortIfResponseClosed);
+
+  return {
+    signal: controller.signal,
+    cleanup: () => {
+      request.off?.("aborted", abort);
+      response.off?.("close", abortIfResponseClosed);
+    },
+  };
+}
+
 export async function POST(req: MedusaRequest, res: MedusaResponse) {
   const actorId = actorIdFromRequest(req);
   if (!actorId) {
@@ -52,8 +92,13 @@ export async function POST(req: MedusaRequest, res: MedusaResponse) {
   const body = asRecord(req.body);
   const message = stringField(body, "message") ?? stringField(body, "prompt");
   const draftId = stringField(body, "draftId") ?? stringField(body, "draft_id");
+  const requestedCategoryRef =
+    stringField(body, "categoryRef") ?? stringField(body, "category_ref");
   const maxStages =
     positiveIntegerField(body, "maxStages") ?? positiveIntegerField(body, "max_stages");
+  const stageTimeoutMs =
+    positiveIntegerField(body, "stageTimeoutMs") ??
+    positiveIntegerField(body, "stage_timeout_ms");
   const startNew = booleanField(body, "startNew") || booleanField(body, "start_new");
   if (!message) {
     return res.status(400).json({
@@ -102,36 +147,92 @@ export async function POST(req: MedusaRequest, res: MedusaResponse) {
       error: "岗位包草稿已提交，不能继续生成。",
     });
   }
+  const existingCategoryRef = existingDraft?.manifest_summary?.categoryRef;
+  if (
+    requestedCategoryRef &&
+    existingCategoryRef &&
+    requestedCategoryRef !== existingCategoryRef &&
+    !startNew
+  ) {
+    return res.status(409).json({
+      ok: false,
+      error: "继续生成已有草稿时不能切换平台品类；如需更换品类，请重新开始生成。",
+    });
+  }
+  const categoryRef = requestedCategoryRef ?? existingCategoryRef;
+  if (!categoryRef) {
+    return res.status(400).json({
+      ok: false,
+      error: "生成岗位包前必须先选择平台已审核品类。",
+      issues: ["categoryRef_required"],
+    });
+  }
+  const roleCategoryReader = resolveRoleCategoryReader(req);
+  if (!roleCategoryReader) {
+    return res.status(503).json({
+      ok: false,
+      error: "平台岗位品类存储暂未配置，不能生成岗位包。",
+    });
+  }
+  const categoryRegistry = createDijieRoleCategoryRegistry(
+    await roleCategoryReader.listDijieRoleCategories(),
+  );
+  const categoryCheck = validateDijieRoleCategoryIntegration({
+    categoryRef,
+    registry: categoryRegistry,
+  });
+  if (!categoryCheck.ok || !categoryCheck.category) {
+    return res.status(409).json({
+      ok: false,
+      error: categoryCheck.error ?? "岗位绑定的平台品类暂不可用。",
+      issues: [...categoryCheck.missing, ...categoryCheck.blocked],
+      blockedReasons: [...categoryCheck.missing, ...categoryCheck.blocked],
+    });
+  }
 
   let generatedDraftId: string | undefined = existingDraft?.id;
-  const generation = await generateDijieRolePackageDraftWithModel({
-    bridge,
-    context,
-    billingPolicy,
-    message,
-    catalogItems,
-    initialFiles: existingDraft?.package_files ?? [],
-    maxStages,
-    previousDraftSummary: existingDraft
-      ? [
-          `draftId=${existingDraft.id}; package=${existingDraft.package_id ?? "unknown"}; status=${existingDraft.draft_status}; files=${existingDraft.file_manifest.map((file) => file.path).join(",")}`,
-          `原始开发规格摘要：${compactText(existingDraft.source_message)}`,
-        ].join("\n")
-      : undefined,
-    onStageFiles: async ({ stage, allFiles, modelUsage }) => {
-      const artifact = await persistDijieRolePackageBuildStage({
-        draftStore,
-        draftId: generatedDraftId,
-        ownerId: actorId,
-        sourceMessage: message,
-        files: allFiles,
-        stage,
-        modelUsage,
-        catalogItems,
-      });
-      generatedDraftId = artifact.draftId;
-    },
-  });
+  const requestAbort = createRequestAbortSignal(req, res);
+  let generation: Awaited<ReturnType<typeof generateDijieRolePackageDraftWithModel>>;
+  try {
+    generation = await generateDijieRolePackageDraftWithModel({
+      bridge,
+      context,
+      billingPolicy,
+      message,
+      catalogItems,
+      categoryContext: {
+        category: categoryCheck.category,
+        inheritedCatalogRefs: categoryCheck.inheritedCatalogRefs,
+        inheritedCapabilityRefs: categoryCheck.inheritedCapabilityRefs,
+      },
+      initialFiles: existingDraft?.package_files ?? [],
+      maxStages,
+      stageTimeoutMs,
+      signal: requestAbort.signal,
+      previousDraftSummary: existingDraft
+        ? [
+            `draftId=${existingDraft.id}; package=${existingDraft.package_id ?? "unknown"}; status=${existingDraft.draft_status}; files=${existingDraft.file_manifest.map((file) => file.path).join(",")}`,
+            `平台品类：${categoryCheck.category.name} / ${categoryCheck.category.categoryRef}`,
+            `原始开发规格摘要：${compactText(existingDraft.source_message)}`,
+          ].join("\n")
+        : undefined,
+      onStageFiles: async ({ stage, allFiles, modelUsage }) => {
+        const artifact = await persistDijieRolePackageBuildStage({
+          draftStore,
+          draftId: generatedDraftId,
+          ownerId: actorId,
+          sourceMessage: message,
+          files: allFiles,
+          stage,
+          modelUsage,
+          catalogItems,
+        });
+        generatedDraftId = artifact.draftId;
+      },
+    });
+  } finally {
+    requestAbort.cleanup();
+  }
 
   if (!generation.ok) {
     const partialDraftRecord = generatedDraftId

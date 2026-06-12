@@ -11,8 +11,10 @@ import type { DijieRolePackageStore } from "../../../../lib/dijie/role-package-s
 import {
   resolveDijieCatalogReader,
   resolveDijieCatalogReviewRequestReader,
+  resolveDijieRoleCategoryReader,
   resolveDijieRolePackageDraftStore as resolveDijieRolePackageDraftStoreAdapter,
 } from "../../../../lib/dijie/service-reader-adapters";
+import type { DijieRoleCategoryReader } from "../../../../lib/dijie/role-category-registry";
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -71,11 +73,24 @@ export function resolveCatalogReviewStore(
   req: MedusaRequest,
 ): DijieCatalogReviewStore | undefined {
   const service = resolveAuditModule(req);
-  return service &&
-    typeof (service as { createDijieCatalogReviewRequestsForPlan?: unknown })
-      .createDijieCatalogReviewRequestsForPlan === "function"
+  if (!service) {
+    return undefined;
+  }
+  const record = service as {
+    createDijieCatalogReviewRequestsForPlan?: unknown;
+    createDijieSpecialCapabilityReviewRequest?: unknown;
+  };
+  return typeof record.createDijieCatalogReviewRequestsForPlan === "function" ||
+    typeof record.createDijieSpecialCapabilityReviewRequest === "function"
     ? (service as DijieCatalogReviewStore)
     : undefined;
+}
+
+export function resolveRoleCategoryReader(
+  req: MedusaRequest,
+): DijieRoleCategoryReader | undefined {
+  const service = resolveAuditModule(req);
+  return resolveDijieRoleCategoryReader(service);
 }
 
 export function resolveOpenClawDialogModelBridge(

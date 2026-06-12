@@ -20,7 +20,11 @@ export type DijieRoleReviewState =
 
 export type DijieRoleManifestSummary = {
   entrypoint?: string;
+  categoryRef?: string;
   requiredCapabilities?: string[];
+  requiredSkills?: unknown[];
+  requiredTools?: unknown[];
+  specialCapabilityRequests?: unknown[];
   permissions?: string[];
   sandbox?: "readonly" | "workspace-write" | "networked" | "custom";
   inputs?: string[];

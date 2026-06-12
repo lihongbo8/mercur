@@ -3,6 +3,8 @@ import {
   type DijieExecutionTokenPricing,
   type DijieRoleTokenPricing,
 } from "./execution-token";
+import { validateDijieRoleCapabilityIntegration } from "./role-capability-integration";
+import type { DijieRoleCategoryRegistry } from "./role-category-registry";
 import { validateDijieRoleTokenPricingAgainstPlatformPolicy } from "./role-token-pricing-policy";
 import type { DijieRoleManifestSummary } from "./role-product-metadata";
 
@@ -33,6 +35,7 @@ export type DijieRoleListingStorageRecord = {
   description: string | null;
   usage_instructions: string | null;
   category: string | null;
+  category_ref?: string | null;
   listing_status: DijieStoredRoleListingStatus;
   review_state: DijieStoredRoleReviewState;
   capabilities: string[];
@@ -94,11 +97,13 @@ export type DijieRoleListingStore = {
     roleListingId: string;
     ownerId?: string;
     sellerId?: string;
+    categoryRegistry?: DijieRoleCategoryRegistry;
   }) => Promise<DijieRoleListingMutationResult>;
   publishDijieRoleListing: (input: {
     roleListingId: string;
     ownerId?: string;
     sellerId?: string;
+    categoryRegistry?: DijieRoleCategoryRegistry;
   }) => Promise<DijieRoleListingMutationResult>;
   delistDijieRoleListing: (input: {
     roleListingId: string;
@@ -128,6 +133,7 @@ export type CreateDijieRoleListingInput = {
   description?: string;
   usageInstructions?: string;
   category?: string;
+  categoryRef?: string;
   developerRef?: string;
   listingOwnerRef?: string;
   billingBeneficiaryRef?: string;
@@ -147,6 +153,7 @@ export type UpdateDijieRoleListingInput = {
   description?: string | null;
   usageInstructions?: string | null;
   category?: string | null;
+  categoryRef?: string | null;
   capabilities?: string[];
   pricing?: unknown;
   roleTokenPricing?: unknown;
@@ -295,6 +302,7 @@ export function createDijieRoleListingDraftRecord(
       description: nonEmptyString(input.description) ?? null,
       usage_instructions: usageInstructions,
       category: nonEmptyString(input.category) ?? null,
+      category_ref: nonEmptyString(input.categoryRef) ?? null,
       listing_status: "draft",
       review_state: "draft",
       capabilities: listingCapabilities(input),
@@ -492,6 +500,7 @@ export function createDijieRoleListingManagementReadModel(
     description: record.description,
     usageInstructions: record.usage_instructions,
     category: record.category,
+    categoryRef: record.category_ref,
     listingStatus: record.listing_status,
     reviewState: record.review_state,
     capabilities: record.capabilities,
@@ -611,6 +620,9 @@ export async function updateDijieRoleListingDraftWithRepository(
     ...(input.category !== undefined
       ? { category: nullableString(input.category) ?? null }
       : {}),
+    ...(input.categoryRef !== undefined
+      ? { category_ref: nullableString(input.categoryRef) ?? null }
+      : {}),
     ...(input.capabilities !== undefined
       ? { capabilities: stringArray(input.capabilities) }
       : {}),
@@ -635,7 +647,12 @@ export async function updateDijieRoleListingDraftWithRepository(
 export async function submitDijieRoleListingForReviewWithRepository(
   repository: DijieRoleListingLookupRepository &
     DijieRoleListingUpdateRepository,
-  input: { roleListingId: string; ownerId?: string; sellerId?: string },
+  input: {
+    roleListingId: string;
+    ownerId?: string;
+    sellerId?: string;
+    categoryRegistry?: DijieRoleCategoryRegistry;
+  },
 ) {
   const listing = await retrieveDijieRoleListingWithRepository(repository, {
     roleListingId: input.roleListingId,
@@ -673,6 +690,21 @@ export async function submitDijieRoleListingForReviewWithRepository(
         "岗位使用规范不能为空，需先说明使用者应提供哪些材料和如何发起任务。",
     };
   }
+  const capabilityIntegration = validateDijieRoleCapabilityIntegration({
+    manifestSummary: listing.manifest_summary,
+    categoryRef: listing.category_ref,
+    category: listing.category,
+    categoryRegistry: input.categoryRegistry,
+  });
+  if (!capabilityIntegration.ok) {
+    return {
+      ok: false as const,
+      status: 409,
+      error:
+        capabilityIntegration.error ??
+        "岗位提交审核前必须先绑定平台品类。",
+    };
+  }
 
   const updated = await repository.updateDijieRoleListings({
     id: input.roleListingId,
@@ -693,7 +725,12 @@ export async function submitDijieRoleListingForReviewWithRepository(
 export async function publishDijieRoleListingWithRepository(
   repository: DijieRoleListingLookupRepository &
     DijieRoleListingUpdateRepository,
-  input: { roleListingId: string; ownerId?: string; sellerId?: string },
+  input: {
+    roleListingId: string;
+    ownerId?: string;
+    sellerId?: string;
+    categoryRegistry?: DijieRoleCategoryRegistry;
+  },
 ) {
   const listing = await retrieveDijieRoleListingWithRepository(repository, {
     roleListingId: input.roleListingId,
@@ -730,6 +767,21 @@ export async function publishDijieRoleListingWithRepository(
       ok: false as const,
       status: 409,
       error: "已归档的岗位商品不能上架。",
+    };
+  }
+  const capabilityIntegration = validateDijieRoleCapabilityIntegration({
+    manifestSummary: listing.manifest_summary,
+    categoryRef: listing.category_ref,
+    category: listing.category,
+    categoryRegistry: input.categoryRegistry,
+  });
+  if (!capabilityIntegration.ok) {
+    return {
+      ok: false as const,
+      status: 409,
+      error:
+        capabilityIntegration.error ??
+        "岗位上架前必须绑定 approved 平台品类和基础品类包。",
     };
   }
 

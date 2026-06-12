@@ -216,11 +216,34 @@ export const uploadDijieRolePackageQuery = async (files: any[]) => {
   })
 }
 
+export type DijieVendorRoleCategoryOption = {
+  categoryRef: string
+  name: string
+  version: string
+  description?: string
+  packBinding?: {
+    categoryPackRef: string
+    skillPackRef: string
+    toolPackRef: string
+    inheritedCatalogRefCount: number
+    inheritedCapabilityRefCount: number
+  } | null
+}
+
+export const fetchDijieRoleCategoriesQuery = async () => {
+  return fetchQuery('/vendor/dijie/role-categories', {
+    method: 'GET',
+    sellerScoped: true,
+  }) as Promise<{ ok: boolean; categories?: DijieVendorRoleCategoryOption[] }>
+}
+
 export const generateDijieRolePackageDraftQuery = async (
   message: string,
   options?: {
+    categoryRef?: string
     draftId?: string
     maxStages?: number
+    stageTimeoutMs?: number
     startNew?: boolean
     signal?: AbortSignal
   }
@@ -229,12 +252,33 @@ export const generateDijieRolePackageDraftQuery = async (
     method: 'POST',
     body: {
       message,
+      ...(options?.categoryRef ? { categoryRef: options.categoryRef } : {}),
       ...(options?.draftId ? { draftId: options.draftId } : {}),
       ...(options?.maxStages ? { maxStages: options.maxStages } : {}),
+      ...(options?.stageTimeoutMs ? { stageTimeoutMs: options.stageTimeoutMs } : {}),
       ...(options?.startNew ? { startNew: true } : {}),
     },
     sellerScoped: true,
     signal: options?.signal,
+  })
+}
+
+export const requestDijieSpecialCapabilityPackQuery = async (payload: {
+  need: string
+  kind?: string
+  reason?: string
+  categoryRef: string
+  rolePackageId?: string | null
+  roleListingId?: string | null
+  businessScenario?: string | null
+  expectedInput?: string | null
+  expectedOutput?: string | null
+  reviewBoundary?: string | null
+}) => {
+  return fetchQuery('/vendor/dijie/special-capability-requests', {
+    method: 'POST',
+    body: payload,
+    sellerScoped: true,
   })
 }
 
@@ -249,12 +293,26 @@ export const sendDijieDeveloperDialogMessageQuery = async (message: string, sign
   })
 }
 
-type DijieDeveloperDialogStreamHandlers = {
+export type DijieDialogSurface =
+  | 'buyer_storefront'
+  | 'user_center'
+  | 'developer_center'
+  | 'admin_review'
+
+export type DijieDialogStreamHandlers = {
   onStatus?: (data: Record<string, unknown>) => void
   onFallback?: (data: Record<string, unknown>) => void
   onDelta?: (data: Record<string, unknown>) => void
+  onMetrics?: (data: Record<string, unknown>) => void
   onFinal?: (data: Record<string, unknown>) => void
   onError?: (data: Record<string, unknown>) => void
+}
+
+export type DijieDialogStreamRequest = {
+  surface: DijieDialogSurface
+  message: string
+  sessionId?: string
+  subject?: Record<string, unknown>
 }
 
 const parseDijieStreamData = (text: string): Record<string, unknown> => {
@@ -268,9 +326,9 @@ const parseDijieStreamData = (text: string): Record<string, unknown> => {
   }
 }
 
-export const streamDijieDeveloperDialogMessageQuery = async (
-  message: string,
-  handlers: DijieDeveloperDialogStreamHandlers = {},
+export const streamDijieDialogMessageQuery = async (
+  input: DijieDialogStreamRequest,
+  handlers: DijieDialogStreamHandlers = {},
   signal?: AbortSignal
 ) => {
   const response = await fetch(`${backendUrl}/dijie/dialog/messages/stream`, {
@@ -281,8 +339,10 @@ export const streamDijieDeveloperDialogMessageQuery = async (
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      surface: 'developer_center',
-      message,
+      surface: input.surface,
+      message: input.message,
+      ...(input.sessionId ? { sessionId: input.sessionId } : {}),
+      ...(input.subject ? { subject: input.subject } : {}),
     }),
     signal,
   })
@@ -336,6 +396,8 @@ export const streamDijieDeveloperDialogMessageQuery = async (
       handlers.onFallback?.(data)
     } else if (eventName === 'delta') {
       handlers.onDelta?.(data)
+    } else if (eventName === 'metrics') {
+      handlers.onMetrics?.(data)
     } else if (eventName === 'final') {
       finalData = data
       handlers.onFinal?.(data)
@@ -379,6 +441,21 @@ export const streamDijieDeveloperDialogMessageQuery = async (
   }
 
   throw new Error('Dialog stream ended before a final response.')
+}
+
+export const streamDijieDeveloperDialogMessageQuery = async (
+  message: string,
+  handlers: DijieDialogStreamHandlers = {},
+  signal?: AbortSignal
+) => {
+  return streamDijieDialogMessageQuery(
+    {
+      surface: 'developer_center',
+      message,
+    },
+    handlers,
+    signal
+  )
 }
 
 export const fetchLatestDijieRolePackageDraftQuery = async () => {

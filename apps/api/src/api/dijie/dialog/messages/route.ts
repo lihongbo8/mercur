@@ -13,10 +13,7 @@ import {
   type DijieAccessContext,
 } from "../../../../lib/dijie/data-permissions";
 import { getDijieDialogCapabilityPolicy } from "../../../../lib/dijie/dialog-capability-policy";
-import {
-  createDijieDialogActions,
-  shouldSkipDijieModelForActions,
-} from "../../../../lib/dijie/dialog-actions";
+import { createDijieDialogActions } from "../../../../lib/dijie/dialog-actions";
 import { resolveDijieOpenClawDialogModelBridge } from "../../../../lib/dijie/openclaw-model-bridge-resolver";
 import {
   createDijieDialogTurnReadModel,
@@ -179,6 +176,19 @@ function surfaceFromBody(body: UnknownRecord): DijieDialogSurface | undefined {
     surface === "openclaw_local"
     ? surface
     : undefined;
+}
+
+function latencyClassForDialogMessage(
+  surface: DijieDialogSurface,
+  message: string,
+): "fast_interaction" | "standard" {
+  if (
+    surface === "admin_review" &&
+    /(深度|详细|完整|逐项|全部|全量|审计明细|费用明细|账本明细)/u.test(message)
+  ) {
+    return "standard";
+  }
+  return "fast_interaction";
 }
 
 function roleBuildArtifactsForDialog(
@@ -597,8 +607,8 @@ export async function POST(req: MedusaRequest, res: MedusaResponse) {
       const assistantReply = {
         reply: draftReadModel
           ? draftReady
-            ? `已生成 ready 岗位包草稿 ${draftReadModel.packageId ?? draftReadModel.draftId}，包含 ${draftReadModel.fileCount} 个文件，质量评分 ${draftReadModel.qualityReport.score}。请到上传岗位页确认并提交。`
-            : `已保存 partial 岗位包草稿 ${draftReadModel.draftId}，包含 ${draftReadModel.fileCount} 个文件。请继续生成未完成阶段，ready 前不能上传承接。`
+            ? `已生成 ready 岗位包草稿 ${draftReadModel.packageId ?? draftReadModel.draftId}，业务块完整度 ${draftReadModel.fileCount}/6，质量评分 ${draftReadModel.qualityReport.score}。请到上传岗位页确认并提交。`
+            : `已保存 partial 岗位包草稿 ${draftReadModel.draftId}，业务块完整度 ${draftReadModel.fileCount}/6。请继续生成未完成阶段，ready 前不能上传承接。`
           : "已生成岗位包草稿，请到上传岗位页确认并提交。",
         grounding: { roles: [], source: "dialog_context" as const },
         billingPolicy: fallbackReply.billingPolicy,
@@ -659,16 +669,11 @@ export async function POST(req: MedusaRequest, res: MedusaResponse) {
     }
     const modelResult =
       fallbackReply.billingPolicy.modelAllowed &&
-      modelBridge &&
-      !shouldSkipDijieModelForActions({
-        context: dialogContext,
-        actions: fallbackReply.actions,
-      })
+      modelBridge
         ? await modelBridge.completeDijieDialogMessage({
             context: dialogContext,
             billingPolicy: fallbackReply.billingPolicy,
-            latencyClass:
-              dialogContext.surface === "developer_center" ? "fast_interaction" : "standard",
+            latencyClass: latencyClassForDialogMessage(dialogContext.surface, message),
             message: buildSurfacePrompt({
               context: dialogContext,
               capabilityPolicy,

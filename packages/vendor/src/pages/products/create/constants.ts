@@ -73,6 +73,8 @@ export const ProductCreateBaseSchema = z.object({
     .min(10, "请填写岗位使用规范，说明使用者要准备哪些资料和如何发起任务。"),
   role_package_id: z.string().min(1, "请先上传岗位资料包"),
   role_package_version: z.string().min(1, "请先上传岗位资料包"),
+  role_category_ref: z.string().min(1, "请先选择平台品类"),
+  role_category_name: z.string().optional(),
   role_listing_id: z.string().optional(),
   role_authorization_fee_yuan: z
     .string()
@@ -208,6 +210,8 @@ export const PRODUCT_CREATE_FORM_DEFAULTS: Partial<
   role_capabilities: "",
   role_required_capabilities: "",
   role_manifest_ref: "",
+  role_category_ref: "category:ecommerce_art_designer@1",
+  role_category_name: "电商美工",
   role_package_id: "",
   role_package_version: "",
   role_listing_id: "",

@@ -9,6 +9,7 @@ import { getDijieReviewCenterReadModel } from "../../../../lib/dijie/role-review
 import {
   resolveDijieAccountAccessProfileReader as resolveDijieAccountAccessProfileReaderAdapter,
   resolveDijieCatalogReader,
+  resolveDijieRoleCategoryReader,
 } from "../../../../lib/dijie/service-reader-adapters";
 
 type UnknownRecord = Record<string, unknown>;
@@ -69,12 +70,22 @@ export async function GET(req: MedusaRequest, res: MedusaResponse) {
     const query = req.scope.resolve("query");
     const auditService = resolveAuditService(req);
     const catalogReader = resolveDijieCatalogReader(auditService);
+    const categoryReader = resolveDijieRoleCategoryReader(auditService);
     const catalogItems = catalogReader
-      ? await catalogReader.listDijieEffectiveCatalogItems()
+      ? await catalogReader
+          .listDijieEffectiveCatalogItems()
+          .catch(() => undefined)
+      : undefined;
+    const categories = categoryReader
+      ? await categoryReader.listDijieRoleCategories().catch(() => undefined)
       : undefined;
     const reviewCenter = await getDijieReviewCenterReadModel((queryInput) =>
       query.graph(queryInput),
-      { adminAccountId, catalogItems },
+      {
+        adminAccountId,
+        catalogItems,
+        categoryRegistry: categories ? { categories } : undefined,
+      },
     );
 
     return res.status(200).json({

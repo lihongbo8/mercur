@@ -161,6 +161,43 @@ function createTimeoutController(timeoutMs: number) {
   };
 }
 
+function composeAbortSignals(signals: Array<AbortSignal | undefined>) {
+  const activeSignals = signals.filter((signal): signal is AbortSignal => Boolean(signal));
+  const abortedSignal = activeSignals.find((signal) => signal.aborted);
+  if (abortedSignal) {
+    const controller = new AbortController();
+    controller.abort(abortedSignal.reason);
+    return {
+      signal: controller.signal,
+      clear: () => {},
+    };
+  }
+  if (activeSignals.length === 1) {
+    return {
+      signal: activeSignals[0],
+      clear: () => {},
+    };
+  }
+
+  const controller = new AbortController();
+  const abort = (event: Event) => {
+    const signal = event.target instanceof AbortSignal ? event.target : undefined;
+    controller.abort(signal?.reason);
+  };
+  for (const signal of activeSignals) {
+    signal.addEventListener("abort", abort, { once: true });
+  }
+
+  return {
+    signal: controller.signal,
+    clear: () => {
+      for (const signal of activeSignals) {
+        signal.removeEventListener("abort", abort);
+      }
+    },
+  };
+}
+
 export function createDijieOpenAiStreamingModelBridge(
   options: OpenAiStreamingBridgeOptions,
 ): DijieOpenClawDialogModelBridge {
@@ -175,6 +212,7 @@ export function createDijieOpenAiStreamingModelBridge(
     }
 
     const timeout = createTimeoutController(timeoutMs);
+    const abort = composeAbortSignals([timeout.signal, input.signal]);
     let returnedResponse = false;
     try {
       const response = await fetchFn(responsesUrl, {
@@ -189,16 +227,24 @@ export function createDijieOpenAiStreamingModelBridge(
           input: input.message,
           stream,
         }),
-        signal: timeout.signal,
+        signal: abort.signal,
       });
 
       if (!response.ok) {
         throw new Error(await errorMessageFromResponse(response));
       }
       returnedResponse = true;
-      return { response, model, clearTimeout: timeout.clear };
+      return {
+        response,
+        model,
+        clearTimeout: () => {
+          abort.clear();
+          timeout.clear();
+        },
+      };
     } finally {
       if (!stream || !returnedResponse) {
+        abort.clear();
         timeout.clear();
       }
     }

@@ -40,15 +40,19 @@ import {
   type DijieLedgerEntryStore,
 } from "../../lib/dijie/ledger-store";
 import {
+  bindDijieSpecialCapabilityToRoleWithRepository,
   createDijieCatalogReviewRequestsForPlanWithRepository,
+  createDijieSpecialCapabilityReviewRequestWithRepository,
   finalizeDijieCatalogReviewRequestWithRepository,
   listDijieCatalogReviewRequestsWithRepository,
   listDijieEffectiveCatalogItemsWithRepository,
+  listDijieSpecialCapabilityBindingsWithRepository,
   type DijieCatalogLookupRepository,
   type DijieCatalogMutationRepository,
   type DijieCatalogReader,
   type DijieCatalogReviewRequestStorageRecord,
   type DijieCatalogReviewStore,
+  type DijieSpecialCapabilityBindingStorageRecord,
 } from "../../lib/dijie/catalog-store";
 import {
   recordDijieEvolutionCandidateWithRepository,
@@ -81,6 +85,20 @@ import {
   type DijieRoleListingStore,
   type DijieRoleListingUpdateRepository,
 } from "../../lib/dijie/role-listing-store";
+import {
+  bindDijieRoleCategoryPackWithRepository,
+  createDijieRoleCategoryRecordWithRepository,
+  disableDijieRoleCategoryWithRepository,
+  finalizeDijieRoleCategoryReviewWithRepository,
+  listDijieRoleCategoryRecordsWithRepository,
+  normalizeDijieRoleCategoryStorageRecord,
+  submitDijieRoleCategoryReviewWithRepository,
+  updateDijieRoleCategoryRecordWithRepository,
+  type DijieRoleCategoryLookupRepository,
+  type DijieRoleCategoryRepository,
+  type DijieRoleCategoryStore,
+  type DijieRoleCategoryUpdateRepository,
+} from "../../lib/dijie/role-category-store";
 import {
   authorizeDijiePaidRoleListingWithRepository,
   authorizeDijieRoleListingWithRepository,
@@ -130,12 +148,14 @@ import {
   DijieLedgerEntry,
   DijieMemoryCandidate,
   DijieRoleCapabilityProfile,
+  DijieRoleCategory,
   DijieRoleEntitlement,
   DijieRoleFeedbackPacket,
   DijieRoleListing,
   DijieRolePackage,
   DijieRolePackageDraft,
   DijieRoleReview,
+  DijieSpecialCapabilityBinding,
 } from "./models";
 
 type UnknownRecord = Record<string, unknown>;
@@ -276,6 +296,7 @@ function normalizeDijieRoleListingRecord(
     description: nullableStringField(record, "description"),
     usage_instructions: nullableStringField(record, "usage_instructions"),
     category: nullableStringField(record, "category"),
+    category_ref: nullableStringField(record, "category_ref"),
     listing_status:
       record.listing_status as DijieRoleListingStorageRecord["listing_status"],
     review_state: record.review_state as DijieRoleListingStorageRecord["review_state"],
@@ -334,6 +355,28 @@ function normalizeDijieCatalogReviewRequestRecord(
   };
 }
 
+function normalizeDijieSpecialCapabilityBindingRecord(
+  value: unknown,
+): DijieSpecialCapabilityBindingStorageRecord & { id?: string } {
+  const record = asRecord(value);
+  return {
+    ...(stringField(record, "id") ? { id: stringField(record, "id") } : {}),
+    binding_key: stringField(record, "binding_key") ?? "",
+    review_request_id: stringField(record, "review_request_id") ?? "",
+    catalog_ref: stringField(record, "catalog_ref") ?? "",
+    need: stringField(record, "need") ?? "",
+    kind: record.kind as DijieSpecialCapabilityBindingStorageRecord["kind"],
+    role_package_id: nullableStringField(record, "role_package_id"),
+    role_listing_id: stringField(record, "role_listing_id") ?? "",
+    category_ref: nullableStringField(record, "category_ref"),
+    binding_status:
+      record.binding_status as DijieSpecialCapabilityBindingStorageRecord["binding_status"],
+    bound_by: nullableStringField(record, "bound_by"),
+    bound_at: dateField(record.bound_at),
+    payload: asRecord(record.payload),
+  };
+}
+
 class DijieAuditModuleService
   extends MedusaService({
     DijieAccountAccessProfile,
@@ -346,12 +389,14 @@ class DijieAuditModuleService
     DijieLedgerEntry,
     DijieMemoryCandidate,
     DijieRoleCapabilityProfile,
+    DijieRoleCategory,
     DijieRoleEntitlement,
     DijieRoleFeedbackPacket,
     DijieRoleListing,
     DijieRolePackage,
     DijieRolePackageDraft,
     DijieRoleReview,
+    DijieSpecialCapabilityBinding,
   })
   implements
     DijieAuditRecordStore,
@@ -361,6 +406,7 @@ class DijieAuditModuleService
     DijieRolePackageStore,
     DijieRolePackageDraftStore,
     DijieRoleListingStore,
+    DijieRoleCategoryStore,
     DijieRoleEntitlementStore,
     DijieRoleReviewStore,
     DijieDialogSessionStore,
@@ -599,6 +645,108 @@ class DijieAuditModuleService
     );
   }
 
+  private dijieRoleCategoryLookupRepository(): DijieRoleCategoryLookupRepository {
+    const listDijieRoleCategories = super.listDijieRoleCategories.bind(this) as (
+      filters?: unknown,
+      config?: unknown,
+    ) => Promise<unknown[]>;
+    return {
+      listDijieRoleCategories: async (filters, config) =>
+        (await listDijieRoleCategories(filters, config))
+          .map(normalizeDijieRoleCategoryStorageRecord)
+          .filter(Boolean) as Awaited<
+          ReturnType<DijieRoleCategoryLookupRepository["listDijieRoleCategories"]>
+        >,
+    };
+  }
+
+  private dijieRoleCategoryRepository():
+    DijieRoleCategoryLookupRepository &
+    DijieRoleCategoryRepository &
+    DijieRoleCategoryUpdateRepository {
+    const createDijieRoleCategories = super.createDijieRoleCategories.bind(this) as (
+      data: unknown,
+    ) => Promise<unknown>;
+    const updateDijieRoleCategories = super.updateDijieRoleCategories.bind(this) as (
+      data: unknown,
+    ) => Promise<unknown>;
+    return {
+      ...this.dijieRoleCategoryLookupRepository(),
+      createDijieRoleCategories: async (data) =>
+        normalizeDijieRoleCategoryStorageRecord(
+          await createDijieRoleCategories(data),
+        ) as Awaited<
+          ReturnType<DijieRoleCategoryRepository["createDijieRoleCategories"]>
+        >,
+      updateDijieRoleCategories: async (data) =>
+        normalizeDijieRoleCategoryStorageRecord(
+          await updateDijieRoleCategories(data),
+        ) as Awaited<
+          ReturnType<DijieRoleCategoryUpdateRepository["updateDijieRoleCategories"]>
+        >,
+    };
+  }
+
+  async listDijieRoleCategoryRecords() {
+    return listDijieRoleCategoryRecordsWithRepository(
+      this.dijieRoleCategoryLookupRepository(),
+    );
+  }
+
+  async createDijieRoleCategoryRecord(
+    input: Parameters<DijieRoleCategoryStore["createDijieRoleCategoryRecord"]>[0],
+  ) {
+    return createDijieRoleCategoryRecordWithRepository(
+      this.dijieRoleCategoryRepository(),
+      input,
+    );
+  }
+
+  async updateDijieRoleCategoryRecord(
+    input: Parameters<DijieRoleCategoryStore["updateDijieRoleCategoryRecord"]>[0],
+  ) {
+    return updateDijieRoleCategoryRecordWithRepository(
+      this.dijieRoleCategoryRepository(),
+      input,
+    );
+  }
+
+  async bindDijieRoleCategoryPack(
+    input: Parameters<DijieRoleCategoryStore["bindDijieRoleCategoryPack"]>[0],
+  ) {
+    return bindDijieRoleCategoryPackWithRepository(
+      this.dijieRoleCategoryRepository(),
+      input,
+    );
+  }
+
+  async submitDijieRoleCategoryReview(
+    input: Parameters<DijieRoleCategoryStore["submitDijieRoleCategoryReview"]>[0],
+  ) {
+    return submitDijieRoleCategoryReviewWithRepository(
+      this.dijieRoleCategoryRepository(),
+      input,
+    );
+  }
+
+  async finalizeDijieRoleCategoryReview(
+    input: Parameters<DijieRoleCategoryStore["finalizeDijieRoleCategoryReview"]>[0],
+  ) {
+    return finalizeDijieRoleCategoryReviewWithRepository(
+      this.dijieRoleCategoryRepository(),
+      input,
+    );
+  }
+
+  async disableDijieRoleCategory(
+    input: Parameters<DijieRoleCategoryStore["disableDijieRoleCategory"]>[0],
+  ) {
+    return disableDijieRoleCategoryWithRepository(
+      this.dijieRoleCategoryRepository(),
+      input,
+    );
+  }
+
   async authorizeDijieRoleListing(
     input: Parameters<DijieRoleEntitlementStore["authorizeDijieRoleListing"]>[0],
   ) {
@@ -775,6 +923,11 @@ class DijieAuditModuleService
       filters?: unknown,
       config?: unknown,
     ) => Promise<unknown[]>;
+    const listDijieSpecialCapabilityBindings =
+      super.listDijieSpecialCapabilityBindings.bind(this) as (
+        filters?: unknown,
+        config?: unknown,
+      ) => Promise<unknown[]>;
     return {
       listDijieCatalogItems: async (filters, config) =>
         (await listDijieCatalogItems(filters, config)) as Awaited<
@@ -784,6 +937,10 @@ class DijieAuditModuleService
         (await listDijieCatalogReviewRequests(filters, config)).map(
           normalizeDijieCatalogReviewRequestRecord,
         ),
+      listDijieSpecialCapabilityBindings: async (filters, config) =>
+        (await listDijieSpecialCapabilityBindings(filters, config)).map(
+          normalizeDijieSpecialCapabilityBindingRecord,
+        ),
     };
   }
 
@@ -791,6 +948,15 @@ class DijieAuditModuleService
     input?: Parameters<DijieCatalogReader["listDijieCatalogReviewRequests"]>[0],
   ) {
     return listDijieCatalogReviewRequestsWithRepository(
+      this.dijieCatalogLookupRepository(),
+      input,
+    );
+  }
+
+  async listDijieSpecialCapabilityBindingRecords(
+    input?: Parameters<DijieCatalogReader["listDijieSpecialCapabilityBindings"]>[0],
+  ) {
+    return listDijieSpecialCapabilityBindingsWithRepository(
       this.dijieCatalogLookupRepository(),
       input,
     );
@@ -805,11 +971,31 @@ class DijieAuditModuleService
     );
   }
 
+  async createDijieSpecialCapabilityReviewRequest(
+    input: Parameters<DijieCatalogReviewStore["createDijieSpecialCapabilityReviewRequest"]>[0],
+  ) {
+    return createDijieSpecialCapabilityReviewRequestWithRepository(
+      this as unknown as DijieCatalogLookupRepository & DijieCatalogMutationRepository,
+      input,
+    );
+  }
+
   async finalizeDijieCatalogReviewRequest(
     input: Parameters<DijieCatalogReviewStore["finalizeDijieCatalogReviewRequest"]>[0],
   ) {
     return finalizeDijieCatalogReviewRequestWithRepository(
       this as unknown as DijieCatalogLookupRepository & DijieCatalogMutationRepository,
+      input,
+    );
+  }
+
+  async bindDijieSpecialCapabilityToRole(
+    input: Parameters<DijieCatalogReviewStore["bindDijieSpecialCapabilityToRole"]>[0],
+  ) {
+    return bindDijieSpecialCapabilityToRoleWithRepository(
+      this as unknown as DijieCatalogLookupRepository &
+        DijieCatalogMutationRepository &
+        DijieRoleListingLookupRepository,
       input,
     );
   }

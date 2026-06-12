@@ -110,13 +110,13 @@ curl '<cloud-base-url>/vendor/dijie/role-packages' \
     "files": [
       {
         "path": "role_package/manifest.json",
-        "content": "{\"manifestVersion\":1,\"rolePackageId\":\"pkg_demo\",\"version\":\"0.1.0\",\"name\":\"Demo Role\",\"entrypoint\":\"role_package/adapters/openclaw-adapter.ts\",\"permissions\":[\"workspace.read\"],\"requiredCapabilities\":[\"workspace.read\",\"document.write\",\"human.confirm\"],\"files\":[]}"
+        "content": "{\"manifestVersion\":1,\"rolePackageId\":\"pkg_demo\",\"version\":\"0.1.0\",\"name\":\"Demo Role\",\"entrypoint\":\"role_package/README.md\",\"permissions\":[\"workspace.read\"],\"requiredCapabilities\":[\"workspace.read\",\"document.write\",\"human.confirm\"],\"files\":[\"role_package/manifest.json\",\"role_package/README.md\",\"role_package/listing.md\",\"role_package/standards.md\",\"role_package/cadence.md\",\"role_package/validation.md\"]}"
       },
       { "path": "role_package/listing.md", "content": "# Demo Role" },
       { "path": "role_package/README.md", "content": "# Demo Role" },
-      { "path": "role_package/knowledge/business-workflow.md", "content": "# Business workflow\nDescribe the human job process, judgment rules, experience, failure modes, and acceptance examples." },
-      { "path": "role_package/adapters/openclaw-adapter.ts", "content": "export const capabilityMapping = ['workspace.read', 'document.write', 'human.confirm']" },
-      { "path": "role_package/validation/smoke-test.md", "content": "# Smoke" }
+      { "path": "role_package/standards.md", "content": "# Service standards\nDescribe input quality, output quality, service boundaries, and human review standards." },
+      { "path": "role_package/cadence.md", "content": "# Cadence\nDescribe trigger conditions, daily/weekly/monthly cadence, and exception handling." },
+      { "path": "role_package/validation.md", "content": "# Validation\nDescribe pass/suspect/fail standards, fallback actions, and acceptance examples." }
     ]
   }'
 ```

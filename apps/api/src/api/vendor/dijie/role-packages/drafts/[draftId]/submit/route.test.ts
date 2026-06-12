@@ -24,6 +24,22 @@ function response(): TestResponse {
   };
 }
 
+const approvedCategoryRecord = {
+  category_ref: "category:ecommerce_art_designer@1",
+  name: "电商美工",
+  version: "1",
+  description: "电商视觉岗位品类。",
+  category_status: "approved",
+  pack_binding: {
+    categoryPackRef: "categorypack:ecommerce_art_designer@1",
+    skillPackRef: "skillpack:ecommerce_art_designer@1",
+    toolPackRef: "toolpack:ecommerce_art_designer@1",
+    catalogRefs: ["skill:visual.main_image.inspect@1", "tool:image.inspect@1"],
+    capabilityRefs: ["image.inspect", "image.generate", "human.confirm", "audit.record"],
+    permissionSummary: ["image.inspect", "image.generate", "human.confirm", "audit.record"],
+  },
+};
+
 function draft(input?: { ownerId?: string; status?: "partial" | "ready" | "blocked" | "submitted" }) {
   return {
     id: "djdraft_1",
@@ -36,6 +52,12 @@ function draft(input?: { ownerId?: string; status?: "partial" | "ready" | "block
     manifest_summary: {
       name: "智能门锁电商美工岗位",
       manifestRef: "role_package/manifest.json",
+      categoryRef: "category:ecommerce_art_designer@1",
+      categoryName: "电商美工",
+      categoryPackRef: "categorypack:ecommerce_art_designer@1",
+      skillPackRef: "skillpack:ecommerce_art_designer@1",
+      toolPackRef: "toolpack:ecommerce_art_designer@1",
+      inheritedCapabilityRefs: ["image.inspect", "image.generate", "human.confirm", "audit.record"],
       requiredCapabilities: ["image.inspect", "human.confirm"],
       permissions: ["role.execute"],
       fileCount: 2,
@@ -60,6 +82,7 @@ function draft(input?: { ownerId?: string; status?: "partial" | "ready" | "block
           rolePackageId: "visual_smart_lock_designer",
           version: "1.0.0",
           name: "智能门锁电商美工岗位",
+          categoryRef: "category:ecommerce_art_designer@1",
           entrypoint: "role_package/README.md",
           permissions: ["role.execute"],
           requiredCapabilities: ["image.inspect", "human.confirm"],
@@ -92,6 +115,7 @@ function request(input?: {
   draftId?: string;
   draftRecord?: ReturnType<typeof draft>;
   catalogItems?: unknown[];
+  categoryRecords?: unknown[];
 }) {
   let submittedPackageId: string | undefined;
   return {
@@ -123,6 +147,8 @@ function request(input?: {
             listDijieEffectiveCatalogItems: input?.catalogItems
               ? async () => input.catalogItems
               : undefined,
+            listDijieRoleCategoryRecords: async () =>
+              input?.categoryRecords ?? [approvedCategoryRecord],
             storeDijieRolePackage: async (storeInput: {
               summary: {
                 packageId: string;
@@ -194,27 +220,16 @@ describe("POST /vendor/dijie/role-packages/drafts/:draftId/submit", () => {
     });
   });
 
-  it("rejects ready drafts when a catalog binding is no longer approved", async () => {
+  it("rejects ready drafts when the platform category is no longer approved", async () => {
     const res = response();
 
     await POST(
       request({
         draftRecord: draft(),
-        catalogItems: [
+        categoryRecords: [
           {
-            id: "tool.platform.image_inspector",
-            kind: "tool",
-            name: "图片理解工具",
-            version: "1.0.0",
-            description: "平台禁用的图片理解工具。",
-            tags: ["image"],
-            provides: ["image.inspect"],
-            source: "platform_builtin",
-            status: "disabled",
-            permissions: ["image.inspect"],
-            riskLevel: "medium",
-            auditPolicy: ["audit.record"],
-            keywords: ["图片理解"],
+            ...approvedCategoryRecord,
+            category_status: "disabled",
           },
         ],
       }) as never,
@@ -224,10 +239,8 @@ describe("POST /vendor/dijie/role-packages/drafts/:draftId/submit", () => {
     expect(res.statusCode).toBe(409);
     expect(res.body).toMatchObject({
       ok: false,
-      error: "岗位包草稿存在未通过审核的 Skill/Tool 绑定，不能提交。",
-      roleCapabilityPlan: {
-        status: "waiting_skill_tool_review",
-      },
+      error: "岗位绑定的品类尚未审核启用。",
+      blockedReasons: ["category:ecommerce_art_designer@1: disabled"],
     });
   });
 

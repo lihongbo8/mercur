@@ -62,6 +62,7 @@ export type ReviewQueueItem = {
   title: string;
   subtitle?: string | null;
   usageInstructions?: string | null;
+  categoryRef?: string | null;
   developerName?: string | null;
   packageId?: string | null;
   packageVersion?: string | null;
@@ -119,7 +120,7 @@ export type CatalogReviewRequest = {
   catalog_ref?: string | null;
   catalogRef?: string | null;
   need: string;
-  kind: "skill" | "tool" | "mcp" | "adapter" | "capability";
+  kind: "skill" | "tool" | "api" | "mcp" | "provider" | "adapter" | "capability";
   source: string;
   review_status: CatalogReviewStatus;
   status?: CatalogReviewStatus;
@@ -143,16 +144,59 @@ export type CatalogItem = {
   kind: string;
   name: string;
   version: string;
+  description?: string;
   source: string;
   status: string;
   riskLevel?: string;
   provides?: string[];
+  permissions?: string[];
 };
 
 export type CatalogReviewResponse = {
   ok?: boolean;
   catalogItems?: CatalogItem[];
   reviewRequests?: CatalogReviewRequest[];
+};
+
+export type RoleCategoryStatus = "draft" | "pending_review" | "approved" | "disabled";
+
+export type RoleCategoryPackBinding = {
+  categoryPackRef: string;
+  skillPackRef: string;
+  toolPackRef: string;
+  riskPolicyRef?: string | null;
+  reviewPolicyRef?: string | null;
+  catalogRefs: string[];
+  capabilityRefs: string[];
+  permissionSummary: string[];
+};
+
+export type RoleCategory = {
+  id?: string;
+  categoryRef: string;
+  name: string;
+  version: string;
+  description: string;
+  status: RoleCategoryStatus;
+  reviewedAt?: string | null;
+  reviewedBy?: string | null;
+  packBinding?: RoleCategoryPackBinding | null;
+  blockerReasons?: string[];
+  allowedActions?: string[];
+  usage?: {
+    roleListingCount: number;
+    publishedRoleListingCount: number;
+  };
+};
+
+export type RoleCategoryAdminReadModel = {
+  categories: RoleCategory[];
+  approvedCatalogItems: CatalogItem[];
+};
+
+export type RoleCategoryAdminResponse = {
+  ok?: boolean;
+  roleCategories?: RoleCategoryAdminReadModel;
 };
 
 export const fetchReviewCenter = async () => {
@@ -175,6 +219,103 @@ export const fetchCatalogReview = async (
     catalogItems: result?.catalogItems ?? [],
     reviewRequests: result?.reviewRequests ?? [],
   };
+};
+
+export const fetchRoleCategories = async () => {
+  const result = (await fetchQuery("/admin/dijie/role-categories", {
+    method: "GET",
+  })) as RoleCategoryAdminResponse | undefined;
+
+  return (
+    result?.roleCategories ?? {
+      categories: [],
+      approvedCatalogItems: [],
+    }
+  );
+};
+
+export const createRoleCategory = async (body: {
+  categoryRef: string;
+  name: string;
+  version: string;
+  description?: string;
+}) => {
+  return fetchQuery("/admin/dijie/role-categories", {
+    method: "POST",
+    body,
+  });
+};
+
+export const updateRoleCategory = async (
+  categoryRef: string,
+  body: {
+    name?: string;
+    version?: string;
+    description?: string;
+  },
+) => {
+  return fetchQuery(
+    `/admin/dijie/role-categories/${encodeURIComponent(categoryRef)}`,
+    {
+      method: "PATCH",
+      body,
+    },
+  );
+};
+
+export const bindRoleCategoryPack = async (
+  categoryRef: string,
+  body: {
+    categoryPackRef: string;
+    skillPackRef: string;
+    toolPackRef: string;
+    catalogRefs: string[];
+    riskPolicyRef?: string | null;
+    reviewPolicyRef?: string | null;
+  },
+) => {
+  return fetchQuery(
+    `/admin/dijie/role-categories/${encodeURIComponent(categoryRef)}/pack-binding`,
+    {
+      method: "POST",
+      body,
+    },
+  );
+};
+
+export const submitRoleCategoryReview = async (categoryRef: string) => {
+  return fetchQuery(
+    `/admin/dijie/role-categories/${encodeURIComponent(categoryRef)}/submit-review`,
+    {
+      method: "POST",
+    },
+  );
+};
+
+export const finalizeRoleCategoryReview = async (
+  categoryRef: string,
+  body: { result: "approved" | "request_changes"; reviewNote?: string },
+) => {
+  return fetchQuery(
+    `/admin/dijie/role-categories/${encodeURIComponent(categoryRef)}/finalize`,
+    {
+      method: "POST",
+      body,
+    },
+  );
+};
+
+export const disableRoleCategory = async (
+  categoryRef: string,
+  body: { reason?: string },
+) => {
+  return fetchQuery(
+    `/admin/dijie/role-categories/${encodeURIComponent(categoryRef)}/disable`,
+    {
+      method: "POST",
+      body,
+    },
+  );
 };
 
 export const finalizeCatalogReview = async (

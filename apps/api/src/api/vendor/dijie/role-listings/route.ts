@@ -1,10 +1,18 @@
 import type { MedusaRequest, MedusaResponse } from "@medusajs/framework/http";
 import { DIJIE_AUDIT_MODULE } from "../../../../lib/dijie/audit-store";
 import {
+  createDijieCatalogReviewRequestReadModel,
+  createDijieSpecialCapabilityBindingReadModel,
+  type DijieCatalogReviewRequestStorageRecord,
+  type DijieSpecialCapabilityBindingStorageRecord,
+} from "../../../../lib/dijie/catalog-store";
+import {
   createDijieRoleListingManagementReadModel,
   type DijieRoleListingStore,
+  type DijieRoleListingStorageRecord,
 } from "../../../../lib/dijie/role-listing-store";
 import {
+  resolveDijieCatalogReader,
   resolveDijieRoleListingReader,
   resolveDijieRolePackageReader,
 } from "../../../../lib/dijie/service-reader-adapters";
@@ -58,10 +66,24 @@ function resolveDijieRoleSystem(req: MedusaRequest) {
       listingStore: isRoleListingStore(service) ? service : undefined,
       listingReader: resolveDijieRoleListingReader(service),
       packageReader: resolveDijieRolePackageReader(service),
+      catalogReader: resolveDijieCatalogReader(service),
     };
   } catch {
     return {};
   }
+}
+
+function matchesRoleListing(
+  role: DijieRoleListingStorageRecord & { id: string },
+  value: {
+    role_listing_id?: string | null;
+    role_package_id?: string | null;
+  },
+) {
+  if (value.role_listing_id && value.role_listing_id === role.id) {
+    return true;
+  }
+  return Boolean(value.role_package_id && value.role_package_id === role.package_id);
 }
 
 export async function GET(req: MedusaRequest, res: MedusaResponse) {
@@ -74,7 +96,7 @@ export async function GET(req: MedusaRequest, res: MedusaResponse) {
     });
   }
 
-  const { listingReader } = resolveDijieRoleSystem(req);
+  const { listingReader, catalogReader } = resolveDijieRoleSystem(req);
   if (!listingReader) {
     return res.status(503).json({
       ok: false,
@@ -87,9 +109,28 @@ export async function GET(req: MedusaRequest, res: MedusaResponse) {
       developerRef: sellerId,
       take: 100,
     });
+    const [reviewRequests, bindings] = catalogReader
+      ? await Promise.all([
+          catalogReader.listDijieCatalogReviewRequests(),
+          catalogReader.listDijieSpecialCapabilityBindings(),
+        ])
+      : [[], []];
     return res.status(200).json({
       ok: true,
-      listings: listings.map(createDijieRoleListingManagementReadModel),
+      listings: listings.map((listing) => ({
+        ...createDijieRoleListingManagementReadModel(listing),
+        specialCapabilityRequests: reviewRequests
+          .filter((request: DijieCatalogReviewRequestStorageRecord & { id?: string }) =>
+            request.payload?.requestType === "special_capability_pack" &&
+            matchesRoleListing(listing, request),
+          )
+          .map(createDijieCatalogReviewRequestReadModel),
+        specialCapabilityBindings: bindings
+          .filter((binding: DijieSpecialCapabilityBindingStorageRecord & { id?: string }) =>
+            matchesRoleListing(listing, binding),
+          )
+          .map(createDijieSpecialCapabilityBindingReadModel),
+      })),
     });
   } catch {
     return res.status(502).json({
@@ -162,6 +203,7 @@ export async function POST(req: MedusaRequest, res: MedusaResponse) {
         stringField(body, "usageInstructions") ??
         stringField(body, "usage_instructions"),
       category: stringField(body, "category"),
+      categoryRef: stringField(body, "categoryRef") ?? stringField(body, "category_ref"),
       manifestSummary: rolePackage.manifest_summary,
       pricing: body.pricing,
       roleTokenPricing: body.roleTokenPricing ?? body.role_token_pricing,

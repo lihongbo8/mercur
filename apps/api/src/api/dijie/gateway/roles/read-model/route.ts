@@ -15,8 +15,10 @@ import { listDijieRoleListings } from "../../../../../lib/dijie/role-listings";
 import {
   resolveDijieAccountAccessProfileReader,
   resolveDijieCatalogReader,
+  resolveDijieRoleCategoryReader,
   resolveDijieRolePackageReader,
 } from "../../../../../lib/dijie/service-reader-adapters";
+import { createDijieRoleCategoryRegistry } from "../../../../../lib/dijie/role-category-registry";
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -161,8 +163,16 @@ export async function GET(req: MedusaRequest, res: MedusaResponse) {
       roles,
     });
     const catalogReader = resolveDijieCatalogReader(auditService);
-    const catalogItems = catalogReader
-      ? await catalogReader.listDijieEffectiveCatalogItems()
+    const [catalogItems, catalogReviewRequests, specialCapabilityBindings] = catalogReader
+      ? await Promise.all([
+          catalogReader.listDijieEffectiveCatalogItems(),
+          catalogReader.listDijieCatalogReviewRequests(),
+          catalogReader.listDijieSpecialCapabilityBindings({ status: "bound" }),
+        ])
+      : [undefined, undefined, undefined];
+    const categoryReader = resolveDijieRoleCategoryReader(auditService);
+    const categoryRegistry = categoryReader
+      ? createDijieRoleCategoryRegistry(await categoryReader.listDijieRoleCategories())
       : undefined;
 
     return res.status(200).json({
@@ -175,6 +185,9 @@ export async function GET(req: MedusaRequest, res: MedusaResponse) {
         entitlements,
         packages,
         catalogItems,
+        catalogReviewRequests,
+        specialCapabilityBindings,
+        categoryRegistry,
       }),
     });
   } catch {

@@ -5,7 +5,7 @@ const DijieCatalogReviewRequest = model.define("dijie_catalog_review_request", {
   review_key: model.text().searchable(),
   catalog_ref: model.text().searchable().nullable(),
   need: model.text().searchable(),
-  kind: model.enum(["skill", "tool", "mcp", "adapter", "capability"]),
+  kind: model.enum(["skill", "tool", "api", "mcp", "provider", "adapter", "capability"]),
   source: model.enum([
     "role_gap",
     "opencloud",

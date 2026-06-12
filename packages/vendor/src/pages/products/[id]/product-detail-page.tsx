@@ -1,4 +1,4 @@
-import { Children, ReactNode } from "react";
+import { Children, ReactNode, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { Button, Container, Heading, StatusBadge, Text, toast } from "@medusajs/ui";
 
@@ -7,6 +7,8 @@ import { TwoColumnPage } from "@components/layout/pages";
 import { useProduct } from "@hooks/api";
 import {
   type DijieRoleListing,
+  type DijieSpecialCapabilityRequest,
+  useBindDijieSpecialCapability,
   useDelistDijieRoleListing,
   useDijieRoleListings,
   usePublishDijieRoleListing,
@@ -66,6 +68,26 @@ const reviewStateColors: Record<
   needs_changes: "orange",
   approved: "green",
   rejected: "red",
+};
+
+const specialCapabilityStatusLabels: Record<
+  DijieSpecialCapabilityRequest["status"],
+  string
+> = {
+  pending_review: "审核中",
+  approved: "已批准",
+  rejected: "已驳回",
+  request_changes: "要求补充",
+};
+
+const specialCapabilityStatusColors: Record<
+  DijieSpecialCapabilityRequest["status"],
+  "grey" | "orange" | "green" | "red"
+> = {
+  pending_review: "orange",
+  approved: "green",
+  rejected: "red",
+  request_changes: "orange",
 };
 
 const formatCny = (cents?: number) => {
@@ -210,6 +232,7 @@ const AicsRoleListingDetail = ({ role }: { role: DijieRoleListing }) => {
             value={formatTokenFee(role.roleTokenPricing?.outputTokenCentsPerMillion)}
           />
         </Container>
+        <AicsSpecialCapabilitySection role={role} />
       </TwoColumnPage.Main>
       <TwoColumnPage.Sidebar>
         <AicsRoleListingActions role={role} />
@@ -228,6 +251,112 @@ const DetailRow = ({ title, value }: { title: string; value: string }) => (
     </Text>
   </div>
 );
+
+const capabilityLabel = (input: { catalogRef?: string | null; need: string }) =>
+  input.catalogRef || input.need;
+
+const AicsSpecialCapabilitySection = ({ role }: { role: DijieRoleListing }) => {
+  const roleListingId = role.roleListingId || role.id;
+  const [pendingReviewId, setPendingReviewId] = useState<string | undefined>();
+  const bindCapability = useBindDijieSpecialCapability({
+    onSuccess: () => toast.success("特殊能力包已绑定到岗位。"),
+    onError: (error) => toast.error(error.message),
+  });
+  const requests = role.specialCapabilityRequests ?? [];
+  const bindings = role.specialCapabilityBindings ?? [];
+  const boundReviewIds = new Set(
+    bindings
+      .map((binding) => binding.reviewRequestId)
+      .filter((id): id is string => Boolean(id)),
+  );
+  const visibleRequests = requests.filter(
+    (request) => !request.reviewId || !boundReviewIds.has(request.reviewId),
+  );
+  const hasContent = requests.length > 0 || bindings.length > 0;
+
+  return (
+    <Container className="mt-6 divide-y p-0">
+      <div className="px-6 py-4">
+        <Heading level="h2">特殊能力包</Heading>
+      </div>
+      {!hasContent ? (
+        <div className="px-6 py-5">
+          <Text size="small" className="text-ui-fg-subtle">
+            暂无特殊能力包申请。
+          </Text>
+        </div>
+      ) : null}
+      {bindings.map((binding) => (
+        <div
+          key={binding.bindingId || binding.bindingKey || binding.catalogRef}
+          className="flex items-start justify-between gap-4 px-6 py-4"
+        >
+          <div className="min-w-0">
+            <Text size="small" weight="plus" className="break-words">
+              {capabilityLabel(binding)}
+            </Text>
+            <Text size="small" className="mt-1 text-ui-fg-subtle">
+              {binding.kind}
+              {binding.boundAt ? ` · ${binding.boundAt}` : ""}
+            </Text>
+          </div>
+          <StatusBadge color={binding.status === "bound" ? "green" : "grey"}>
+            {binding.status === "bound" ? "已绑定" : "已停用"}
+          </StatusBadge>
+        </div>
+      ))}
+      {visibleRequests.map((request) => {
+        const reviewId = request.reviewId;
+        const canBind = request.status === "approved" && Boolean(reviewId);
+        const isBinding = bindCapability.isPending && pendingReviewId === reviewId;
+
+        return (
+          <div
+            key={reviewId || request.reviewKey || request.need}
+            className="flex items-start justify-between gap-4 px-6 py-4"
+          >
+            <div className="min-w-0">
+              <Text size="small" weight="plus" className="break-words">
+                {capabilityLabel(request)}
+              </Text>
+              <Text size="small" className="mt-1 text-ui-fg-subtle">
+                {request.kind}
+                {request.reviewedAt ? ` · ${request.reviewedAt}` : ""}
+              </Text>
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              <StatusBadge color={specialCapabilityStatusColors[request.status]}>
+                {specialCapabilityStatusLabels[request.status]}
+              </StatusBadge>
+              {canBind && reviewId ? (
+                <Button
+                  size="small"
+                  variant="secondary"
+                  isLoading={isBinding}
+                  disabled={bindCapability.isPending}
+                  onClick={() => {
+                    setPendingReviewId(reviewId);
+                    bindCapability.mutate(
+                      {
+                        reviewId,
+                        roleListingId,
+                      },
+                      {
+                        onSettled: () => setPendingReviewId(undefined),
+                      },
+                    );
+                  }}
+                >
+                  绑定到岗位
+                </Button>
+              ) : null}
+            </div>
+          </div>
+        );
+      })}
+    </Container>
+  );
+};
 
 const AicsRoleListingActions = ({ role }: { role: DijieRoleListing }) => {
   const roleListingId = role.roleListingId || role.id;

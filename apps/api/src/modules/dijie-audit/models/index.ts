@@ -8,9 +8,11 @@ export { default as DijieEvolutionCandidate } from "./dijie-evolution-candidate"
 export { default as DijieLedgerEntry } from "./dijie-ledger-entry";
 export { default as DijieMemoryCandidate } from "./dijie-memory-candidate";
 export { default as DijieRoleCapabilityProfile } from "./dijie-role-capability-profile";
+export { default as DijieRoleCategory } from "./dijie-role-category";
 export { default as DijieRoleEntitlement } from "./dijie-role-entitlement";
 export { default as DijieRoleFeedbackPacket } from "./dijie-role-feedback-packet";
 export { default as DijieRoleListing } from "./dijie-role-listing";
 export { default as DijieRolePackage } from "./dijie-role-package";
 export { default as DijieRolePackageDraft } from "./dijie-role-package-draft";
 export { default as DijieRoleReview } from "./dijie-role-review";
+export { default as DijieSpecialCapabilityBinding } from "./dijie-special-capability-binding";

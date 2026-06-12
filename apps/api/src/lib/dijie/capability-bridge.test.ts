@@ -40,7 +40,7 @@ function visualRolePackageFiles() {
       }),
     },
     {
-      path: "role_package/skills/main-image-inspection.md",
+      path: "role_package/standards.md",
       content: "# 主图巡检\n检查产品主体、背景、卖点和变形风险。",
     },
   ];

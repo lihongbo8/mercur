@@ -35,6 +35,7 @@ export type DijieOpenClawDialogModelInput = {
   message: string;
   fallbackReply: string;
   roles: Array<Pick<DijieRoleListing, "id" | "title" | "subtitle" | "handle">>;
+  signal?: AbortSignal;
 };
 
 export type DijieOpenClawDialogModelStreamHandlers = {

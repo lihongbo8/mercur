@@ -84,6 +84,7 @@ describe("POST /admin/dijie/reviews/:reviewId/finalize", () => {
       reviewerId: "marketplace_owner_001",
       finalResult: "approved",
       summary: "三项评估通过。",
+      categoryRegistry: { categories: [] },
     });
     expect(res.body).toMatchObject({
       ok: true,
@@ -102,6 +103,31 @@ describe("POST /admin/dijie/reviews/:reviewId/finalize", () => {
     );
 
     expect(res.statusCode).toBe(400);
+  });
+
+  it("keeps category pack integration conflicts as 409", async () => {
+    const res = response();
+    await POST(
+      request(
+        {
+          finalizeDijieRoleReview: async () => ({
+            ok: false,
+            status: 409,
+            error:
+              "岗位上架前必须绑定 approved 平台品类和基础品类包。",
+          }),
+        },
+        { finalResult: "approved" },
+      ) as never,
+      res as never,
+    );
+
+    expect(res.statusCode).toBe(409);
+    expect(res.body).toMatchObject({
+      ok: false,
+      error:
+        "岗位上架前必须绑定 approved 平台品类和基础品类包。",
+    });
   });
 
   it("rejects accounts without review data permission", async () => {

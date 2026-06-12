@@ -180,6 +180,7 @@ export function createDijieCodexCliModelBridge(
           cwd: options.cwd,
           timeout: timeoutMs,
           maxBuffer: maxBufferBytes,
+          signal: input.signal,
         });
         const events = jsonEventsFromCodexOutput(stdout);
         const reply = replyFromCodexEvents(events);

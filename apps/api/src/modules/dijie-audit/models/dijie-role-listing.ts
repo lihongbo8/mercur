@@ -13,6 +13,7 @@ const DijieRoleListing = model.define("dijie_role_listing", {
   description: model.text().nullable(),
   usage_instructions: model.text().nullable(),
   category: model.text().searchable().nullable(),
+  category_ref: model.text().searchable().nullable(),
   listing_status: model.enum([
     "draft",
     "proposed",

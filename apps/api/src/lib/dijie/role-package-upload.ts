@@ -16,10 +16,16 @@ export type DijieRolePackageUploadSummary = {
     entrypoint: string;
     manifestRef: string;
     name: string;
+    categoryRef?: string;
+    categoryName?: string;
+    categoryPackRef?: string;
+    skillPackRef?: string;
+    toolPackRef?: string;
+    inheritedCatalogRefs?: string[];
+    inheritedCapabilityRefs?: string[];
+    specialCapabilityRequests?: unknown[];
     permissions: string[];
     requiredCapabilities: string[];
-    requiredSkills?: unknown[];
-    requiredTools?: unknown[];
     fileCount: number;
   };
   files: Array<{
@@ -47,6 +53,12 @@ const TOOL_IMPLEMENTATION_KEY_NAMES = new Set([
   "implementationtools",
   "mcpserver",
   "mcpservers",
+  "requiredskill",
+  "requiredskills",
+  "requiredtool",
+  "requiredtools",
+  "skill",
+  "skills",
   "tooldefinition",
   "tooldefinitions",
   "toolimplementation",
@@ -105,9 +117,7 @@ const BACKEND_ONLY_TEXT_PATTERN =
   /\b(?:actorId|chatHistory|cloudBearer|conversationHistory|developerModeContext|deviceId|entitlementId|executionId|localGatewayId|modeStage|orderGroupId|orderId|pricingSnapshot|prompt|roleBuildBrief|roleListingId|walletId|workspaceRef)\b/i;
 const REQUIRED_CAPABILITY_PATTERN = /^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$/u;
 const TOOL_IMPLEMENTATION_PATH_PATTERN =
-  /(^|\/)(tool-?implementations?|tools?|mcp-?servers?|browser-?tools?|command-?tools?|api-?clients?)(\/|[-_.])/iu;
-const ROLE_KNOWLEDGE_PATH_PATTERN =
-  /(^|\/)(business|knowledge|playbooks?|sops?|workflows?|experience|failure-modes?|examples?)(\/|[-_.])|[-_.](business|knowledge|playbook|sop|workflow|experience|failure-mode|example)\./iu;
+  /(^|\/)(skills?|tool-?implementations?|tools?|mcp-?servers?|browser-?tools?|command-?tools?|api-?clients?|adapters?|wrappers?)(\/|[-_.])|(^|\/)tool[_-]?requirements\.md$|(^|\/)integrations\/openclaw-wrapper\.md$/iu;
 
 function asRecord(value: unknown): UnknownRecord {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -152,10 +162,6 @@ function hasUnsafeRelativePathSegment(value: string): boolean {
 }
 
 function isToolImplementationPath(value: string): boolean {
-  const normalized = value.replace(/\\/g, "/").toLowerCase();
-  if (/(^|\/)tool[_-]?requirements\.md$/u.test(normalized)) {
-    return false;
-  }
   return TOOL_IMPLEMENTATION_PATH_PATTERN.test(value);
 }
 
@@ -302,6 +308,29 @@ export function validateDijieRolePackageUpload(input: unknown): DijieRolePackage
   const packageId = stringField(manifest, "rolePackageId") ?? stringField(body, "packageId");
   const packageVersion = stringField(manifest, "version") ?? stringField(body, "packageVersion");
   const name = stringField(manifest, "name");
+  const categoryRef = stringField(manifest, "categoryRef") ?? stringField(manifest, "category_ref");
+  const categoryName = stringField(manifest, "categoryName") ?? stringField(manifest, "category_name");
+  const categoryPackRef =
+    stringField(manifest, "categoryPackRef") ?? stringField(manifest, "category_pack_ref");
+  const skillPackRef =
+    stringField(manifest, "skillPackRef") ?? stringField(manifest, "skill_pack_ref");
+  const toolPackRef = stringField(manifest, "toolPackRef") ?? stringField(manifest, "tool_pack_ref");
+  const inheritedCatalogRefs = stringArray(
+    manifest.inheritedCatalogRefs ?? manifest.inherited_catalog_refs,
+  );
+  const inheritedCapabilityRefs = stringArray(
+    manifest.inheritedCapabilityRefs ?? manifest.inherited_capability_refs,
+  );
+  if (
+    Array.isArray(manifest.specialCapabilityRequests) ||
+    Array.isArray(manifest.special_capability_requests) ||
+    Array.isArray(manifest.specialCapabilities) ||
+    Array.isArray(manifest.special_capabilities)
+  ) {
+    issues.push(
+      "role package manifest must not contain special capability requests; use the platform category-pack application flow.",
+    );
+  }
   const entrypoint = stringField(manifest, "entrypoint");
   const permissions = stringArray(manifest.permissions);
   const requiredCapabilities = validateRequiredCapabilities(
@@ -309,13 +338,6 @@ export function validateDijieRolePackageUpload(input: unknown): DijieRolePackage
     "role package manifest requiredCapabilities",
     issues,
   );
-  const requiredSkills = Array.isArray(manifest.requiredSkills)
-    ? manifest.requiredSkills
-    : undefined;
-  const requiredTools = Array.isArray(manifest.requiredTools)
-    ? manifest.requiredTools
-    : undefined;
-
   if (!packageId) {
     issues.push("role package manifest rolePackageId is required.");
   }
@@ -362,23 +384,6 @@ export function validateDijieRolePackageUpload(input: unknown): DijieRolePackage
     }
   }
 
-  const packagePaths = [...uploadedPaths];
-  if (
-    !packagePaths.some((path) =>
-      /(^|\/)(wrappers?|adapters?|examples?|samples?|integrations?)(\/|[-_.])|[-_.](wrapper|adapter|example|sample|integration)\./i.test(
-        path,
-      ),
-    )
-  ) {
-    issues.push("missing role_package wrapper, adapter, or integration example file");
-  }
-  if (!packagePaths.some((path) => /(validation|validate|smoke|tests?|spec)(\/|[-_.]|\.)/i.test(path))) {
-    issues.push("missing role_package validation or smoke test material");
-  }
-  if (!packagePaths.some((path) => ROLE_KNOWLEDGE_PATH_PATTERN.test(path))) {
-    issues.push("missing role_package business knowledge, workflow, experience, or example material");
-  }
-
   scanValue(manifest, "manifest", issues);
 
   if (issues.length > 0 || !packageId || !packageVersion || !name || !entrypoint) {
@@ -394,10 +399,15 @@ export function validateDijieRolePackageUpload(input: unknown): DijieRolePackage
         entrypoint,
         manifestRef: "role_package/manifest.json",
         name,
+        ...(categoryRef ? { categoryRef } : {}),
+        ...(categoryName ? { categoryName } : {}),
+        ...(categoryPackRef ? { categoryPackRef } : {}),
+        ...(skillPackRef ? { skillPackRef } : {}),
+        ...(toolPackRef ? { toolPackRef } : {}),
+        ...(inheritedCatalogRefs.length > 0 ? { inheritedCatalogRefs } : {}),
+        ...(inheritedCapabilityRefs.length > 0 ? { inheritedCapabilityRefs } : {}),
         permissions,
         requiredCapabilities,
-        ...(requiredSkills ? { requiredSkills } : {}),
-        ...(requiredTools ? { requiredTools } : {}),
         fileCount: files.length,
       },
       files: files.map((file) => ({
