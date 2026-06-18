@@ -2,9 +2,17 @@
 
 ## Product Boundary
 
-迭界AI云端使用 Mercur/Medusa 作为账号、岗位商场、订单、一次授权、审核和开发者中心的业务实现基础。OpenClaw fork 不是外接插件，也不是被削成纯 SaaS 后端；它改名和迁移业务规则后就是迭界AI主系统本体，保留原有对话、编程、workspace、session、Gateway、工具调用、文件读写、测试和 artifact 生成能力。
+迭界AI云端使用 Mercur/Medusa 作为账号、岗位商场、订单、一次授权、审核和开发者中心的业务实现基础。OpenClaw fork 不是外接插件，也不是被削成纯 SaaS 后端；它改名和迁移业务规则后就是迭界AI主系统本体，保留原有对话、编程、workspace、session、Gateway、工具调用、文件读写、测试、memory 和 artifact 生成能力。
 
 云端不直接操作本地文件，本地端不直接修改订单、钱包、授权或审核状态。两边通过短期执行授权和审计摘要连接。
+
+产品边界固定为：
+
+```text
+云端 = SaaS 管理层，负责账号、岗位商城、岗位商品、订单授权、审核、结算、execution token 和安全审计摘要。
+本地端 = 私有资料和真实执行层，负责 workspace、文件、素材、页面截图、本地工具调用、本地岗位实例运行库和本地岗位实例工作记忆。
+岗位本身 = 无状态能力模板，不保存用户资料、运行库、工作记忆或长期状态。
+```
 
 ## Adaptation Boundary
 
@@ -30,6 +38,8 @@ Mercur/Medusa 侧原则：
 原有 admin / review 能力 -> 改编为岗位包审核和平台治理
 原有 module / service 模式 -> 改编为 entitlement、audit、payout 记录
 ```
+
+账号边界：岗位市场审核账号仅用于系统开发者/商城管理者审核上架，不属于购买本地系统的客户账号体系；本地端、使用者中心、开发者中心和岗位商城默认复用同一个迭界AI账号，不做额外账号链接。账号复用不代表数据全通，本地主系统只能由管理成员使用和配置，岗位员工、岗位使用者和开发者都必须按账号等级与 `dataScopes` 读取自己的岗位、包、授权、执行和收益数据。当前本地账号权限落在 `DijieAccountAccessProfile`，由 `GET /dijie/account/access` 回读、`PATCH /dijie/local/accounts/:accountId/access` 配置。审核入口必须显式具备 `marketplaceOwnerAccess` 或审核 scope，不能由本地主系统最高权限自动继承。
 
 禁止绕过商城原有商业事实源另造影子商城、影子订单、影子账号。除非原框架没有合适设施，或者复用会破坏权限、审计、账本、生命周期边界，否则默认必须先改编原有能力。
 
@@ -92,15 +102,16 @@ Mercur/Medusa 侧原则：
 
 ## First Pricing Rule
 
-第一版岗位侧只收一次授权费，平台不抽岗位分成：
+第一版计费必须区分“计量、收费、收益归属”。所有对话、主系统模型用量、岗位执行模型用量和本地执行资源都进入统一计量；是否调用模型、费用记到哪个账号、收益归平台还是岗位开发者，是三个独立判断。
 
 - 开发者为岗位 listing 设置授权价格。
 - 开发者为岗位 listing 设置模型用量单价：`metadata.dijieRole.roleTokenPricing.inputTokenCentsPerMillion` 和 `outputTokenCentsPerMillion`，单位为分/百万 Token。
-- 第一版岗位商品币种固定为 `CNY`，一次授权费和岗位 Token 单价都必须是非负整数分值，`platformFeeBps = 0`，`developerReceivableBps = 10000`。
+- 第一版岗位商品币种固定为 `CNY`，一次授权费必须是非负整数分值；岗位 Token 单价必须是整数分值，且不得低于平台 Token 成本价，也不得超过平台配置的最大倍率。
 - 用户第一次购买/授权岗位时付款。
-- 岗位授权费 100% 归开发者，`platformFeeBps = 0`。
-- 平台收入来自用户直接使用迭界AI主系统时产生的 token、模型、工具和执行用量计费，不从岗位费用里再抽成。
-- 用户进入某个岗位执行上下文后，该岗位运行产生的模型 Token 费用归岗位开发者所有，不能归入平台主系统收入。
+- 平台收入来自用户直接使用迭界AI主系统时产生的 token、模型、工具和执行用量计费；这些费用由系统平台按账号费用归属收费。
+- 用户进入某个岗位执行上下文后，岗位模型用量按岗位 listing 的开发者定价收费；平台基准价、真实模型成本和开发者挂牌价必须分开记录。
+- 岗位开发者收益来自开发者挂牌 Token 单价和平台基准 Token 单价之间的差额，授权费收益按 listing 定价规则进入开发者应收。
+- 平台基准价、开发者定价合理性、费率阈值和价格风险先放进审核页/审核工作流，不新增独立费率管理页面。
 - 用户后续运行该岗位不按运行时长额外计费；岗位运行的可计费资源先按模型 Token 账处理，后续若增加其他岗位用量类型也必须归岗位开发者。
 - 运行时仍需要资源限制，例如单次最长运行时间、并发数、最大 artifact 大小和最大模型代理调用量。这些限制用于保护系统，不作为隐藏计费。
 
@@ -113,20 +124,44 @@ Mercur/Medusa 侧原则：
 -> 本地 Gateway 请求 execution token
 -> 云端校验账号、entitlement、listing 状态、设备绑定和资源限制
 -> 云端签发短期 execution token
+-> 本地调度层创建或加载岗位实例
+-> 本地调度层读取岗位实例运行库和工作记忆，组装运行上下文
 -> 迭界AI主系统 runtime 在 workspace 中执行
--> 本地生成 RoleResult 和 AuditSummary
--> 云端记录审计摘要、artifact metadata 和执行状态
+-> 本地回写运行记录、质量问题、素材索引和记忆候选
+-> 本地生成 RoleResult 和 AuditSummary 安全摘要
+-> 云端记录审计摘要、artifact metadata、计费/结算派生和执行状态
 ```
 
 真人验收步骤见 [迭界AI真人闭环验收 Runbook](./human-closed-loop-runbook.md)。该 runbook 用来记录真实账号、真实岗位商品、真实订单授权、本地执行、审计上传和安全审计读取的证据。
+
+## Local Role Instance Storage Boundary
+
+岗位商品和岗位包都不能自带数据库或记忆。用户授权岗位后，本地端才在当前 workspace 下创建“岗位实例”，并由本地调度层托管该实例的运行库和工作记忆。
+
+本地岗位实例可以保存：
+
+```text
+日常状态
+巡检记录
+素材索引
+质量问题
+任务执行历史
+工具调用摘要
+产品保真标准
+用户偏好
+常见错误和修正方式
+记忆候选
+```
+
+这些资料默认留在本地。云端只接收必要的安全摘要、审计投影、计费字段、能力画像、候选记忆摘要或用户明确确认后的同步内容。云端岗位商品、公开 listing、`metadata.dijieRole` 和开发者中心表单都不能保存本地原始素材、页面截图、完整运行历史、本地工作记忆、使用者模式私有记忆或记忆候选原文。
 
 ## Current OpenClaw UI Bridge
 
 迭界AI主系统页面当前只作为桥接状态和审计调试面板，不作为第二套岗位生成对话框。用户自然语言入口必须继续使用 OpenClaw 原本主对话框；所谓使用者模式、开发者模式，只能表达同一聊天框下当前角色、工作身份和流程阶段，不能暗示为另一套聊天入口、另一套会话实体或另一套聊天产品。
 
-岗位包生成的正式前端流程是对话优先：开发者在主对话里只补充业务逻辑和业务事实，直到主系统明确岗位要解决什么业务问题、给谁用、业务流程如何判断、希望完成什么结果。输入、输出、业务规则、验收标准、包结构、协议映射、验证材料、定价意图和审核资料都由主系统内置资料包和开发者模式流程处理。主系统再把业务逻辑沉淀成内部 `RoleBuildBrief`，用隔离 workspace 生成 `role_package/`。这个 `role_package/` 必须是可审核、可下载、可上传到开发者中心的完整岗位程序包，不是单纯的商品描述或 listing 占位。
+岗位包生成的正式前端流程是对话优先：开发者在主对话里只补充业务逻辑、业务事实和通用岗位经验，直到主系统明确岗位要解决什么业务问题、给谁用、业务流程如何判断、希望完成什么结果。输入、输出、业务规则、验收标准、包结构、OpenClaw 工具协议边界、验证材料、定价意图和审核资料都由主系统内置资料包和开发者模式流程处理。主系统再把业务逻辑沉淀成内部 `RoleBuildBrief`，用隔离 workspace 生成 `role_package/`。这个 `role_package/` 是无状态能力模板，只保存人类岗位流程、公开业务逻辑、通用经验、判断标准、常见失败模式、验收样例和抽象能力需求；实施工具由本地 OpenClaw/迭界AI主系统通过 OpenClaw `tools.catalog`、`tools.effective`、`tools.invoke` 调用和审计，不能打进岗位包里。用户素材、运行库、工作记忆、使用者模式私有记忆和岗位实例状态也不能打进岗位包。
 
-同一个主系统前端有两个用户模式：`使用者模式` 和 `开发者模式`。使用者模式用于购买、安装和运行已有岗位；开发者模式由明确的模式切换、命令或开发者中心入口唤醒。进入开发者模式后，不是打开新的聊天产品，而是让原主对话进入岗位开发的当前工作身份和流程阶段：它只向开发者追问业务逻辑，平台内置资料包负责岗位包结构、协议、验收、验证和上传标准，并交付下载/上传到开发者中心的动作。
+同一个主系统前端有两个用户模式：`使用者模式` 和 `开发者模式`。使用者模式用于购买/授权、启用和运行已有岗位；开发者模式由明确的模式切换、命令或开发者中心入口唤醒。进入开发者模式后，不是打开新的聊天产品，而是让原主对话进入岗位开发的当前工作身份和流程阶段：它只向开发者追问业务逻辑，平台内置资料包负责岗位包结构、协议、验收、验证和上传标准，并交付下载/上传到开发者中心的动作。
 
 开发者模式必须切换上下文、权限、文案和可用动作。它可以读取本次开发者提供的需求、素材、公开协议和隔离 workspace；不能把使用者模式里的普通工作上下文、已购买岗位运行历史、主系统私有记忆或密钥当成岗位包生成输入。
 
@@ -134,26 +169,126 @@ Mercur/Medusa 侧原则：
 
 开发者模式流程也不能把平台后端状态当成提示词材料。`executionId`、`actorId`、`entitlementId`、订单/钱包事实、结算快照、审核状态、cloud bearer 和 raw token 只能在平台桥、审计构建器、结算派生器和云端 API 内部流转。岗位开发流程只接收开发者提供的业务材料、公开岗位包协议/模板和隔离 workspace。
 
-在开发者模式内部，开发者只表达业务逻辑。输入、输出、业务规则、异常处理、验收标准、测试样例、岗位包结构、协议映射、验证材料和上传标准都是平台职责，已经内置在开发者模式流程和资料包里；不能要求内部开发者逐项填写、定义或确认这些标准。对于不用迭界AI开发者模式、选择用其他软件自行开发岗位包的外部开发者，这些维度可以作为公开平台标准和交付规范提供。
+在开发者模式内部，开发者只表达业务逻辑。输入、输出、业务规则、异常处理、验收标准、测试样例、岗位包结构、OpenClaw 工具协议边界、验证材料和上传标准都是平台职责，已经内置在开发者模式流程和资料包里；不能要求内部开发者逐项填写、定义或确认这些标准。对于不用迭界AI开发者模式、选择用其他软件自行开发岗位包的外部开发者，这些维度可以作为公开平台标准和交付规范提供。
+
+岗位包可以声明 `requiredCapabilities`，例如 `workspace.read`、`image.inspect`、`document.write`、`human.confirm`。这些是抽象本地能力需求，不是岗位自带工具清单，也不是新工具协议。包内不能包含浏览器工具、文件工具、命令工具、API client、MCP server、工具 schema、provider auth、secret 或本地工具实现；缺少 OpenClaw 工具协议 bridge 或 `tools.effective` 不支持时，OpenClaw 必须失败提示并记录审计，而不是伪装执行成功。
+
+Skill、Tool、API、MCP、Provider 和 Adapter 归平台统一审核能力引用、风险边界、版本/hash、禁用和审计事实；实际实现由 OpenClaw 本地通用能力、用户配置的远程 API、MCP 或 provider 路由承接。岗位包只描述岗位本身：岗位名称、目标、服务对象、平台品类、输入输出、服务标准、服务节奏、验收和失败标准；不能保存 `requiredSkills`、`requiredTools`、特殊能力申请、skill/tool 实现、MCP server、adapter 源码、连接串、密钥或平台内部数据库访问能力。审核通过也不等于全岗位无条件调用：岗位必须绑定 approved 平台品类和基础品类包；超出基础品类包的能力必须走独立特殊能力包申请、审核、建设和绑定，运行时还必须通过用户授权、workspace 范围、风险策略和人工确认。
+
+通用、高频、隐私敏感或低延迟能力可以作为本地 tool/skill 安装；岗位专属、低频、重型或商业 SaaS/生成/爬取类能力默认作为 `api`、`mcp` 或 `provider` 目录项，由本地 OpenClaw 做能力路由、授权配置和审计，不把实现下载到本地，也不把 provider key 或 OAuth token 写入云端。
+
+`GET /dijie/gateway/roles/read-model` 给 OpenClaw 的每个 role 必须在顶层输出 `catalogRefs`。本地能力路由中心以这个数组作为主入口，例如 `tool:web.fetch@1.0`、`skill:market-research`、`api:image.generate@1.0.0`、`mcp:zapier.gmail.send`、`provider:openai.image.generate`、`capability:human.confirm`。`packageContext.catalogRefs` 和 `capabilityRequirements` 只作为详情和兼容投影；本地端不需要从岗位包里解析实现。
+
+岗位品类体系已经进入平台治理链路：品类包是父包，内部绑定已审核的 Skill、Tool、API、MCP、provider 和 capability 引用。云端岗位只能保存 `categoryRef`、`categoryPackRef`、继承后的能力引用、安全摘要、版本/hash、风险等级和审核事实；不能把品类包实现、Skill 实现、工具源码、MCP server、adapter 源码或 provider key 写入岗位包或商品 metadata。
+
+本地知识存储可以供应云端岗位绑定使用，但只能通过安全绑定投影：`knowledgeRef` / `catalogRef`、版本、hash、能力摘要、适用范围、风险摘要、来源类型和审核建议。它不能上传知识原文、素材、页面截图、本地绝对路径、用户私有记忆、完整运行历史、provider key、OAuth token、raw prompt 或 raw API request/response。云端审核通过的是这个知识/能力引用能否被岗位绑定，不是直接获得本地知识库读取权。
+
+OpenClaw 本地端的第一版安全投影由能力路由中心纯函数生成：
+
+```ts
+type LocalKnowledgeSafeBindingExport = {
+  schemaVersion: "aics.local_knowledge_binding_export.v1";
+  categoryRef?: string;
+  categoryPackRef?: string;
+  projections: Array<{
+    schemaVersion: "aics.local_knowledge_binding.v1";
+    knowledgeRef: string;
+    catalogRef: string;
+    localCapabilityId: string;
+    label: string;
+    sourceType: "memory_core" | "memory_lancedb" | "memory_wiki" | "active_memory" | "unknown";
+    version: string;
+    hash: string;
+    capabilitySummary: string[];
+    riskSummary: string[];
+    applicableScopes: string[];
+    reviewRecommendation: string;
+    routeStatus: "available";
+  }>;
+  omittedRoutes: Array<{
+    catalogRef: string;
+    status: string;
+    reason: string;
+  }>;
+  forbiddenFields: string[];
+};
+```
+
+只有本地真实可用的 knowledge / memory / wiki 能力会进入 `projections`。缺少真实工具、未安装、未启用、被策略阻断或需要配置的能力只能进入 `omittedRoutes`，不能伪装成云端可绑定能力。`hash` 是安全投影自身的稳定摘要，不是本地知识原文 hash，也不能被云端用来反推出知识内容。
+
+平台业务数据库不是岗位可调用工具。岗位不能直接查平台订单、用户、钱包、审核、授权、结算等业务表，也不能执行任意数据库查询。确实需要数据能力时，只能通过独立且已审核的 adapter/tool，访问独立授权的数据源或安全投影，并记录调用岗位、用户、参数摘要、结果状态和失败原因。
+
+第一版本地能力目录覆盖 `workspace`、`code`、`browser`、`document`、`spreadsheet`、`presentation`、`image`、`network`、`audit`、`human`。这个目录只是 `requiredCapabilities -> OpenClaw 工具协议` 的解释层；后续新增工具优先接入 OpenClaw 社区工具、插件或 MCP bundle，让工具进入 `tools.catalog` / `tools.effective` 后，再由本地 OpenClaw 的权限确认、风险策略、`tools.invoke` 和审计链路决定是否可执行。
+
+## Cloud To Local Capability Routing Contract
+
+云端给 OpenClaw 的岗位执行投影只表达能力需求和审核事实，不携带实现。当前稳定入口是 `GET /dijie/gateway/roles/read-model`，每个 role 至少应包含：
+
+```ts
+type DijieGatewayRoleCapabilityProjection = {
+  id: string;
+  title: string;
+  packageId: string;
+  packageVersion: string;
+  categoryRef?: string;
+  categoryName?: string;
+  categoryPackRef?: string;
+  skillPackRef?: string;
+  toolPackRef?: string;
+  inheritedCatalogRefs?: string[];
+  inheritedCapabilityRefs?: string[];
+  catalogRefs: string[];
+  blockedCatalogRefs: string[];
+  callable: boolean;
+  unavailableReasons: string[];
+  packageContext?: {
+    category?: {
+      categoryRef: string;
+      name: string;
+      categoryPackRef?: string;
+      skillPackRef?: string;
+      toolPackRef?: string;
+    };
+    inheritedCatalogRefs?: string[];
+    inheritedCapabilityRefs?: string[];
+    catalogRefs: string[];
+    capabilityRequirements: Array<{
+      ref: string;
+      kind: "capability" | "tool" | "skill" | "api" | "mcp" | "provider";
+      required: boolean;
+      approved: boolean;
+      risk?: "low" | "medium" | "high";
+      permissionSummary?: string[];
+      version?: string;
+      hash?: string;
+    }>;
+    blockedCapabilities: string[];
+  };
+};
+```
+
+OpenClaw 能力路由中心以顶层 `catalogRefs` 为主入口，并结合本地 `tools.catalog`、Skill report、MCP/provider/plugin 配置解析为 `local_tool`、`local_skill`、`remote_api`、`remote_mcp`、`provider_capability`、`human_gate` 或 `unsupported`。`callable=false` 或 `blockedCatalogRefs` 非空时必须失败关闭，不能让 UI 或执行层伪装成已具备能力。
+
+云端禁止返回 provider key、OAuth token、raw execution token、raw prompt、raw API request/response、本地绝对路径、工具源码、MCP server 实现、adapter 源码或平台业务数据库访问能力。本地端回传云端的执行事实也只能是 execution、capability usage、tool/model/API usage、cost、risk/audit summary 和脱敏失败原因。
 
 开发者中心的表单只承接“已有岗位包”的上架资料：岗位包 ID、版本、清单入口、授权价、岗位 Token 单价、审核资料和发布状态。它不能反过来成为主系统里的岗位生成入口。
 
 ## Cloud Developer Center Boundary
 
-Mercur/Medusa 云端仍是岗位商场、使用者中心和开发者中心的事实源，但第一版开发者中心不做完整云端 AI 助手，也不新增岗位生成聊天框。云端只管理账号、开发者身份、product/listing、订单授权、审核状态、执行授权、审计摘要和结算派生。
+Mercur/Medusa 云端仍是岗位商场、使用者中心和开发者中心的事实源，但第一版开发者中心不做完整云端 AI 助手，也不新增岗位生成聊天框。云端只管理账号、开发者身份、product/listing、订单授权、审核状态、执行授权、审计摘要和结算派生；不管理用户本地素材、岗位实例运行库或岗位实例工作记忆。
 
-内部开发者在 OpenClaw/迭界AI主系统的开发者模式里只表达业务逻辑。输入、输出、业务规则、异常处理、验收标准、测试样例、岗位包结构、协议映射、验证材料和上传标准由本地主系统内置资料包和开发者模式流程自动处理成内部 `RoleBuildBrief` 和 `role_package/`。开发者中心不能要求内部开发者把这些维度逐项手填成商品表单字段，也不能保存开发者模式的原始提示词、对话历史、`modeStage` 或私有 workspace 上下文。
+内部开发者在 OpenClaw/迭界AI主系统的开发者模式里只表达业务逻辑。输入、输出、业务规则、异常处理、验收标准、测试样例、岗位包结构、OpenClaw 工具协议边界、验证材料和上传标准由本地主系统内置资料包和开发者模式流程自动处理成内部 `RoleBuildBrief` 和 `role_package/`。开发者中心不能要求内部开发者把这些维度逐项手填成商品表单字段，也不能保存开发者模式的原始提示词、对话历史、`modeStage` 或私有 workspace 上下文。
 
 开发者中心表单的上架边界固定为：
 
 - 岗位包身份：`packageId`、`packageVersion` 和清单入口，例如 `role_package/manifest.json`。
-- 商场展示资料：标题、副标题、描述、能力摘要、图片、分类和销售渠道。
+- 商场展示资料：标题、副标题、描述、岗位能力摘要、本地能力需求摘要、图片、分类和销售渠道。
 - 商业规则：一次授权费、岗位 Token 输入/输出单价、`CNY`、平台抽成为 0、开发者应收为 10000 bps。
 - 审核生命周期：草稿、待审核、审核通过后发布、拒绝或下架。
 
 对不用迭界AI开发者模式、选择用其他软件自行开发岗位包的外部开发者，输入、输出、业务规则、异常处理、验收标准和测试样例可以作为公开岗位包交付规范；这些规范应进入岗位包清单、包内文档或审核材料，而不是变成云端生成助手或 per-user 执行事实。
 
-`metadata.dijieRole` 只能保存可公开 listing metadata 和审核/结算需要的稳定快照。它不能保存 `RoleBuildBrief`、开发者模式 prompt、聊天记录、`modeStage`、`executionId`、`actorId`、`entitlementId`、订单/钱包事实、`deviceId`、`workspaceRef`、`localGatewayId`、cloud bearer、raw execution token、provider auth 或 secret 原文。这些字段只允许在本地主系统开发者模式流程、平台桥、execution token、审计构建器、结算派生器和云端 API 内部按需流转。
+`metadata.dijieRole` 只能保存可公开 listing metadata 和审核/结算需要的稳定快照。它不能保存 `RoleBuildBrief`、开发者模式 prompt、聊天记录、`modeStage`、`executionId`、`actorId`、`entitlementId`、订单/钱包事实、`deviceId`、`workspaceRef`、`localGatewayId`、cloud bearer、raw execution token、provider auth、secret 原文、本地岗位实例运行库、本地岗位实例工作记忆、使用者模式私有记忆或记忆候选原文。这些字段只允许在本地主系统开发者模式流程、平台桥、execution token、审计构建器、结算派生器、本地调度层和云端 API 内部按需流转。
 
 ```text
 填写 roleListingId / entitlementId / deviceId / workspaceRef / localGatewayId
@@ -174,14 +309,17 @@ Mercur/Medusa 云端仍是岗位商场、使用者中心和开发者中心的事
 
 ## Billing Ledgers
 
-第一版把平台收入和岗位开发者收入拆成三条账本语义，后续落数据库时必须保持拆分：
+第一版把平台收入和岗位开发者收入拆成账本语义，后续落数据库时必须保持拆分：
 
 - `UsageLedger / main_system_usage`：用户直接使用迭界AI主系统产生的模型 token、工具执行、runtime 资源、下载和安装。收入归平台。
-- `UsageLedger / role_usage`：用户使用某个岗位时产生的模型 Token 用量。它由审计摘要中的模型用量乘以 `roleTokenPricing` 快照派生，`platformReceivableCents = 0`，`developerReceivableCents = Token费用`，收入归岗位开发者。
-- `MarketplaceOrderLedger`：岗位商场购买/授权事实。`platformFeeBps = 0`，`platformFeeCents = 0`。
-- `DeveloperPayoutLedger`：开发者应收。岗位授权费和岗位运行 Token 费用都必须进入开发者应收，不允许用平台抽成减少开发者应收。
+- `UsageLedger / dialog_usage`：商城、使用者中心、开发者中心、审核助手和本地主系统对话的统一计量。即使某个入口当前不调用模型，也要保留会话和管理辅助计量口径。
+- `UsageLedger / role_usage`：用户使用某个岗位时产生的模型 Token 用量。它由审计摘要中的模型用量、真实模型成本、平台基准 Token 单价和 `roleTokenPricing` 开发者挂牌价共同派生。
+- `MarketplaceOrderLedger`：岗位商场购买/授权事实，记录授权费、账号、岗位、订单和 entitlement 来源。
+- `DeveloperPayoutLedger`：开发者应收。岗位授权费和岗位运行 Token 差价收益进入开发者应收。
 
-当前 `apps/api/src/lib/dijie/ledgers.ts` 是纯业务规则层，还没有写入数据库。它先用于保护分账边界：主系统计费归平台；岗位购买/授权费归开发者；岗位运行中产生的模型 Token 费用也归开发者；重复运行岗位不变成运行时长计费。
+当前 `apps/api/src/lib/dijie/ledgers.ts` 是纯业务规则层，还没有写入数据库。它先用于保护分账边界：主系统计费归平台；岗位购买/授权费归开发者；岗位运行中的 Token 收费按平台基准价和开发者挂牌价拆账；重复运行岗位不变成运行时长计费。
+
+`DialogSession` / `DialogMessage` / `LedgerEntry` 是 AICS-293 本地版第一刀持久化事实层。`POST /dijie/dialog/messages` 返回 `sessionId` 和 `ledgerEntryId`，并为每次对话写入 `dialog_usage`。`GET /dijie/dialog/sessions`、`GET /dijie/dialog/sessions/:sessionId` 和 `GET /dijie/ledger/entries` 只返回安全投影；普通账号只能看自己的记录，本地主系统成员必须按 `dataScopes` 读取授权范围内的费用/计量记录。
 
 ## Current Role Marketplace Read Endpoints
 
@@ -204,8 +342,8 @@ Mercur/Medusa 云端仍是岗位商场、使用者中心和开发者中心的事
 - `metadata.dijieRole.pricing.developerReceivableBps = 10000`
 - `metadata.dijieRole.pricing.developerReceivableCents = authorizationFeeCents`
 - `metadata.dijieRole.roleTokenPricing.currency = "CNY"`
-- `metadata.dijieRole.roleTokenPricing.inputTokenCentsPerMillion` 必须是非负整数
-- `metadata.dijieRole.roleTokenPricing.outputTokenCentsPerMillion` 必须是非负整数
+- `metadata.dijieRole.roleTokenPricing.inputTokenCentsPerMillion` 必须是整数，且不低于平台输入 Token 成本价
+- `metadata.dijieRole.roleTokenPricing.outputTokenCentsPerMillion` 必须是整数，且不低于平台输出 Token 成本价
 - `metadata.dijieRole.roleTokenPricing.platformFeeBps = 0`
 - `metadata.dijieRole.roleTokenPricing.developerReceivableBps = 10000`
 - `metadata.dijieRole.scopes` 只能包含 `role.execute` 和 `audit.write`
@@ -214,18 +352,19 @@ Mercur/Medusa 云端仍是岗位商场、使用者中心和开发者中心的事
 
 `metadata.dijieRole` 也不能保存 prompt、开发者模式 prompt、`RoleBuildBrief`、`modeStage`、chat/conversation/message history、`executionId`、`actorId`、`entitlementId`、`deviceId`、`workspaceRef`、`localGatewayId`、订单事实或钱包事实。开发者中心和 admin review 只能读取这些严格 listing metadata；如果开发者提交了上述字段，即使商品被误改成 published，公开 listing、entitlement verifier 和执行入口也必须因 parser 校验失败而拒绝。
 
-Admin 审核页必须在发布前校验一次授权费和 `roleTokenPricing`：价格为非负整数、币种为 `CNY`、平台抽成为 0、开发者应收为 10000 bps。校验失败时只能停留在待审核状态，不能把 listing 发布。
+Admin 审核页必须在发布前校验一次授权费和 `roleTokenPricing`：授权费为非负整数、Token 单价不低于平台成本且不超过平台最大倍率、币种为 `CNY`、平台抽成为 0、开发者应收为 10000 bps。校验失败时只能停留在待审核状态，不能把 listing 发布。
 
 `POST /dijie/entitlements/verify` 与 `GET /dijie/roles` 使用同一个严格 parser。也就是说，不能出现“公开岗位列表不显示，但 verifier 仍然把普通商品当成可执行岗位”的旁路。
 
-`GET /dijie/my-roles` 是本地迭界AI主系统同步“我的岗位”的最小入口。它要求已认证 customer actor，并从真实 `order_group` / `order` / line item 与 product facts 推导已安装岗位：
+`GET /dijie/my-roles` 是本地迭界AI主系统同步“我的岗位”的最小入口。它要求已认证账号，并优先读取本地 `RoleEntitlement` 与新 `RoleListing` 主数据；旧路径继续从真实 `order_group` / `order` / line item 与 product facts 兼容推导已授权岗位：
 
-- 订单必须属于当前 customer。
-- 订单必须已付款，取消或未付款订单不产生岗位授权。
-- line item 必须能匹配对应岗位 product。
+- 本地 `RoleEntitlement` 必须属于当前账号，且状态为 `authorized`。
+- 旧订单兼容路径中，订单必须属于当前 customer。
+- 旧订单兼容路径中，订单必须已付款，取消或未付款订单不产生岗位授权。
+- 旧订单兼容路径中，line item 必须能匹配对应岗位 product。
 - 响应返回 `entitlementId`、`orderId`、`authorizedAt` 和嵌套的 `role` 安全投影。
 
-当前版本不新增 entitlement 表，也不返回假岗位卡片。OpenClaw 侧的 `dijie.marketplace.roles.list` 默认读取 `/dijie/my-roles`；云端不可达、未登录、响应结构不包含 roles 时，本地主系统必须失败提示，不能 fallback 成同步成功。
+当前版本已新增本地 `RoleEntitlement` 第一刀，用于 0 元授权和本地执行授权校验；付费岗位仍必须走真实 checkout/订单事实，不能伪造已支付授权。OpenClaw 侧的 `dijie.marketplace.roles.list` 默认读取 `/dijie/my-roles`；云端不可达、未登录、响应结构不包含 roles 时，本地主系统必须失败提示，不能 fallback 成同步成功。
 
 ## Current Execution Token Endpoint
 
@@ -254,19 +393,76 @@ execution token 必须固化以下业务快照，后续审计、结算、争议�
 
 ## Current Entitlement Verifier
 
-`POST /dijie/entitlements/verify` 是云端内部 verifier。它要求 `DIJIE_INTERNAL_BRIDGE_BEARER`，并用 Mercur/Medusa 的 marketplace facts 判断一次授权是否成立：
+`POST /dijie/entitlements/verify` 是云端内部 verifier。它要求 `DIJIE_INTERNAL_BRIDGE_BEARER`，并优先用本地 `RoleEntitlement` 判断授权是否成立；旧订单路径继续用 Mercur/Medusa 的 marketplace facts 兼容判断一次授权是否成立：
 
-- `roleListingId` 对应的 product 必须存在。
-- product metadata 必须在 `metadata.dijieRole` 内显式声明可执行 listing 状态和审核状态：`listingStatus = "published"` 且 `reviewState = "approved"`。
-- product metadata 必须在 `metadata.dijieRole.pricing` 内显式声明 `one_time_authorization` 一次授权费；product-level 旧价格字段不能作为执行授权依据。
-- product metadata 必须能给出 `packageId`、`packageVersion`、`developerRef`、`listingOwnerRef`、`billingBeneficiaryRef`。
-- `entitlementId` 当前先映射为 `order_group.id` 或 `order.id`。
-- 对应订单必须属于 `actorId` 这个 customer。
-- 订单必须已付款，并且 line item 必须包含这个 `roleListingId`。
+- 本地 `RoleEntitlement` 必须属于 `actorId`，绑定请求里的 `roleListingId`，且状态为 `authorized`。
+- 本地 `RoleListing` 必须是 `published` 且 `approved`，并给出 `packageId`、`packageVersion`、`developerRef`、`listingOwnerRef`、`billingBeneficiaryRef` 和一次授权定价。
+- 旧订单路径中，`roleListingId` 对应的 product 必须存在。
+- 旧订单路径中，product metadata 必须在 `metadata.dijieRole` 内显式声明可执行 listing 状态和审核状态：`listingStatus = "published"` 且 `reviewState = "approved"`。
+- 旧订单路径中，product metadata 必须在 `metadata.dijieRole.pricing` 内显式声明 `one_time_authorization` 一次授权费；product-level 旧价格字段不能作为执行授权依据。
+- 旧订单路径中，product metadata 必须能给出 `packageId`、`packageVersion`、`developerRef`、`listingOwnerRef`、`billingBeneficiaryRef`。
+- 旧订单路径中，`entitlementId` 可映射为 `order_group.id` 或 `order.id`。
+- 旧订单路径中，对应订单必须属于 `actorId` 这个 customer。
+- 旧订单路径中，订单必须已付款，并且 line item 必须包含这个 `roleListingId`。
 
-第一版不新增 entitlement 表，先从真实订单和 product listing metadata 推导授权。后续可以把这个 verifier 的结果落成正式 entitlement record，但不能绕过订单和审核事实。
+0 元岗位可以由 `POST /dijie/authorizations` 生成本地 `RoleEntitlement`；付费岗位必须由 checkout 完成事实生成授权，不能绕过订单和审核事实。
 
-协议里的 `entitlementId` 表示“授权引用”，不是固定数据库表名。当前它可引用 `order_group.id` 或 `order.id`；未来引入正式 entitlement 表时，必须保留旧订单引用用于审计和兼容，不能重写历史执行记录。
+协议里的 `entitlementId` 表示“授权引用”，当前可引用本地 `RoleEntitlement.id`、旧 `order_group.id` 或旧 `order.id`。必须保留旧订单引用用于审计和兼容，不能重写历史执行记录。
+
+## Current Cloud Dialog Model Bridge
+
+云端对话模型桥是 Mercur/Medusa API 进程内的统一模型入口，不属于某一个页面。开发者中心、使用者/买家侧、审核中心和审核员工作台都必须通过同一个 resolver 调用 OpenClaw/OpenCloud 模型能力，再由各自的 surface、mode、权限和计费策略决定能不能调用模型。
+
+当前共享入口：
+
+- `POST /dijie/dialog/messages`
+  - `surface=buyer_storefront`：买家岗位商城/使用者入口。
+  - `surface=user_center`：使用者中心入口。
+  - `surface=developer_center`：开发者中心 AI 对话；当消息是岗位包生成意图时会生成并保存 `role_package` 草稿。
+  - `surface=admin_review`：平台审核助手/审核员工作台；只辅助总结、查缺失、评估风险和起草意见，不自动改变审核结果。
+  - `surface=openclaw_local`：本地主系统桥接入口，仅允许具备本地主系统权限的账号。
+- `POST /dijie/dialog/messages/stream`
+  - 开发者中心普通对话优先使用的 SSE 入口；先返回 `status`，真流式可用时返回多个 `delta`，模型等待或流式失败时返回 `fallback`，最终返回与 `/dijie/dialog/messages` 同结构的 `final`。
+- `POST /vendor/dijie/role-packages/generate`
+  - 开发者中心岗位包生成的专用兼容入口，内部使用同一个 `resolveDijieOpenClawDialogModelBridge()`。
+
+API 进程启动时配置一次模型桥即可覆盖这些入口：
+
+```bash
+# 推荐：通过迭界AI/OpenClaw 本地端桥接模型
+DIJIE_OPENCLAW_MODEL_BRIDGE=cli
+DIJIE_OPENCLAW_CLI_PATH=openclaw
+DIJIE_OPENCLAW_MODEL_BRIDGE_EXECUTION=local
+DIJIE_OPENCLAW_MODEL=<provider/model>
+DIJIE_OPENCLAW_FAST_MODEL=<provider/fast-model>
+DIJIE_OPENCLAW_MODEL_TIMEOUT_MS=1800000
+
+# 可选：直接调用 Codex CLI
+DIJIE_DIALOG_MODEL_BRIDGE=codex-cli
+DIJIE_CODEX_CLI_PATH=codex
+DIJIE_CODEX_MODEL=gpt-5.5
+DIJIE_CODEX_FAST_MODEL=gpt-5.5
+DIJIE_CODEX_SANDBOX=read-only
+DIJIE_CODEX_TIMEOUT_MS=300000
+
+# 可选：仅用于真 token delta 的 OpenAI Responses API 桥
+DIJIE_OPENAI_STREAMING_ENABLED=true
+DIJIE_OPENAI_API_KEY=<openai-api-key>
+DIJIE_OPENAI_MODEL=<provider/model>
+DIJIE_OPENAI_FAST_MODEL=<provider/fast-model>
+```
+
+也可以通过依赖注入注册 `DIJIE_OPENCLAW_MODEL_BRIDGE`，只要对象暴露 `completeDijieDialogMessage()` 方法。环境变量方式和依赖注入方式必须返回同一类安全响应：只回传 assistant reply 和脱敏后的 usage；不能把 provider key、raw model request/response、cloud bearer、execution token、本地绝对路径或 OpenClaw raw stdout/stderr 写入对话、草稿、审核记录或审计记录。
+
+开发者中心普通对话会向模型桥传入 `latencyClass=fast_interaction`。OpenClaw CLI 桥在配置了 `DIJIE_OPENCLAW_FAST_MODEL` 时优先使用快模型；未配置时保持 `DIJIE_OPENCLAW_MODEL` 或 OpenClaw 本地默认模型原行为。Codex CLI 桥会运行 `codex exec --json --skip-git-repo-check --ephemeral --ignore-rules --sandbox <DIJIE_CODEX_SANDBOX>`，解析 `item.completed` 作为 assistant 回复，并解析 `turn.completed.usage` 作为 token usage；它是完整回复桥，不声明真 token delta。真 token 流式不走当前 OpenClaw CLI 或 Codex CLI 的完整 JSON/JSONL 输出路径，而是在 `DIJIE_OPENAI_STREAMING_ENABLED=true` 且配置 OpenAI API key 时使用 Responses API streaming；收到 `response.output_text.delta` 后转成 SSE `delta`。岗位包生成仍走强模型/默认模型路径和完整 JSON 校验。
+
+岗位包生成不是一次性等待完整 JSON。`generateDijieRolePackageDraftWithModel()` 默认每次只推进一个 role_package 文件阶段，并在阶段完成后保存 `partial` 草稿；调用方只有显式传入 `maxStages` 时才会在同一请求内推进多个阶段。`partial` 草稿只能继续生成，不能进入上传承接；全部文件生成并通过上传校验、质量校验后才变为 `ready`。
+
+模型桥未配置时：
+
+- 普通对话可按 surface 返回本地规则 fallback，并标记 `modelCalled=false`。
+- 开发者岗位包生成必须失败关闭，返回“模型桥暂未配置”，不能伪造岗位包草稿。
+- 审核助手前端可展示本地审核规则 fallback，但不能声称已完成模型审核。
 
 ## Current Audit Upload Endpoint
 

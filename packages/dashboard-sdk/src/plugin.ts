@@ -16,6 +16,10 @@ function isRouteFile(file: string): boolean {
 }
 
 const UI_MODULE_KEYS = ["admin_ui", "vendor_ui"];
+const UI_MODULE_RESOLVES: Record<string, string> = {
+    admin_ui: "@mercurjs/core/modules/admin-ui",
+    vendor_ui: "@mercurjs/core/modules/vendor-ui",
+};
 
 // `@medusajs/dashboard` declares `virtual:medusa/*` imports that are resolved
 // upstream by `@medusajs/admin-vite-plugin`. Mercur replaces those modules at
@@ -120,6 +124,25 @@ function trimTrailingSlashes(value: string): string {
     return end === value.length ? value : value.slice(0, end);
 }
 
+function getUiModule(modules: unknown, key: string): any | undefined {
+    if (Array.isArray(modules)) {
+        const resolve = UI_MODULE_RESOLVES[key];
+        return modules.find(
+            (module) =>
+                module &&
+                typeof module === "object" &&
+                "resolve" in module &&
+                (module as { resolve?: string }).resolve === resolve,
+        );
+    }
+
+    if (modules && typeof modules === "object") {
+        return (modules as Record<string, unknown>)[key];
+    }
+
+    return undefined;
+}
+
 async function loadMedusaConfig(
     medusaConfigPath: string,
     root: string,
@@ -143,7 +166,7 @@ async function loadMedusaConfig(
         let appType: "admin" | "vendor" = "admin";
         let vendorAppUrl: string | undefined;
 
-        const vendorModule = modules.vendor_ui;
+        const vendorModule = getUiModule(modules, "vendor_ui");
         const vendorPath = vendorModule?.options?.path ?? "/seller";
 
         if (options.vendorUrl) {
@@ -160,7 +183,7 @@ async function loadMedusaConfig(
         }
 
         for (const key of UI_MODULE_KEYS) {
-            const value = modules[key];
+            const value = getUiModule(modules, key);
             if (!value || typeof value !== "object" || !value.options?.appDir)
                 continue;
 
@@ -210,6 +233,7 @@ export function mercurDashboardPlugin(pluginConfig: MercurConfig): Vite.Plugin {
                     vendorUrl: pluginConfig.vendorUrl,
                 },
             );
+            const dashboardBase = pluginConfig.base ?? base;
 
             const srcDir = path.join(root, "src");
             const backendUrl = pluginConfig.backendUrl ?? "http://localhost:9000";
@@ -218,7 +242,7 @@ export function mercurDashboardPlugin(pluginConfig: MercurConfig): Vite.Plugin {
             config = {
                 ...pluginConfig,
                 backendUrl,
-                base,
+                base: dashboardBase,
                 root,
                 srcDir,
                 pluginExtensions,

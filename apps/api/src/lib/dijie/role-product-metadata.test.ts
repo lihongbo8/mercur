@@ -22,7 +22,7 @@ function productWithRole(overrides: Record<string, unknown> = {}) {
         capabilities: ["资料收集", "简报生成"],
         manifestSummary: {
           entrypoint: "role_package/manifest.json",
-          tools: ["browser.search"],
+          requiredCapabilities: ["browser.use", "workspace.read"],
           sandbox: "workspace-write",
           secretsRequired: ["BROWSER_API_KEY"],
         },
@@ -60,6 +60,10 @@ describe("Dijie role product metadata", () => {
         listingStatus: "published",
         reviewState: "approved",
         capabilities: ["资料收集", "简报生成"],
+        manifestSummary: {
+          entrypoint: "role_package/manifest.json",
+          requiredCapabilities: ["browser.use", "workspace.read"],
+        },
         pricing: {
           kind: "one_time_authorization",
           authorizationFeeCents: 19900,
@@ -74,6 +78,28 @@ describe("Dijie role product metadata", () => {
         },
       },
     });
+  });
+
+  it("normalizes legacy manifestSummary.tools as requiredCapabilities", () => {
+    const result = normalizeDijieRoleProductMetadataFromProduct(
+      productWithRole({
+        manifestSummary: {
+          entrypoint: "role_package/manifest.json",
+          tools: ["browser.use", "workspace.read"],
+        },
+      }),
+    );
+
+    expect(result).toMatchObject({
+      ok: true,
+      value: {
+        manifestSummary: {
+          entrypoint: "role_package/manifest.json",
+          requiredCapabilities: ["browser.use", "workspace.read"],
+        },
+      },
+    });
+    expect(JSON.stringify(result)).not.toContain("\"tools\"");
   });
 
   it("rejects role products without developer token pricing", () => {

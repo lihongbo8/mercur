@@ -4,7 +4,7 @@ import { POST } from "./route";
 const validBody = {
   actorId: "cus_123",
   roleListingId: "prod_role_developer_agent",
-  entitlementId: "ordgrp_123",
+  entitlementId: "djent_123",
   deviceId: "device_123",
   workspaceRef: "workspace_123",
   localGatewayId: "gateway_123",
@@ -102,6 +102,21 @@ function request(options: {
                 ],
               };
             }
+            if (entity === "dijie_role_entitlement") {
+              return {
+                data: [
+                  {
+                    id: validBody.entitlementId,
+                    actor_id: validBody.actorId,
+                    role_listing_id: validBody.roleListingId,
+                    entitlement_status: "authorized",
+                    source: "checkout",
+                    order_id: "order_123",
+                    authorized_at: new Date("2026-06-10T00:00:00.000Z"),
+                  },
+                ],
+              };
+            }
             return { data: [] };
           }),
         };
@@ -133,7 +148,7 @@ describe("POST /dijie/entitlements/verify", () => {
     expect(res.body).toMatchObject({ ok: false });
   });
 
-  it("approves paid one-time role entitlements", async () => {
+  it("approves materialized paid one-time role entitlements", async () => {
     process.env.DIJIE_INTERNAL_BRIDGE_BEARER = "bridge-secret";
 
     const res = response();
@@ -151,6 +166,84 @@ describe("POST /dijie/entitlements/verify", () => {
       },
       roleTokenPricing,
       scopes: ["role.execute", "audit.write"],
+    });
+  });
+
+  it("approves stored local entitlements before checking paid order facts", async () => {
+    process.env.DIJIE_INTERNAL_BRIDGE_BEARER = "bridge-secret";
+    const body = {
+      ...validBody,
+      roleListingId: "djrole_image_qc",
+      entitlementId: "djent_1",
+    };
+
+    const res = response();
+    await POST(
+      request({
+        body,
+        authorization: "Bearer bridge-secret",
+        queryGraph: async ({ entity }) => {
+          if (entity === "dijie_role_listing") {
+            return {
+              data: [
+                {
+                  id: body.roleListingId,
+                  package_id: "pkg_product_image_qc",
+                  package_version: "0.1.0",
+                  developer_ref: "member_123",
+                  listing_owner_ref: "seller_123",
+                  billing_beneficiary_ref: "member_123",
+                  title: "商品图检查岗位",
+                  listing_status: "published",
+                  review_state: "approved",
+                  capabilities: ["workspace.read", "image.inspect"],
+                  manifest_summary: {
+                    requiredCapabilities: ["workspace.read", "image.inspect"],
+                  },
+                  pricing: {
+                    kind: "one_time_authorization",
+                    authorizationFeeCents: 0,
+                    currency: "CNY",
+                    platformFeeBps: 0,
+                    developerReceivableCents: 0,
+                  },
+                  role_token_pricing: roleTokenPricing,
+                  scopes: ["role.execute", "audit.write"],
+                },
+              ],
+            };
+          }
+          if (entity === "dijie_role_entitlement") {
+            return {
+              data: [
+                {
+                  id: body.entitlementId,
+                  actor_id: body.actorId,
+                  role_listing_id: body.roleListingId,
+                  entitlement_status: "authorized",
+                  source: "zero_price",
+                  authorized_at: new Date("2026-06-04T00:00:00.000Z"),
+                },
+              ],
+            };
+          }
+          throw new Error("paid order fallback should not be used");
+        },
+      }) as never,
+      res as never,
+    );
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toMatchObject({
+      ok: true,
+      packageId: "pkg_product_image_qc",
+      packageVersion: "0.1.0",
+      developerRef: "member_123",
+      billingBeneficiaryRef: "member_123",
+      pricing: {
+        authorizationFeeCents: 0,
+      },
+      roleTokenPricing,
     });
   });
 });

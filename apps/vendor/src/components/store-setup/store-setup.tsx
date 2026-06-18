@@ -40,25 +40,25 @@ function getProfileSteps(seller: SellerDTO): ProfileStep[] {
   return [
     {
       key: "store_details",
-      label: "Add store details",
+      label: "补全开发者基本资料",
       completed: hasStoreDetails,
       path: "/settings/store/edit",
     },
     {
       key: "address",
-      label: "Add address",
+      label: "补全联系地址",
       completed: hasAddress,
       path: "/settings/store/address",
     },
     {
       key: "company_details",
-      label: "Add company details",
+      label: "补全公司或主体信息",
       completed: hasCompanyDetails,
       path: "/settings/store/professional-details",
     },
     {
       key: "payment_details",
-      label: "Add payment details",
+      label: "补全结算收款信息",
       completed: hasPaymentDetails,
       path: "/settings/store/payment-details",
     },
@@ -90,7 +90,7 @@ const StoreSetup = ({ seller }: { seller: SellerDTO }) => {
           <RadixCollapsible.Trigger asChild>
             <button className="flex w-full items-center justify-between">
               <Text size="large" weight="plus" leading="compact">
-                Complete store profile
+                完善开发者资料
               </Text>
               <TriangleDownMini
                 className={clx(

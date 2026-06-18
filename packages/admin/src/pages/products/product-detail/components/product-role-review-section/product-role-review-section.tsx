@@ -1,9 +1,19 @@
-import { CheckCircle } from "@medusajs/icons"
-import { Button, Container, Heading, StatusBadge, Text, toast, usePrompt } from "@medusajs/ui"
+import { CheckCircle, ExclamationCircle, InformationCircle } from "@medusajs/icons"
+import {
+  Button,
+  Container,
+  Heading,
+  StatusBadge,
+  Text,
+  Textarea,
+  Tooltip,
+  toast,
+} from "@medusajs/ui"
 import { HttpTypes } from "@medusajs/types"
+import { Dialog as RadixDialog } from "radix-ui"
+import { useState } from "react"
 
 import { SectionRow } from "../../../../../components/common/section"
-import { useUpdateProduct } from "../../../../../hooks/api/products"
 
 type RoleReviewState = "draft" | "submitted" | "approved" | "rejected"
 type RoleListingStatus = "draft" | "proposed" | "published" | "rejected"
@@ -53,15 +63,18 @@ const REVIEW_STATE_LABELS: Record<string, string> = {
   draft: "草稿",
   submitted: "待审核",
   approved: "已通过",
-  rejected: "未通过",
+  rejected: "已驳回",
 }
 
-const LISTING_STATUS_LABELS: Record<string, string> = {
-  draft: "草稿",
-  proposed: "待发布",
-  published: "已发布",
-  rejected: "未发布",
-}
+const REJECTION_REASON_OPTIONS = [
+  "资料包校验未通过",
+  "泄露扫描需处理",
+  "费用配置不合规",
+]
+
+const PLATFORM_INPUT_TOKEN_COST_CENTS_PER_MILLION = 120
+const PLATFORM_OUTPUT_TOKEN_COST_CENTS_PER_MILLION = 360
+const PLATFORM_TOKEN_MAX_MARKUP_MULTIPLIER = 20
 
 const statusColor = (value?: string) => {
   switch (value) {
@@ -99,14 +112,6 @@ const getListingStatus = (role: DijieRoleMetadata) => {
   return role.listingStatus ?? role.listing_status ?? "draft"
 }
 
-const getPackageVersion = (role: DijieRoleMetadata) => {
-  return role.packageVersion ?? role.package_version ?? "-"
-}
-
-const getPackageId = (role: DijieRoleMetadata) => {
-  return role.packageId ?? role.package_id ?? "-"
-}
-
 const readNumber = (...values: unknown[]) => {
   for (const value of values) {
     if (typeof value === "number" && Number.isFinite(value)) {
@@ -131,10 +136,35 @@ const readString = (...values: unknown[]) => {
   return undefined
 }
 
+const isLocalPathString = (value: string) => {
+  return (
+    value.startsWith("/") ||
+    value.startsWith("~") ||
+    /^[A-Za-z]:[\\/]/.test(value) ||
+    value.split(/[\\/]/).includes("..")
+  )
+}
+
+const readPublicString = (...values: unknown[]) => {
+  const value = readString(...values)
+
+  return value && !isLocalPathString(value) ? value : undefined
+}
+
 const readStringArray = (value: unknown) => {
   return Array.isArray(value)
     ? value.filter((item): item is string => typeof item === "string" && item.trim()).map((item) => item.trim())
     : []
+}
+
+const readPublicStringArray = (value: unknown) => {
+  return readStringArray(value).filter((item) => !isLocalPathString(item))
+}
+
+const joinPublicStrings = (value: unknown) => {
+  const items = readPublicStringArray(value)
+
+  return items.length ? items.join("、") : "-"
 }
 
 const definedRecord = (record: Record<string, unknown>) => {
@@ -143,43 +173,77 @@ const definedRecord = (record: Record<string, unknown>) => {
   )
 }
 
+const hasSensitiveReviewKeys = (value: unknown): boolean => {
+  if (!value || typeof value !== "object") {
+    return false
+  }
+
+  if (Array.isArray(value)) {
+    return value.some(hasSensitiveReviewKeys)
+  }
+
+  return Object.entries(value as Record<string, unknown>).some(
+    ([key, nestedValue]) => {
+      const normalizedKey = key.toLowerCase()
+      if (
+        normalizedKey.includes("raw") ||
+        normalizedKey.includes("prompt") ||
+        normalizedKey.includes("history") ||
+        normalizedKey.includes("secret") ||
+        normalizedKey.includes("apikey") ||
+        normalizedKey.includes("api_key") ||
+        normalizedKey.includes("providerkey") ||
+        normalizedKey.includes("provider_key") ||
+        normalizedKey.includes("authtoken") ||
+        normalizedKey.includes("auth_token") ||
+        normalizedKey.includes("accesstoken") ||
+        normalizedKey.includes("access_token") ||
+        normalizedKey.includes("rawtoken") ||
+        normalizedKey.includes("raw_token") ||
+        normalizedKey.includes("localpath") ||
+        normalizedKey.includes("local_path")
+      ) {
+        return true
+      }
+
+      return hasSensitiveReviewKeys(nestedValue)
+    }
+  )
+}
+
+const hasLocalPathValue = (value: unknown): boolean => {
+  if (typeof value === "string") {
+    return isLocalPathString(value)
+  }
+
+  if (Array.isArray(value)) {
+    return value.some(hasLocalPathValue)
+  }
+
+  if (value && typeof value === "object") {
+    return Object.values(value as Record<string, unknown>).some(hasLocalPathValue)
+  }
+
+  return false
+}
+
 export const createPublicDijieRoleMetadata = (
   role: DijieRoleMetadata,
   overrides: Partial<Pick<DijieRoleMetadata, "reviewState" | "listingStatus">> = {}
 ) => {
   const pricing = asRecord(role.pricing)
   const roleTokenPricing = getRoleTokenPricing(role)
-  const manifestSummary = asRecord(role.manifestSummary)
-  const entrypoint = readString(manifestSummary.entrypoint)
-  const publicManifestSummary = definedRecord({
-    ...(entrypoint ? { entrypoint } : {}),
-    tools: readStringArray(manifestSummary.tools),
-    permissions: readStringArray(manifestSummary.permissions),
-    sandbox: readString(manifestSummary.sandbox),
-    inputs: readStringArray(manifestSummary.inputs),
-    outputs: readStringArray(manifestSummary.outputs),
-  })
 
   return definedRecord({
     kind: "role_product",
-    protocolVersion: readString(role.protocolVersion, (role as Record<string, unknown>).protocol_version) ?? "2026-05",
-    roleListingId: readString(role.roleListingId, (role as Record<string, unknown>).role_listing_id),
-    packageId: readString(role.packageId, role.package_id),
-    packageVersion: readString(role.packageVersion, role.package_version),
-    developerRef: readString(role.developerRef, (role as Record<string, unknown>).developer_ref),
-    listingOwnerRef: readString(role.listingOwnerRef, (role as Record<string, unknown>).listing_owner_ref),
-    billingBeneficiaryRef: readString(
-      role.billingBeneficiaryRef,
-      (role as Record<string, unknown>).billing_beneficiary_ref
-    ),
     listingStatus: overrides.listingStatus ?? getListingStatus(role),
     reviewState: overrides.reviewState ?? getReviewState(role),
-    title: readString(role.title),
-    subtitle: readString(role.subtitle),
-    description: readString(role.description),
-    capabilities: readStringArray(role.capabilities),
+    title: readPublicString(role.title),
+    subtitle: readPublicString(role.subtitle),
+    description: readPublicString(role.description),
+    capabilities: readPublicStringArray(role.capabilities),
     pricing: definedRecord({
-      kind: readString(pricing.kind) ?? "one_time_authorization",
+      kind: readPublicString(pricing.kind) ?? "one_time_authorization",
       authorizationFeeCents: readNumber(
         pricing.authorizationFeeCents,
         pricing.authorization_fee_cents,
@@ -187,7 +251,7 @@ export const createPublicDijieRoleMetadata = (
         pricing.amount_cents,
         role.authorizationFeeCents
       ),
-      currency: readString(pricing.currency) ?? "CNY",
+      currency: readPublicString(pricing.currency) ?? "CNY",
       platformFeeBps: readNumber(pricing.platformFeeBps, pricing.platform_fee_bps),
       developerReceivableBps: readNumber(
         pricing.developerReceivableBps,
@@ -199,7 +263,7 @@ export const createPublicDijieRoleMetadata = (
       ),
     }),
     roleTokenPricing: definedRecord({
-      currency: readString(roleTokenPricing.currency) ?? "CNY",
+      currency: readPublicString(roleTokenPricing.currency) ?? "CNY",
       inputTokenCentsPerMillion: readNumber(
         roleTokenPricing.inputTokenCentsPerMillion,
         roleTokenPricing.input_token_cents_per_million,
@@ -218,45 +282,14 @@ export const createPublicDijieRoleMetadata = (
         roleTokenPricing.developer_receivable_bps
       ),
     }),
-    scopes: readStringArray(role.scopes),
-    ...(Object.keys(publicManifestSummary).length ? { manifestSummary: publicManifestSummary } : {}),
+    scopes: readPublicStringArray(role.scopes),
   }) as DijieRoleMetadata
-}
-
-const formatAuthorizationFee = (role: DijieRoleMetadata) => {
-  const amount =
-    role.pricing?.authorizationFeeCents ??
-    role.pricing?.authorization_fee_cents ??
-    role.pricing?.amountCents ??
-    role.pricing?.amount_cents ??
-    role.authorizationFeeCents
-
-  if (typeof amount !== "number" || !Number.isFinite(amount)) {
-    return "-"
-  }
-
-  const currency = role.pricing?.currency ?? "CNY"
-  const displayAmount = (amount / 100).toFixed(2)
-
-  return currency === "CNY" ? `¥${displayAmount}` : `${displayAmount} ${currency}`
 }
 
 const getRoleTokenPricing = (role: DijieRoleMetadata) => {
   return asRecord(
     role.roleTokenPricing ?? (role as Record<string, unknown>).role_token_pricing
   )
-}
-
-const formatCentsPerMillion = (value: unknown, currency: unknown) => {
-  if (!isNonNegativeInteger(value)) {
-    return "-"
-  }
-
-  if (currency === "CNY") {
-    return `${value} 分/百万`
-  }
-
-  return typeof currency === "string" ? `${value} ${currency}/百万` : "-"
 }
 
 const validateRolePricing = (role: DijieRoleMetadata) => {
@@ -286,7 +319,7 @@ const validateRolePricing = (role: DijieRoleMetadata) => {
   )
 
   if (pricing.kind !== "one_time_authorization") {
-    errors.push("一次授权费必须使用 one_time_authorization 定价。")
+    errors.push("授权费类型不合规。")
   }
   if (!isNonNegativeInteger(authorizationFeeCents)) {
     errors.push("一次授权费必须是非负整数分。")
@@ -295,16 +328,16 @@ const validateRolePricing = (role: DijieRoleMetadata) => {
     errors.push("一次授权费币种必须是 CNY。")
   }
   if (authorizationPlatformFeeBps !== 0) {
-    errors.push("一次授权费平台抽成必须为 0。")
+    errors.push("授权费分账不合规。")
   }
   if (authorizationDeveloperReceivableBps !== 10000) {
-    errors.push("一次授权费开发者应收必须为 10000 bps。")
+    errors.push("授权费应收不合规。")
   }
   if (
     authorizationDeveloperReceivableCents !== undefined &&
     authorizationDeveloperReceivableCents !== authorizationFeeCents
   ) {
-    errors.push("一次授权费开发者应收金额必须等于授权费。")
+    errors.push("授权费应收金额不合规。")
   }
 
   const tokenCurrency = roleTokenPricing.currency
@@ -329,44 +362,63 @@ const validateRolePricing = (role: DijieRoleMetadata) => {
     roleTokenPricing.developer_receivable_bps
   )
 
-  if (!isNonNegativeInteger(inputCentsPerMillion)) {
-    errors.push("输入 Token 单价必须是非负整数。")
+  if (
+    !isNonNegativeInteger(inputCentsPerMillion) ||
+    inputCentsPerMillion < PLATFORM_INPUT_TOKEN_COST_CENTS_PER_MILLION
+  ) {
+    errors.push("输入 Token 使用费不能低于平台成本 ¥1.20/百万。")
   }
-  if (!isNonNegativeInteger(outputCentsPerMillion)) {
-    errors.push("输出 Token 单价必须是非负整数。")
+  if (
+    !isNonNegativeInteger(outputCentsPerMillion) ||
+    outputCentsPerMillion < PLATFORM_OUTPUT_TOKEN_COST_CENTS_PER_MILLION
+  ) {
+    errors.push("输出 Token 使用费不能低于平台成本 ¥3.60/百万。")
+  }
+  if (
+    isNonNegativeInteger(inputCentsPerMillion) &&
+    inputCentsPerMillion >
+      PLATFORM_INPUT_TOKEN_COST_CENTS_PER_MILLION * PLATFORM_TOKEN_MAX_MARKUP_MULTIPLIER
+  ) {
+    errors.push("输入 Token 使用费超过平台最大倍率 20x。")
+  }
+  if (
+    isNonNegativeInteger(outputCentsPerMillion) &&
+    outputCentsPerMillion >
+      PLATFORM_OUTPUT_TOKEN_COST_CENTS_PER_MILLION * PLATFORM_TOKEN_MAX_MARKUP_MULTIPLIER
+  ) {
+    errors.push("输出 Token 使用费超过平台最大倍率 20x。")
   }
   if (tokenCurrency !== "CNY") {
-    errors.push("岗位 Token 单价币种必须是 CNY。")
+    errors.push("Token 使用费币种必须是 CNY。")
   }
   if (tokenPlatformFeeBps !== 0) {
-    errors.push("岗位 Token 单价平台抽成必须为 0。")
+    errors.push("Token 使用费分账不合规。")
   }
   if (tokenDeveloperReceivableBps !== 10000) {
-    errors.push("岗位 Token 单价开发者应收必须为 10000 bps。")
+    errors.push("Token 使用费应收不合规。")
   }
 
   return errors
 }
 
-export const ProductRoleReviewSection = ({
-  product,
-}: {
-  product: HttpTypes.AdminProduct
-}) => {
-  const role = getRoleMetadata(product)
-  const prompt = usePrompt()
-  const { mutateAsync, isPending } = useUpdateProduct(product.id)
-
-  if (!role) {
-    return null
+const formatCents = (value?: number) => {
+  if (!isNonNegativeInteger(value)) {
+    return "-"
   }
 
-  const reviewState = getReviewState(role)
-  const listingStatus = getListingStatus(role)
-  const canApprove = reviewState === "submitted" && listingStatus === "proposed"
-  const pricingErrors = validateRolePricing(role)
+  return `¥${(value / 100).toFixed(2)}`
+}
+
+const getPricingSummary = (role: DijieRoleMetadata) => {
+  const pricing = asRecord(role.pricing)
   const roleTokenPricing = getRoleTokenPricing(role)
-  const tokenCurrency = roleTokenPricing.currency
+  const authorizationFeeCents = readNumber(
+    pricing.authorizationFeeCents,
+    pricing.authorization_fee_cents,
+    pricing.amountCents,
+    pricing.amount_cents,
+    role.authorizationFeeCents
+  )
   const inputCentsPerMillion = readNumber(
     roleTokenPricing.inputTokenCentsPerMillion,
     roleTokenPricing.input_token_cents_per_million,
@@ -380,111 +432,292 @@ export const ProductRoleReviewSection = ({
     roleTokenPricing.output_cents_per_million
   )
 
-  const handleApprove = async () => {
-    if (pricingErrors.length > 0) {
-      toast.error("岗位商品价格配置不符合发布规则", {
-        description: pricingErrors.join(" "),
+  return [
+    `授权 ${formatCents(authorizationFeeCents)}`,
+    `输入 ${formatCents(inputCentsPerMillion)}/百万`,
+    `输出 ${formatCents(outputCentsPerMillion)}/百万`,
+  ].join(" · ")
+}
+
+const getSubmittedAt = (product: HttpTypes.AdminProduct, role: DijieRoleMetadata) => {
+  return readString(
+    role.submittedAt,
+    (role as Record<string, unknown>).submitted_at,
+    product.updated_at,
+    product.created_at
+  )
+}
+
+const formatSubmittedAt = (value?: string) => {
+  if (!value) {
+    return "-"
+  }
+
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) {
+    return "-"
+  }
+
+  return new Intl.DateTimeFormat("zh-CN", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date)
+}
+
+const getPackageStatus = (role: DijieRoleMetadata) => {
+  const packageId = readString(role.packageId, role.package_id)
+  const packageVersion = readString(role.packageVersion, role.package_version)
+
+  if (packageId && packageVersion) {
+    return {
+      color: "green" as const,
+      label: "已提交",
+      ready: true,
+    }
+  }
+
+  if (packageId || packageVersion) {
+    return {
+      color: "orange" as const,
+      label: "信息不完整",
+      ready: false,
+    }
+  }
+
+  return {
+    color: "red" as const,
+    label: "未提交",
+    ready: false,
+  }
+}
+
+const getReviewConclusion = ({
+  readyToApprove,
+  securityPassed,
+  pricePassed,
+  packageReady,
+}: {
+  readyToApprove: boolean
+  securityPassed: boolean
+  pricePassed: boolean
+  packageReady: boolean
+}) => {
+  if (readyToApprove) {
+    return {
+      color: "green" as const,
+      label: "可进入人工通过确认",
+    }
+  }
+
+  if (!packageReady) {
+    return {
+      color: "red" as const,
+      label: "资料包需处理",
+    }
+  }
+
+  if (!securityPassed) {
+    return {
+      color: "red" as const,
+      label: "安全摘要需处理",
+    }
+  }
+
+  if (!pricePassed) {
+    return {
+      color: "red" as const,
+      label: "价格授权需处理",
+    }
+  }
+
+  return {
+    color: "orange" as const,
+    label: "等待人工复核",
+  }
+}
+
+export const ProductRoleReviewSection = ({
+  product,
+}: {
+  product: HttpTypes.AdminProduct
+}) => {
+  const role = getRoleMetadata(product)
+  const [isApproveOpen, setIsApproveOpen] = useState(false)
+  const [isRejectOpen, setIsRejectOpen] = useState(false)
+  const [rejectReason, setRejectReason] = useState("")
+  const [rejectReasonError, setRejectReasonError] = useState("")
+
+  if (!role) {
+    return null
+  }
+
+  const reviewState = getReviewState(role)
+  const listingStatus = getListingStatus(role)
+  const canApprove = reviewState === "submitted" && listingStatus === "proposed"
+  const canReject = reviewState === "submitted"
+  const pricingErrors = validateRolePricing(role)
+  const pricePassed = pricingErrors.length === 0
+  const packageStatus = getPackageStatus(role)
+  const sensitiveBlocked = hasSensitiveReviewKeys(role)
+  const localPathBlocked = hasLocalPathValue(role)
+  const securityPassed = !sensitiveBlocked && !localPathBlocked
+  const riskPassed = securityPassed && packageStatus.ready
+  const readyToApprove = securityPassed && pricePassed && packageStatus.ready
+  const reviewConclusion = getReviewConclusion({
+    readyToApprove,
+    securityPassed,
+    pricePassed,
+    packageReady: packageStatus.ready,
+  })
+
+  const openApproveDialog = () => {
+    if (!readyToApprove) {
+      toast.error("暂不能通过", {
+        description: "请先处理岗位包、价格或安全扫描问题。",
       })
       return
     }
 
-    const confirmed = await prompt({
-      title: "确认通过审核？",
-      description: "通过后，这个岗位商品会发布到迭界AI岗位商场。",
-      confirmText: "通过并发布",
-      cancelText: "取消",
-    })
+    setIsApproveOpen(true)
+  }
 
-    if (!confirmed) {
+  const openRejectDialog = () => {
+    setRejectReason("")
+    setRejectReasonError("")
+    setIsRejectOpen(true)
+  }
+
+  const handleReject = async () => {
+    const reason = rejectReason.trim()
+
+    if (!reason) {
+      setRejectReasonError("请输入驳回原因。")
       return
     }
 
-    await mutateAsync(
-      {
-        status: "published" as HttpTypes.AdminProductStatus,
-        metadata: {
-          ...asRecord(product.metadata),
-          dijieRole: createPublicDijieRoleMetadata(role, {
-            reviewState: "approved",
-            listingStatus: "published",
-          }),
-        },
-      } as any,
-      {
-        onSuccess: () => {
-          toast.success("岗位商品已通过审核并发布")
-        },
-        onError: (e) => {
-          toast.error("岗位商品审核失败", {
-            description: e.message,
-          })
-        },
-      }
-    )
+    toast.info("已停在人类确认点", {
+      description: "驳回原因已在本页确认，未自动写入或通知开发者。",
+    })
+    setIsRejectOpen(false)
   }
 
   return (
     <Container className="divide-y p-0" data-testid="product-role-review-section">
       <div className="flex items-center justify-between gap-4 px-6 py-4">
         <div className="flex flex-col gap-y-1">
-          <Heading level="h2">岗位商品审核</Heading>
-          <Text size="small" className="text-ui-fg-subtle">
-            只审核公开 listing metadata；开发者模式是主系统同一聊天框内的工作阶段，不保存 modeStage、提示词、聊天记录或私有 workspace 上下文。
-          </Text>
+          <div className="flex items-center gap-x-2">
+            <Heading level="h2">岗位审核</Heading>
+            <Tooltip content="只展示公开摘要与扫描结论。">
+              <InformationCircle className="text-ui-fg-muted" />
+            </Tooltip>
+          </div>
         </div>
-        {canApprove && (
-          <Button
-            size="small"
-            variant="secondary"
-            onClick={handleApprove}
-            isLoading={isPending}
-            data-testid="product-role-review-approve-button"
-          >
-            <CheckCircle />
-            通过并发布
-          </Button>
-        )}
+        <div className="flex items-center gap-x-2">
+          {canReject && (
+            <Button
+              size="small"
+              variant="secondary"
+              onClick={openRejectDialog}
+              data-testid="product-role-review-reject-button"
+            >
+              <ExclamationCircle />
+              驳回
+            </Button>
+          )}
+          {canApprove && (
+            <Button
+              size="small"
+              variant="secondary"
+              onClick={openApproveDialog}
+              disabled={!readyToApprove}
+              data-testid="product-role-review-approve-button"
+            >
+              <CheckCircle />
+              通过
+            </Button>
+          )}
+        </div>
       </div>
       <SectionRow
         title="审核状态"
         value={
-          <StatusBadge color={statusColor(reviewState)}>
-            {REVIEW_STATE_LABELS[reviewState] ?? reviewState}
-          </StatusBadge>
-        }
-      />
-      <SectionRow
-        title="上架状态"
-        value={
-          <StatusBadge color={statusColor(listingStatus)}>
-            {LISTING_STATUS_LABELS[listingStatus] ?? listingStatus}
-          </StatusBadge>
-        }
-      />
-      <SectionRow title="岗位包" value={getPackageId(role)} />
-      <SectionRow title="版本" value={getPackageVersion(role)} />
-      <SectionRow title="一次授权费" value={formatAuthorizationFee(role)} />
-      <SectionRow
-        title="岗位 Token 单价"
-        value={
           <div className="flex flex-col gap-y-1">
-            <Text size="small">
-              输入：{formatCentsPerMillion(inputCentsPerMillion, tokenCurrency)}
-            </Text>
-            <Text size="small">
-              输出：{formatCentsPerMillion(outputCentsPerMillion, tokenCurrency)}
+            <StatusBadge color={statusColor(reviewState)}>
+              {REVIEW_STATE_LABELS[reviewState] ?? reviewState}
+            </StatusBadge>
+            <Text size="small" className="text-ui-fg-subtle">
+              通过或驳回只停在人工确认，不自动发布、不自动写入。
             </Text>
           </div>
         }
       />
       <SectionRow
-        title="价格校验"
+        title="资料包校验"
+        value={
+          <StatusBadge color={packageStatus.color}>
+            {packageStatus.label}
+          </StatusBadge>
+        }
+      />
+      <SectionRow
+        title="公开材料"
+        value={
+          <div className="flex flex-col gap-y-1">
+            <Text size="small" className="text-ui-fg-base">
+              {readPublicString(role.title, product.title) ?? "-"}
+            </Text>
+            <Text size="small" className="text-ui-fg-subtle">
+              副标题：{readPublicString(role.subtitle, product.subtitle) ?? "-"}
+            </Text>
+            <Text size="small" className="text-ui-fg-subtle">
+              描述：{readPublicString(role.description, product.description) ?? "-"}
+            </Text>
+            <Text size="small" className="text-ui-fg-subtle">
+              能力：{joinPublicStrings(role.capabilities)}
+            </Text>
+          </div>
+        }
+      />
+      <SectionRow
+        title="安全摘要"
+        value={
+          <div className="flex flex-col gap-y-1">
+            <StatusBadge color={securityPassed ? "green" : "red"}>
+              {securityPassed ? "通过" : "需处理"}
+            </StatusBadge>
+            <Text size="small" className="text-ui-fg-subtle">
+              敏感字段：{sensitiveBlocked ? "命中" : "未命中"}
+            </Text>
+            <Text size="small" className="text-ui-fg-subtle">
+              路径风险：{localPathBlocked ? "命中" : "未命中"}
+            </Text>
+          </div>
+        }
+      />
+      <SectionRow
+        title="执行风险"
+        value={
+          <StatusBadge color={riskPassed ? "green" : "red"}>
+            {riskPassed ? "低风险" : "需处理"}
+          </StatusBadge>
+        }
+      />
+      <SectionRow
+        title="价格授权检查"
         value={
           pricingErrors.length === 0 ? (
-            <StatusBadge color="green">可发布</StatusBadge>
+            <div className="flex flex-col gap-y-1">
+              <StatusBadge color="green">合规</StatusBadge>
+              <Text size="small" className="text-ui-fg-subtle">
+                {getPricingSummary(role)}
+              </Text>
+            </div>
           ) : (
             <div className="flex flex-col gap-y-1">
-              <StatusBadge color="red">不可发布</StatusBadge>
+              <StatusBadge color="red">需处理</StatusBadge>
               {pricingErrors.map((error) => (
                 <Text key={error} size="small" className="text-ui-fg-subtle">
                   {error}
@@ -494,6 +727,168 @@ export const ProductRoleReviewSection = ({
           )
         }
       />
+      <SectionRow
+        title="提交时间"
+        value={formatSubmittedAt(getSubmittedAt(product, role))}
+      />
+      <SectionRow
+        title="审核结论"
+        value={
+          <div className="flex flex-col gap-y-1">
+            <StatusBadge color={reviewConclusion.color}>
+              {reviewConclusion.label}
+            </StatusBadge>
+            <Text size="small" className="text-ui-fg-subtle">
+              最终通过或驳回需在人工确认后由后端审批流程执行。
+            </Text>
+          </div>
+        }
+      />
+      <RejectReviewDialog
+        open={isRejectOpen}
+        reason={rejectReason}
+        error={rejectReasonError}
+        onOpenChange={setIsRejectOpen}
+        onReasonChange={(value) => {
+          setRejectReason(value)
+          if (value.trim()) {
+            setRejectReasonError("")
+          }
+        }}
+        onConfirm={handleReject}
+      />
+      <ApproveReviewDialog
+        open={isApproveOpen}
+        onOpenChange={setIsApproveOpen}
+        onConfirm={() => {
+          toast.info("已停在人类确认点", {
+            description: "审核通过已在本页确认，未自动发布到岗位商城。",
+          })
+          setIsApproveOpen(false)
+        }}
+      />
     </Container>
+  )
+}
+
+const ApproveReviewDialog = ({
+  open,
+  onOpenChange,
+  onConfirm,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  onConfirm: () => void
+}) => {
+  return (
+    <RadixDialog.Root open={open} onOpenChange={onOpenChange}>
+      <RadixDialog.Portal>
+        <RadixDialog.Overlay className="bg-ui-bg-overlay fixed inset-0 z-50" />
+        <RadixDialog.Content className="bg-ui-bg-base shadow-elevation-modal fixed left-1/2 top-1/2 z-50 flex w-[calc(100vw-32px)] max-w-[480px] -translate-x-1/2 -translate-y-1/2 flex-col divide-y overflow-hidden rounded-lg">
+          <div className="flex flex-col gap-y-1 px-6 py-4">
+            <RadixDialog.Title asChild>
+              <Heading level="h2">确认通过审核</Heading>
+            </RadixDialog.Title>
+            <RadixDialog.Description asChild>
+              <Text size="small" className="text-ui-fg-subtle">
+                这里是人工确认点。确认后不会自动发布、不会写入状态，需由后端审批流程执行最终动作。
+              </Text>
+            </RadixDialog.Description>
+          </div>
+          <div className="flex items-center justify-end gap-x-2 px-6 py-4">
+            <RadixDialog.Close asChild>
+              <Button size="small" variant="secondary">
+                取消
+              </Button>
+            </RadixDialog.Close>
+            <Button
+              size="small"
+              variant="secondary"
+              onClick={onConfirm}
+              data-testid="product-role-review-approve-confirm-button"
+            >
+              已人工确认
+            </Button>
+          </div>
+        </RadixDialog.Content>
+      </RadixDialog.Portal>
+    </RadixDialog.Root>
+  )
+}
+
+const RejectReviewDialog = ({
+  open,
+  reason,
+  error,
+  onOpenChange,
+  onReasonChange,
+  onConfirm,
+}: {
+  open: boolean
+  reason: string
+  error: string
+  onOpenChange: (open: boolean) => void
+  onReasonChange: (value: string) => void
+  onConfirm: () => void
+}) => {
+  return (
+    <RadixDialog.Root open={open} onOpenChange={onOpenChange}>
+      <RadixDialog.Portal>
+        <RadixDialog.Overlay className="bg-ui-bg-overlay fixed inset-0 z-50" />
+        <RadixDialog.Content className="bg-ui-bg-base shadow-elevation-modal fixed left-1/2 top-1/2 z-50 flex w-[calc(100vw-32px)] max-w-[480px] -translate-x-1/2 -translate-y-1/2 flex-col divide-y overflow-hidden rounded-lg">
+          <div className="flex flex-col gap-y-1 px-6 py-4">
+            <RadixDialog.Title asChild>
+              <Heading level="h2">确认驳回审核</Heading>
+            </RadixDialog.Title>
+            <RadixDialog.Description asChild>
+              <Text size="small" className="text-ui-fg-subtle">
+                这里是人工确认点。确认后不会自动写入或通知开发者，需由后端审批流程执行最终动作。
+              </Text>
+            </RadixDialog.Description>
+          </div>
+          <div className="flex flex-col gap-y-2 px-6 py-4">
+            <Textarea
+              value={reason}
+              onChange={(event) => onReasonChange(event.target.value)}
+              placeholder="填写需要开发者修正的原因"
+              data-testid="product-role-review-reject-reason"
+            />
+            <div className="flex flex-wrap gap-2">
+              {REJECTION_REASON_OPTIONS.map((option) => (
+                <Button
+                  key={option}
+                  size="small"
+                  variant="secondary"
+                  type="button"
+                  onClick={() => onReasonChange(option)}
+                >
+                  {option}
+                </Button>
+              ))}
+            </div>
+            {error && (
+              <Text size="small" className="text-ui-fg-error">
+                {error}
+              </Text>
+            )}
+          </div>
+          <div className="flex items-center justify-end gap-x-2 px-6 py-4">
+            <RadixDialog.Close asChild>
+              <Button size="small" variant="secondary">
+                取消
+              </Button>
+            </RadixDialog.Close>
+            <Button
+              size="small"
+              variant="secondary"
+              onClick={onConfirm}
+              data-testid="product-role-review-reject-confirm-button"
+            >
+              已人工确认
+            </Button>
+          </div>
+        </RadixDialog.Content>
+      </RadixDialog.Portal>
+    </RadixDialog.Root>
   )
 }

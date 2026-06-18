@@ -5,6 +5,8 @@
     "build": "turbo run build",
     "dev": "turbo run dev",
     "lint": "oxlint --quiet",
+    "typecheck:api:prod": "tsc -p apps/api/tsconfig.prod.json --noEmit",
+    "typecheck:api:test": "tsc -p apps/api/tsconfig.test.json --noEmit",
     "test:integration:http": "cd integration-tests && bun run test:integration:http"
   },
   "dependencies": {
@@ -12,6 +14,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.39.2",
+    "ajv": "^8.13.0",
     "eslint": "^9.39.2",
     "globals": "^17.0.0",
     "oxlint": "^1.64.0",

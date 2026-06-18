@@ -142,7 +142,7 @@ export type Routes = {
             $id: typeof import("@medusajs/medusa/api/admin/invites/[id]/route") & {
                 resend: typeof import("@medusajs/medusa/api/admin/invites/[id]/resend/route");
             };
-            accept: typeof import("@mercurjs/core/api/admin/invites/accept/route");
+            accept: typeof import("@medusajs/medusa/api/admin/invites/accept/route");
         };
         locales: typeof import("@medusajs/medusa/api/admin/locales/route") & {
             $code: typeof import("@medusajs/medusa/api/admin/locales/[code]/route");
@@ -430,6 +430,31 @@ export type Routes = {
             $id: typeof import("@mercurjs/core/api/admin/sellers/[id]/route");
         };
         custom: typeof import("../../src/api/admin/custom/route");
+        dijie: {
+            catalogReview: typeof import("../../src/api/admin/dijie/catalog-review/route") & {
+                $reviewId: {
+                    finalize: typeof import("../../src/api/admin/dijie/catalog-review/[reviewId]/finalize/route");
+                };
+            };
+            dialog: {
+                messages: typeof import("../../src/api/admin/dijie/dialog/messages/route");
+            };
+            reviewCenter: typeof import("../../src/api/admin/dijie/review-center/route");
+            reviews: {
+                $reviewId: {
+                    evaluations: typeof import("../../src/api/admin/dijie/reviews/[reviewId]/evaluations/route");
+                    finalize: typeof import("../../src/api/admin/dijie/reviews/[reviewId]/finalize/route");
+                };
+            };
+            roleCategories: typeof import("../../src/api/admin/dijie/role-categories/route") & {
+                $categoryRef: typeof import("../../src/api/admin/dijie/role-categories/[categoryRef]/route") & {
+                    disable: typeof import("../../src/api/admin/dijie/role-categories/[categoryRef]/disable/route");
+                    finalize: typeof import("../../src/api/admin/dijie/role-categories/[categoryRef]/finalize/route");
+                    packBinding: typeof import("../../src/api/admin/dijie/role-categories/[categoryRef]/pack-binding/route");
+                    submitReview: typeof import("../../src/api/admin/dijie/role-categories/[categoryRef]/submit-review/route");
+                };
+            };
+        };
     };
     auth: {
         $actorType: {
@@ -695,5 +720,84 @@ export type Routes = {
             };
         };
         uploads: typeof import("@mercurjs/core/api/vendor/uploads/route");
+        dijie: {
+            capabilities: {
+                bind: typeof import("../../src/api/vendor/dijie/capabilities/bind/route");
+                resolve: typeof import("../../src/api/vendor/dijie/capabilities/resolve/route");
+            };
+            developerDashboard: typeof import("../../src/api/vendor/dijie/developer-dashboard/route");
+            receivables: typeof import("../../src/api/vendor/dijie/receivables/route");
+            roleCategories: typeof import("../../src/api/vendor/dijie/role-categories/route");
+            roleListings: typeof import("../../src/api/vendor/dijie/role-listings/route") & {
+                $roleListingId: typeof import("../../src/api/vendor/dijie/role-listings/[roleListingId]/route") & {
+                    delist: typeof import("../../src/api/vendor/dijie/role-listings/[roleListingId]/delist/route");
+                    publish: typeof import("../../src/api/vendor/dijie/role-listings/[roleListingId]/publish/route");
+                    submitReview: typeof import("../../src/api/vendor/dijie/role-listings/[roleListingId]/submit-review/route");
+                };
+            };
+            rolePackages: typeof import("../../src/api/vendor/dijie/role-packages/route") & {
+                $packageId: {
+                    download: typeof import("../../src/api/vendor/dijie/role-packages/[packageId]/download/route");
+                };
+                drafts: {
+                    $draftId: {
+                        submit: typeof import("../../src/api/vendor/dijie/role-packages/drafts/[draftId]/submit/route");
+                    };
+                    latest: typeof import("../../src/api/vendor/dijie/role-packages/drafts/latest/route");
+                };
+                generate: typeof import("../../src/api/vendor/dijie/role-packages/generate/route");
+            };
+            specialCapabilityRequests: typeof import("../../src/api/vendor/dijie/special-capability-requests/route") & {
+                $reviewId: {
+                    bind: typeof import("../../src/api/vendor/dijie/special-capability-requests/[reviewId]/bind/route");
+                };
+            };
+        };
+    };
+    dijie: {
+        account: {
+            access: typeof import("../../src/api/dijie/account/access/route");
+        };
+        audit: typeof import("../../src/api/dijie/audit/route");
+        authorizations: typeof import("../../src/api/dijie/authorizations/route");
+        dialog: {
+            messages: typeof import("../../src/api/dijie/dialog/messages/route") & {
+                stream: typeof import("../../src/api/dijie/dialog/messages/stream/route");
+            };
+            sessions: typeof import("../../src/api/dijie/dialog/sessions/route") & {
+                $sessionId: typeof import("../../src/api/dijie/dialog/sessions/[sessionId]/route");
+            };
+        };
+        entitlements: {
+            verify: typeof import("../../src/api/dijie/entitlements/verify/route");
+        };
+        executionToken: typeof import("../../src/api/dijie/execution-token/route");
+        executions: typeof import("../../src/api/dijie/executions/route") & {
+            $executionId: typeof import("../../src/api/dijie/executions/[executionId]/route");
+        };
+        gateway: {
+            roles: {
+                readModel: typeof import("../../src/api/dijie/gateway/roles/read-model/route");
+            };
+        };
+        ledger: {
+            entries: typeof import("../../src/api/dijie/ledger/entries/route");
+        };
+        local: {
+            accounts: {
+                $accountId: {
+                    access: typeof import("../../src/api/dijie/local/accounts/[accountId]/access/route");
+                };
+                accessProfiles: typeof import("../../src/api/dijie/local/accounts/access-profiles/route");
+            };
+        };
+        myRoles: typeof import("../../src/api/dijie/my-roles/route");
+        roleCategories: typeof import("../../src/api/dijie/role-categories/route");
+        roleCheckouts: {
+            cart: typeof import("../../src/api/dijie/role-checkouts/cart/route");
+        };
+        roles: typeof import("../../src/api/dijie/roles/route") & {
+            $roleListingId: typeof import("../../src/api/dijie/roles/[roleListingId]/route");
+        };
     };
 };

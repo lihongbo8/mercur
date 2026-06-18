@@ -1,94 +1,60 @@
-import { PencilSquare, Trash } from "@medusajs/icons";
-import { Button, Container, Heading, toast, usePrompt } from "@medusajs/ui";
-import { keepPreviousData } from "@tanstack/react-query";
-import { createColumnHelper } from "@tanstack/react-table";
-import { ReactNode, useMemo, Children } from "react";
-import { useTranslation } from "react-i18next";
-import { Link, Outlet, useLoaderData, useLocation } from "react-router-dom";
+import { CogSixTooth, InformationCircle } from "@medusajs/icons"
+import { Container, Heading, StatusBadge, Text, Tooltip } from "@medusajs/ui"
+import { Children, ReactNode, useEffect, useMemo, useState } from "react"
+import { Link, Outlet } from "react-router-dom"
 
-import { HttpTypes } from "@medusajs/types";
-import { ActionMenu } from "../../../../../components/common/action-menu";
-import { _DataTable } from "../../../../../components/table/data-table";
 import {
-  useDeleteProduct,
-  useProducts,
-} from "../../../../../hooks/api/products";
-import { useProductTableColumns } from "../../../../../hooks/table/columns/use-product-table-columns";
-import { useProductTableFilters } from "../../../../../hooks/table/filters/use-product-table-filters";
-import { useProductTableQuery } from "../../../../../hooks/table/query/use-product-table-query";
-import { useDataTable } from "../../../../../hooks/use-data-table";
-import { productsLoader } from "../../loader";
+  fetchReviewCenter,
+  type ReviewQueueItem,
+} from "../../../../../lib/dijie/review-center"
 
-const PAGE_SIZE = 20;
+const reviewStateColor = (state?: string) => {
+  switch (state) {
+    case "approved":
+    case "published":
+      return "green"
+    case "submitted":
+    case "proposed":
+    case "needs_changes":
+      return "orange"
+    case "rejected":
+    case "archived":
+      return "red"
+    default:
+      return "grey"
+  }
+}
+
+const formatSubmittedAt = (value?: string | null) => {
+  if (!value) {
+    return "-"
+  }
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) {
+    return "-"
+  }
+  return new Intl.DateTimeFormat("zh-CN", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date)
+}
 
 export const ProductListTitle = () => {
-  const { t } = useTranslation();
-
   return (
-    <Heading level="h2" data-testid="products-list-title">
-      {t("products.domain")}
-    </Heading>
-  );
-};
-
-export const ProductListCreateButton = () => {
-  const { t } = useTranslation();
-
-  return (
-    <Button
-      size="small"
-      variant="secondary"
-      asChild
-      data-testid="products-create-button"
-    >
-      <Link to="create" data-testid="products-create-link">
-        {t("actions.create")}
-      </Link>
-    </Button>
-  );
-};
-
-export const ProductListExportButton = () => {
-  const { t } = useTranslation();
-  const location = useLocation();
-
-  return (
-    <Button
-      size="small"
-      variant="secondary"
-      asChild
-      data-testid="products-export-button"
-    >
-      <Link
-        to={`export${location.search}`}
-        data-testid="products-export-link"
-      >
-        {t("actions.export")}
-      </Link>
-    </Button>
-  );
-};
-
-export const ProductListImportButton = () => {
-  const { t } = useTranslation();
-  const location = useLocation();
-
-  return (
-    <Button
-      size="small"
-      variant="secondary"
-      asChild
-      data-testid="products-import-button"
-    >
-      <Link
-        to={`import${location.search}`}
-        data-testid="products-import-link"
-      >
-        {t("actions.import")}
-      </Link>
-    </Button>
-  );
-};
+    <div className="flex flex-col gap-y-1">
+      <div className="flex items-center gap-x-2">
+        <Heading level="h2" data-testid="products-list-title">
+          岗位审核
+        </Heading>
+        <Tooltip content="审核中心列表来自同一个 AICS 岗位商品审核队列。">
+          <InformationCircle className="text-ui-fg-muted" />
+        </Tooltip>
+      </div>
+    </div>
+  )
+}
 
 export const ProductListActions = ({ children }: { children?: ReactNode }) => {
   return (
@@ -100,14 +66,21 @@ export const ProductListActions = ({ children }: { children?: ReactNode }) => {
         children
       ) : (
         <>
-          <ProductListExportButton />
-          <ProductListImportButton />
-          <ProductListCreateButton />
+          <StatusBadge color="orange">审核队列</StatusBadge>
+          <Tooltip content="审核中心设置">
+            <Link
+              to="/settings/marketplace"
+              className="text-ui-fg-muted hover:text-ui-fg-base"
+              aria-label="审核中心设置"
+            >
+              <CogSixTooth />
+            </Link>
+          </Tooltip>
         </>
       )}
     </div>
-  );
-};
+  )
+}
 
 export const ProductListHeader = ({ children }: { children?: ReactNode }) => {
   return (
@@ -124,69 +97,125 @@ export const ProductListHeader = ({ children }: { children?: ReactNode }) => {
         </>
       )}
     </div>
-  );
-};
+  )
+}
 
 export const ProductListDataTable = () => {
-  const { t } = useTranslation();
+  const [roles, setRoles] = useState<ReviewQueueItem[]>([])
+  const [search, setSearch] = useState("")
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState("")
 
-  const initialData = useLoaderData() as Awaited<
-    ReturnType<ReturnType<typeof productsLoader>>
-  >;
+  useEffect(() => {
+    let mounted = true
+    setLoading(true)
+    fetchReviewCenter()
+      .then((model) => {
+        if (!mounted) {
+          return
+        }
+        setRoles(model?.queue ?? [])
+        setError("")
+      })
+      .catch((err) => {
+        if (!mounted) {
+          return
+        }
+        setError(err instanceof Error ? err.message : "审核队列暂时无法读取。")
+        setRoles([])
+      })
+      .finally(() => {
+        if (mounted) {
+          setLoading(false)
+        }
+      })
+    return () => {
+      mounted = false
+    }
+  }, [])
 
-  const { searchParams, raw } = useProductTableQuery({ pageSize: PAGE_SIZE });
-  const { products, count, isLoading, isError, error } = useProducts(
-    {
-      ...searchParams,
-      is_giftcard: false,
-    },
-    {
-      initialData,
-      placeholderData: keepPreviousData,
-    },
-  );
-
-  const filters = useProductTableFilters();
-  const columns = useColumns();
-
-  const { table } = useDataTable({
-    data: (products ?? []) as HttpTypes.AdminProduct[],
-    columns,
-    count,
-    enablePagination: true,
-    pageSize: PAGE_SIZE,
-    getRowId: (row) => row.id,
-  });
-
-  if (isError) {
-    throw error;
-  }
+  const filteredRoles = useMemo(() => {
+    const normalized = search.trim().toLowerCase()
+    if (!normalized) {
+      return roles
+    }
+    return roles.filter((role) =>
+      [
+        role.title,
+        role.developerName,
+        role.subtitle,
+        role.packageId,
+        role.reviewStateLabel,
+        role.statusReason,
+      ]
+        .join(" ")
+        .toLowerCase()
+        .includes(normalized),
+    )
+  }, [roles, search])
 
   return (
     <div data-testid="products-data-table">
-      <_DataTable
-        table={table}
-        columns={columns}
-        count={count}
-        pageSize={PAGE_SIZE}
-        filters={filters}
-        search
-        pagination
-        isLoading={isLoading}
-        queryObject={raw}
-        navigateTo={(row) => `${row.original.id}`}
-        orderBy={[
-          { key: "title", label: t("fields.title") },
-          { key: "created_at", label: t("fields.createdAt") },
-          { key: "updated_at", label: t("fields.updatedAt") },
-        ]}
-        noRecords={{
-          message: t("products.list.noRecordsMessage"),
-        }}
-      />
+      <div className="border-b px-6 py-4">
+        <input
+          className="h-10 w-full max-w-[360px] rounded-md border bg-ui-bg-base px-3 txt-compact-small outline-none placeholder:text-ui-fg-muted"
+          placeholder="搜索岗位、开发者或审核状态"
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+        />
+      </div>
+      {loading ? (
+        <div className="px-6 py-8 txt-compact-small text-ui-fg-muted">正在读取审核队列...</div>
+      ) : error ? (
+        <div className="px-6 py-8 txt-compact-small text-red-600">{error}</div>
+      ) : filteredRoles.length === 0 ? (
+        <div className="px-6 py-8 txt-compact-small text-ui-fg-muted">暂无待审核岗位。</div>
+      ) : (
+        <div className="divide-y">
+          <div
+            className="grid gap-4 px-6 py-3 txt-compact-small-plus text-ui-fg-muted"
+            style={{ gridTemplateColumns: "minmax(180px, 1.4fr) minmax(120px, 1fr) 110px 130px 130px" }}
+          >
+            <span>岗位名称</span>
+            <span>开发者</span>
+            <span>审核状态</span>
+            <span>商城上线状态</span>
+            <span>提交时间</span>
+          </div>
+          {filteredRoles.map((role) => (
+            <Link
+              key={role.id}
+              to={`/products/${role.id}`}
+              className="grid gap-4 px-6 py-4 hover:bg-ui-bg-subtle"
+              style={{ gridTemplateColumns: "minmax(180px, 1.4fr) minmax(120px, 1fr) 110px 130px 130px" }}
+            >
+              <div className="min-w-0">
+                <Text size="small" weight="plus" className="truncate">
+                  {role.title}
+                </Text>
+                <Text size="small" className="truncate text-ui-fg-subtle">
+                  {role.statusReason || role.subtitle || role.packageId || "-"}
+                </Text>
+              </div>
+              <Text size="small" className="truncate">
+                {role.developerName || "-"}
+              </Text>
+              <StatusBadge color={reviewStateColor(role.reviewState)}>
+                {role.reviewStateLabel || role.reviewState || "-"}
+              </StatusBadge>
+              <StatusBadge color={reviewStateColor(role.listingStatus)}>
+                {role.listingStatus || "-"}
+              </StatusBadge>
+              <Text size="small" className="text-ui-fg-subtle">
+                {formatSubmittedAt(role.submittedAt)}
+              </Text>
+            </Link>
+          ))}
+        </div>
+      )}
     </div>
-  );
-};
+  )
+}
 
 export const ProductListTable = ({ children }: { children?: ReactNode }) => {
   return (
@@ -201,105 +230,5 @@ export const ProductListTable = ({ children }: { children?: ReactNode }) => {
       )}
       <Outlet />
     </Container>
-  );
-};
-
-const ProductActions = ({ product }: { product: HttpTypes.AdminProduct }) => {
-  const { t } = useTranslation();
-  const prompt = usePrompt();
-  const { mutateAsync } = useDeleteProduct(product.id);
-
-  const handleDelete = async () => {
-    const res = await prompt({
-      title: t("general.areYouSure"),
-      description: t("products.deleteWarning", {
-        title: product.title,
-      }),
-      confirmText: t("actions.delete"),
-      cancelText: t("actions.cancel"),
-    });
-
-    if (!res) {
-      return;
-    }
-
-    await mutateAsync(undefined, {
-      onSuccess: () => {
-        toast.success(t("products.toasts.delete.success.header"), {
-          description: t("products.toasts.delete.success.description", {
-            title: product.title,
-          }),
-        });
-      },
-      onError: (e) => {
-        toast.error(t("products.toasts.delete.error.header"), {
-          description: e.message,
-        });
-      },
-    });
-  };
-
-  return (
-    <ActionMenu
-      groups={[
-        {
-          actions: [
-            {
-              icon: <PencilSquare />,
-              label: t("actions.edit"),
-              to: `/products/${product.id}/edit`,
-            },
-          ],
-        },
-        {
-          actions: [
-            {
-              icon: <Trash />,
-              label: t("actions.delete"),
-              onClick: handleDelete,
-            },
-          ],
-        },
-      ]}
-      data-testid={`product-actions-${product.id}`}
-    />
-  );
-};
-
-const columnHelper = createColumnHelper<HttpTypes.AdminProduct>();
-
-const useColumns = () => {
-  const { t } = useTranslation();
-  const base = useProductTableColumns();
-
-  const columns = useMemo(
-    () => [
-      ...base,
-      columnHelper.display({
-        id: "seller",
-        header: t("store.domain"),
-        cell: ({ row }) => {
-          const seller = (row.original as any).seller;
-          return seller?.name || "-";
-        },
-      }),
-      columnHelper.display({
-        id: "actions",
-        header: () => (
-          <div
-            className="flex h-full w-full items-center"
-            data-testid="products-table-header-actions"
-          >
-            <span data-testid="products-table-header-actions-text"></span>
-          </div>
-        ),
-        cell: ({ row }) => {
-          return <ProductActions product={row.original} />;
-        },
-      }),
-    ],
-    [base, t],
-  );
-
-  return columns;
-};
+  )
+}

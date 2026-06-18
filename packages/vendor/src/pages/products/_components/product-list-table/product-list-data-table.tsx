@@ -1,111 +1,104 @@
-import { Checkbox, toast, usePrompt } from "@medusajs/ui";
+import { Button, StatusBadge, toast } from "@medusajs/ui";
 import { keepPreviousData } from "@tanstack/react-query";
-import {
-  createColumnHelper,
-  OnChangeFn,
-  RowSelectionState,
-} from "@tanstack/react-table";
-import { useMemo, useState } from "react";
-import { useTranslation } from "react-i18next";
-import { useNavigate } from "react-router-dom";
-import { Trash } from "@medusajs/icons";
+import { createColumnHelper } from "@tanstack/react-table";
+import { useMemo } from "react";
+import { Link } from "react-router-dom";
 
-import { ExtendedAdminProduct } from "@custom-types/products";
-import { ActionMenu } from "@components/common/action-menu";
 import { _DataTable } from "@components/table/data-table";
 import {
-  useDeleteProduct,
-  useBulkDeleteProducts,
-  useProducts,
-} from "@hooks/api/products";
-import { useProductTableColumns } from "@hooks/table/columns/use-product-table-columns";
-import { useProductTableFilters } from "@hooks/table/filters/use-product-table-filters";
-import { useProductTableQuery } from "@hooks/table/query/use-product-table-query";
+  type DijieRoleListing,
+  useDelistDijieRoleListing,
+  useDijieRoleListings,
+  usePublishDijieRoleListing,
+  useSubmitDijieRoleListingReview,
+} from "@hooks/api/dijie-role-listings";
 import { useDataTable } from "@hooks/use-data-table";
 
 export const PAGE_SIZE = 10;
 
+const columnHelper = createColumnHelper<DijieRoleListing>();
+
+const listingStatusLabels: Record<DijieRoleListing["listingStatus"], string> = {
+  draft: "草稿",
+  proposed: "待审核",
+  published: "已上架",
+  delisted: "已下架",
+  archived: "已归档",
+};
+
+const reviewStateLabels: Record<DijieRoleListing["reviewState"], string> = {
+  draft: "未提交",
+  submitted: "审核中",
+  needs_changes: "要求补充",
+  approved: "已通过",
+  rejected: "已驳回",
+};
+
+const listingStatusColors: Record<
+  DijieRoleListing["listingStatus"],
+  "grey" | "orange" | "green" | "red"
+> = {
+  draft: "grey",
+  proposed: "orange",
+  published: "green",
+  delisted: "red",
+  archived: "grey",
+};
+
+const reviewStateColors: Record<
+  DijieRoleListing["reviewState"],
+  "grey" | "orange" | "green" | "red"
+> = {
+  draft: "grey",
+  submitted: "orange",
+  needs_changes: "orange",
+  approved: "green",
+  rejected: "red",
+};
+
+const formatCny = (cents?: number) => {
+  if (typeof cents !== "number" || !Number.isFinite(cents)) {
+    return "-";
+  }
+
+  return new Intl.NumberFormat("zh-CN", {
+    style: "currency",
+    currency: "CNY",
+    maximumFractionDigits: 2,
+  }).format(cents / 100);
+};
+
+const formatDate = (value?: string | null) => {
+  if (!value) {
+    return "-";
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "-";
+  }
+  return new Intl.DateTimeFormat("zh-CN", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
+};
+
 export const ProductListDataTable = () => {
-  const { t } = useTranslation();
-  const navigate = useNavigate();
-
-  const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
-
-  const updater: OnChangeFn<RowSelectionState> = (newSelection) => {
-    const update =
-      typeof newSelection === "function"
-        ? newSelection(rowSelection)
-        : newSelection;
-    setRowSelection(update);
-  };
-
-  const { searchParams, raw } = useProductTableQuery({
-    pageSize: PAGE_SIZE,
+  const { listings, count, isLoading, isError, error } = useDijieRoleListings({
+    placeholderData: keepPreviousData,
   });
 
-  const { products, count, isLoading, isError, error } = useProducts(
-    searchParams,
-    {
-      placeholderData: keepPreviousData,
-    },
-  );
-
-  const filters = useProductTableFilters();
   const columns = useColumns();
 
   const { table } = useDataTable({
-    data: products,
+    data: listings,
     columns,
     count,
     enablePagination: true,
-    enableRowSelection: true,
     pageSize: PAGE_SIZE,
-    getRowId: (row) => row?.id || "",
-    rowSelection: {
-      state: rowSelection,
-      updater,
-    },
+    getRowId: (row) => row.roleListingId || row.id,
   });
-
-  const { mutateAsync } = useBulkDeleteProducts();
-  const prompt = usePrompt();
-
-  const handleDelete = async () => {
-    const keys = Object.keys(rowSelection);
-
-    if (keys.length === 0) {
-      return;
-    }
-
-    const res = await prompt({
-      title: t("products.bulkDelete.title"),
-      description: t("products.bulkDelete.description", {
-        count: keys.length,
-      }),
-      confirmText: t("actions.delete"),
-      cancelText: t("actions.cancel"),
-    });
-
-    if (!res) {
-      return;
-    }
-
-    await mutateAsync(keys, {
-      onSuccess: () => {
-        setRowSelection({});
-        toast.success(
-          t("products.bulkDelete.success", {
-            count: keys.length,
-          }),
-        );
-      },
-      onError: (error) => {
-        toast.error(t("products.bulkDelete.error"), {
-          description: error.message,
-        });
-      },
-    });
-  };
 
   if (isError) {
     throw error;
@@ -117,146 +110,174 @@ export const ProductListDataTable = () => {
       columns={columns}
       count={count}
       pageSize={PAGE_SIZE}
-      filters={filters}
-      search
       pagination
       isLoading={isLoading}
-      queryObject={raw}
-      navigateTo={(row) => `${row.original.id}`}
-      orderBy={[
-        { key: "title", label: t("fields.title") },
-        {
-          key: "created_at",
-          label: t("fields.createdAt"),
-        },
-        {
-          key: "updated_at",
-          label: t("fields.updatedAt"),
-        },
-      ]}
-      commands={[
-        {
-          action: () => {
-            const selectedIds = Object.keys(rowSelection)
-            const selectedProducts = (products ?? []).filter((p: any) =>
-              selectedIds.includes(p.id)
-            )
-            if (selectedProducts.length > 0) {
-              navigate("bulk-edit", {
-                state: { products: selectedProducts },
-              })
-            }
-          },
-          label: t("actions.edit"),
-          shortcut: "e",
-        },
-        {
-          action: handleDelete,
-          label: t("actions.delete"),
-          shortcut: "d",
-        },
-      ]}
+      noRecords={{
+        message: "还没有云端岗位商品。请先在开发对话生成岗位包，再到上传岗位承接并提交审核。",
+      }}
     />
   );
 };
-
-const ProductActions = ({ product }: { product: ExtendedAdminProduct }) => {
-  const { t } = useTranslation();
-  const prompt = usePrompt();
-  const { mutateAsync } = useDeleteProduct(product.id);
-
-  const handleDelete = async () => {
-    const res = await prompt({
-      title: t("general.areYouSure"),
-      description: t("products.deleteWarning", {
-        title: product.title,
-      }),
-      confirmText: t("actions.delete"),
-      cancelText: t("actions.cancel"),
-    });
-
-    if (!res) {
-      return;
-    }
-
-    await mutateAsync(undefined, {
-      onSuccess: () => {
-        toast.success(t("products.toasts.delete.success.header"), {
-          description: t("products.toasts.delete.success.description", {
-            title: product.title,
-          }),
-        });
-      },
-      onError: (e) => {
-        toast.error(t("products.toasts.delete.error.header"), {
-          description: e.message,
-        });
-      },
-    });
-  };
-
-  return (
-    <ActionMenu
-      groups={[
-        {
-          actions: [
-            {
-              icon: <Trash />,
-              label: t("actions.delete"),
-              onClick: handleDelete,
-            },
-          ],
-        },
-      ]}
-    />
-  );
-};
-
-const columnHelper = createColumnHelper<ExtendedAdminProduct>();
 
 const useColumns = () => {
-  const base = useProductTableColumns();
-
-  const columns = useMemo(
+  return useMemo(
     () => [
       columnHelper.display({
-        id: "select",
-        header: ({ table }) => {
-          return (
-            <Checkbox
-              checked={
-                table.getIsSomePageRowsSelected()
-                  ? "indeterminate"
-                  : table.getIsAllPageRowsSelected()
-              }
-              onCheckedChange={(value) =>
-                table.toggleAllPageRowsSelected(!!value)
-              }
-            />
-          );
-        },
+        id: "role",
+        header: () => (
+          <div className="flex h-full w-full items-center">
+            <span className="truncate">岗位商品</span>
+          </div>
+        ),
         cell: ({ row }) => {
+          const role = row.original;
           return (
-            <Checkbox
-              checked={row.getIsSelected()}
-              onCheckedChange={(value) => row.toggleSelected(!!value)}
-              onClick={(e) => {
-                e.stopPropagation();
-              }}
-            />
+            <div className="flex min-w-0 flex-col">
+              <span className="txt-compact-small-plus truncate text-ui-fg-base">
+                {role.title}
+              </span>
+              <span className="txt-compact-small truncate text-ui-fg-subtle">
+                {role.packageId}@{role.packageVersion}
+              </span>
+            </div>
           );
         },
       }),
-      ...base,
+      columnHelper.display({
+        id: "listing_status",
+        header: () => (
+          <div className="flex h-full w-full items-center">
+            <span className="truncate">上架状态</span>
+          </div>
+        ),
+        cell: ({ row }) => (
+          <StatusBadge color={listingStatusColors[row.original.listingStatus]}>
+            {listingStatusLabels[row.original.listingStatus]}
+          </StatusBadge>
+        ),
+      }),
+      columnHelper.display({
+        id: "review_state",
+        header: () => (
+          <div className="flex h-full w-full items-center">
+            <span className="truncate">审核</span>
+          </div>
+        ),
+        cell: ({ row }) => (
+          <StatusBadge color={reviewStateColors[row.original.reviewState]}>
+            {reviewStateLabels[row.original.reviewState]}
+          </StatusBadge>
+        ),
+      }),
+      columnHelper.display({
+        id: "authorization_fee",
+        header: () => (
+          <div className="flex h-full w-full items-center">
+            <span className="truncate">授权费</span>
+          </div>
+        ),
+        cell: ({ row }) => (
+          <span className="txt-compact-small truncate text-ui-fg-subtle">
+            {formatCny(row.original.pricing?.authorizationFeeCents)}
+          </span>
+        ),
+      }),
+      columnHelper.display({
+        id: "submitted_at",
+        header: () => (
+          <div className="flex h-full w-full items-center">
+            <span className="truncate">提交时间</span>
+          </div>
+        ),
+        cell: ({ row }) => (
+          <span className="txt-compact-small truncate text-ui-fg-subtle">
+            {formatDate(row.original.submittedAt)}
+          </span>
+        ),
+      }),
       columnHelper.display({
         id: "actions",
-        cell: ({ row }) => {
-          return <ProductActions product={row.original} />;
-        },
+        header: () => (
+          <div className="flex h-full w-full items-center justify-end">
+            <span className="truncate">操作</span>
+          </div>
+        ),
+        cell: ({ row }) => <RoleListingActions role={row.original} />,
       }),
     ],
-    [base],
+    [],
   );
+};
 
-  return columns;
+const RoleListingActions = ({ role }: { role: DijieRoleListing }) => {
+  const roleListingId = role.roleListingId || role.id;
+  const allowedActions = new Set(role.allowedActions ?? []);
+  const submitReview = useSubmitDijieRoleListingReview({
+    onSuccess: () => toast.success("岗位商品已提交审核。"),
+    onError: (error) => toast.error(error.message),
+  });
+  const publish = usePublishDijieRoleListing({
+    onSuccess: () => toast.success("岗位商品已上架，商城可见。"),
+    onError: (error) => toast.error(error.message),
+  });
+  const delist = useDelistDijieRoleListing({
+    onSuccess: () => toast.success("岗位商品已下架，商城不可见。"),
+    onError: (error) => toast.error(error.message),
+  });
+  const isMutating =
+    submitReview.isPending || publish.isPending || delist.isPending;
+
+  return (
+    <div className="flex flex-wrap justify-end gap-1">
+      <Button size="small" variant="secondary" asChild>
+        <Link to={`/products/${encodeURIComponent(roleListingId)}`}>
+          查看
+        </Link>
+      </Button>
+      <Button
+        size="small"
+        variant="secondary"
+        disabled={!allowedActions.has("edit_draft")}
+        title={
+          allowedActions.has("edit_draft")
+            ? "草稿可编辑；专用编辑页后续接入"
+            : "当前状态不可编辑"
+        }
+      >
+        编辑
+      </Button>
+      {allowedActions.has("submit_review") && (
+        <Button
+          size="small"
+          variant="secondary"
+          disabled={isMutating}
+          isLoading={submitReview.isPending}
+          onClick={() => submitReview.mutate(roleListingId)}
+        >
+          提交审核
+        </Button>
+      )}
+      {allowedActions.has("publish") && (
+        <Button
+          size="small"
+          disabled={isMutating}
+          isLoading={publish.isPending}
+          onClick={() => publish.mutate(roleListingId)}
+        >
+          上架
+        </Button>
+      )}
+      {allowedActions.has("delist") && (
+        <Button
+          size="small"
+          variant="secondary"
+          disabled={isMutating}
+          isLoading={delist.isPending}
+          onClick={() => delist.mutate(roleListingId)}
+        >
+          下架
+        </Button>
+      )}
+    </div>
+  );
 };

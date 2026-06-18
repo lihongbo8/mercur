@@ -5,7 +5,6 @@ import { PayoutDTO } from "@mercurjs/types"
 import { StatusBadge } from "@medusajs/ui"
 import {
   DateCell,
-  DateHeader,
 } from "../../../components/table/table-cells/common/date-cell"
 import {
   DisplayIdCell,
@@ -38,7 +37,7 @@ export const usePayoutTableColumns = () => {
       columnHelper.accessor("display_id", {
         header: () => (
           <div className="flex h-full w-full items-center">
-            <span className="truncate">{t("payouts.payout")}</span>
+            <span className="truncate">结算单</span>
           </div>
         ),
         cell: ({ getValue }) => {
@@ -47,7 +46,11 @@ export const usePayoutTableColumns = () => {
         },
       }),
       columnHelper.accessor("created_at", {
-        header: () => <DateHeader />,
+        header: () => (
+          <div className="flex h-full w-full items-center">
+            <span className="truncate">提交时间</span>
+          </div>
+        ),
         cell: ({ getValue }) => {
           const date = new Date(getValue())
           return <DateCell date={date} />
@@ -56,7 +59,7 @@ export const usePayoutTableColumns = () => {
       columnHelper.accessor("status", {
         header: () => (
           <div className="flex h-full w-full items-center">
-            <span className="truncate">{t("fields.status")}</span>
+            <span className="truncate">结算状态</span>
           </div>
         ),
         cell: ({ getValue }) => {
@@ -73,7 +76,7 @@ export const usePayoutTableColumns = () => {
       columnHelper.accessor("amount", {
         header: () => (
           <div className="flex h-full w-full items-center">
-            <span className="truncate">{t("fields.amount")}</span>
+            <span className="truncate">结算金额</span>
           </div>
         ),
         cell: ({ getValue, row }) => {

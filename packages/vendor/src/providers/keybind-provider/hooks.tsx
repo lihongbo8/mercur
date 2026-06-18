@@ -113,108 +113,43 @@ export const useGlobalShortcuts = () => {
     // Pages
     {
       keys: {
-        Mac: ["G", "O"],
-      },
-      label: t("app.keyboardShortcuts.navigation.goToOrders"),
-      type: "pageShortcut",
-      to: "/orders",
-    },
-    {
-      keys: {
         Mac: ["G", "P"],
       },
-      label: t("app.keyboardShortcuts.navigation.goToProducts"),
+      label: "岗位商品",
       type: "pageShortcut",
       to: "/products",
     },
     {
       keys: {
-        Mac: ["G", "C"],
-      },
-      label: t("app.keyboardShortcuts.navigation.goToCollections"),
-      type: "pageShortcut",
-      to: "/collections",
-    },
-    {
-      keys: {
-        Mac: ["G", "A"],
-      },
-      label: t("app.keyboardShortcuts.navigation.goToCategories"),
-      type: "pageShortcut",
-      to: "/categories",
-    },
-    {
-      keys: {
         Mac: ["G", "U"],
       },
-      label: t("app.keyboardShortcuts.navigation.goToCustomers"),
+      label: "上传岗位",
       type: "pageShortcut",
-      to: "/customers",
+      to: "/products/create",
     },
     {
       keys: {
-        Mac: ["G", "I"],
+        Mac: ["G", "O"],
       },
-      label: t("app.keyboardShortcuts.navigation.goToInventory"),
+      label: "销售记录",
       type: "pageShortcut",
-      to: "/inventory",
+      to: "/orders",
     },
     {
       keys: {
-        Mac: ["G", "L"],
+        Mac: ["G", "B"],
       },
-      label: t("app.keyboardShortcuts.navigation.goToPriceLists"),
+      label: "结算记录",
       type: "pageShortcut",
-      to: "/price-lists",
+      to: "/payouts",
     },
-    {
-      keys: {
-        Mac: ["G", "M"],
-      },
-      label: t("app.keyboardShortcuts.navigation.goToPromotions"),
-      type: "pageShortcut",
-      to: "/promotions",
-    },
-    {
-      keys: {
-        Mac: ["G", "K"],
-      },
-      label: t("app.keyboardShortcuts.navigation.goToCampaigns"),
-      type: "pageShortcut",
-      to: "/campaigns",
-    },
-    // Settings
     {
       keys: {
         Mac: ["G", ","],
       },
-      label: t("app.keyboardShortcuts.settings.goToSettings"),
-      type: "settingShortcut",
-      to: "/settings",
-    },
-    {
-      keys: {
-        Mac: ["G", ",", "S"],
-      },
-      label: t("app.keyboardShortcuts.settings.goToStore"),
-      type: "settingShortcut",
-      to: "/settings/store",
-    },
-    {
-      keys: {
-        Mac: ["G", ",", "P"],
-      },
-      label: t("app.keyboardShortcuts.settings.goToProductTypes"),
-      type: "settingShortcut",
-      to: "/settings/product-types",
-    },
-    {
-      keys: {
-        Mac: ["G", ",", "L"],
-      },
-      label: t("app.keyboardShortcuts.settings.goToLocations"),
-      type: "settingShortcut",
-      to: "/settings/locations",
+      label: "开发者资料",
+      type: "pageShortcut",
+      to: "/settings/profile",
     },
     // Commands
     {

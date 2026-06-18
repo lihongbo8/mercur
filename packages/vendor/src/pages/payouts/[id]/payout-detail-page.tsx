@@ -21,7 +21,7 @@ const Root = ({ children }: { children?: ReactNode }) => {
   }
 
   return (
-    <SingleColumnPage showMetadata>
+    <SingleColumnPage>
       {Children.count(children) > 0 ? (
         children
       ) : (

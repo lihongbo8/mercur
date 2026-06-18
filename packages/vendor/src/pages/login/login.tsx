@@ -33,7 +33,7 @@ const LoginHeader = () => {
 
   return (
     <div className="mb-6 flex flex-col">
-      <Heading>{t("login.title", { name: config.name ?? "Mercur" })}</Heading>
+      <Heading>{t("login.title", { name: config.name ?? "迭界AI岗位商城" })}</Heading>
       <Text size="small" className="text-ui-fg-subtle">
         {t("login.hint")}
       </Text>
@@ -128,10 +128,12 @@ const LoginForm = () => {
               <Form.Item>
                 <Form.Label>{t("fields.password")}</Form.Label>
                 <Form.Control>
-                  <Input
+                  <input
                     type="password"
                     autoComplete="current-password"
                     {...field}
+                    className="txt-compact-small border-ui-border-base bg-ui-bg-field-component text-ui-fg-base placeholder:text-ui-fg-muted h-8 w-full rounded-md border px-2 outline-none"
+                    aria-label={t("fields.password")}
                   />
                 </Form.Control>
                 <Form.ErrorMessage />

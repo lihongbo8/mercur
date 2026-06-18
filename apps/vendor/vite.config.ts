@@ -9,11 +9,13 @@ export default defineConfig(({ mode }) => {
     env.VITE_MERCUR_BACKEND_URL || env.MERCUR_BACKEND_URL
 
   return {
+    base: '/seller/',
     plugins: [
       react(),
       mercurDashboardPlugin({
         medusaConfigPath: '../api/medusa-config.ts',
-        name: '迭界AI岗位商场',
+        name: '迭界AI开发者中心',
+        base: '/seller',
         ...(backendUrl ? { backendUrl } : {}),
         components: {
           StoreSetup: 'components/store-setup/store-setup',

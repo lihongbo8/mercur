@@ -3,8 +3,9 @@ import { afterEach, describe, expect, it } from "bun:test";
 import {
   DIJIE_AUDIT_MODULE,
   recordDijieAuditSummaryWithRepository,
+  type DijieAuditStorageRecord,
 } from "../../../lib/dijie/audit-store";
-import { createDijieExecutionToken, type DijieExecutionTokenClaims } from "../../../lib/dijie/execution-token";
+import { createDijieExecutionToken } from "../../../lib/dijie/execution-token";
 import { POST } from "./route";
 
 const keyPair = crypto.generateKeyPairSync("ed25519");
@@ -131,7 +132,14 @@ function auditSummary(overrides: Record<string, unknown> = {}) {
       startedAt: "2026-05-31T08:00:00.000Z",
       endedAt: "2026-05-31T08:01:00.000Z",
       changedFiles: ["role_package/manifest.json"],
-      artifacts: [],
+      artifacts: [
+        {
+          id: "artifact_design_plan",
+          type: "design_plan_text",
+          title: "电商设计方案文本",
+          sizeBytes: 128,
+        },
+      ],
     },
     ...overrides,
   };
@@ -155,17 +163,16 @@ describe("POST /dijie/audit", () => {
 
   it("records an audit summary through the configured audit record store", async () => {
     process.env.DIJIE_EXECUTION_TOKEN_PUBLIC_KEY_PEM = publicKeyPem;
-    let persisted:
+    let persisted: Partial<DijieAuditStorageRecord> | undefined;
+    let ledgerEntry:
       | {
-          execution_id?: string;
-          actor_id?: string;
-          package_id?: string;
-          package_version?: string;
-          developer_ref?: string;
-          listing_owner_ref?: string;
-          billing_beneficiary_ref?: string;
-          role_usage_ledger?: { developerReceivableCents?: number };
-          changed_files?: string[];
+          accountId?: string;
+          source?: string;
+          usageKind?: string;
+          surface?: string | null;
+          executionId?: string | null;
+          roleListingId?: string | null;
+          developerReceivableCents?: number;
         }
       | undefined;
     const store = {
@@ -179,6 +186,17 @@ describe("POST /dijie/audit", () => {
           },
           record,
         ),
+      async createDijieLedgerEntry(input: never) {
+        ledgerEntry = input;
+        return {
+          ok: true,
+          value: {
+            ledgerEntry: {
+              id: "djledger_123",
+            },
+          },
+        };
+      },
     };
 
     const res = response();
@@ -211,6 +229,15 @@ describe("POST /dijie/audit", () => {
       },
       changed_files: ["role_package/manifest.json"],
     });
+    expect(ledgerEntry).toMatchObject({
+      accountId: "cus_123",
+      source: "role_usage",
+      usageKind: "model_tokens",
+      surface: "openclaw_local",
+      executionId: "exec_123",
+      roleListingId: "role_123",
+      developerReceivableCents: 300,
+    });
   });
 
   it("rejects audit uploads without model proxy usage for role token settlement", async () => {
@@ -230,6 +257,90 @@ describe("POST /dijie/audit", () => {
       ok: false,
     });
     expect((res.body as { error: string }).error).toContain("modelProxyUsage");
+  });
+
+  it("rejects completed audit uploads without business artifacts", async () => {
+    process.env.DIJIE_EXECUTION_TOKEN_PUBLIC_KEY_PEM = publicKeyPem;
+
+    const res = response();
+    await POST(
+      request({
+        auditSummary: auditSummary({
+          result: {
+            ...(auditSummary().result as Record<string, unknown>),
+            artifacts: [],
+          },
+        }),
+      }) as never,
+      res as never,
+    );
+
+    expect(res.statusCode).toBe(400);
+    expect(res.body).toMatchObject({
+      ok: false,
+      error: "Completed role execution requires at least one business artifact.",
+    });
+  });
+
+  it("records failed audit uploads without creating a role usage ledger when no model usage exists", async () => {
+    process.env.DIJIE_EXECUTION_TOKEN_PUBLIC_KEY_PEM = publicKeyPem;
+    let persisted: Partial<DijieAuditStorageRecord> | undefined;
+    let ledgerEntry: unknown;
+    const store = {
+      recordDijieAuditSummary: (record: never) =>
+        recordDijieAuditSummaryWithRepository(
+          {
+            async createDijieAuditRecords(data) {
+              persisted = data;
+              return { id: "djaudit_failed" };
+            },
+          },
+          record,
+        ),
+      async createDijieLedgerEntry(input: never) {
+        ledgerEntry = input;
+        return {
+          ok: true,
+          value: {
+            ledgerEntry: {
+              id: "djledger_unexpected",
+            },
+          },
+        };
+      },
+    };
+    const baseSummary = auditSummary();
+    const { modelProxyUsage: _modelProxyUsage, ...summaryWithoutModelUsage } = {
+      ...baseSummary,
+      status: "failed",
+      result: {
+        ...(baseSummary.result as Record<string, unknown>),
+        status: "failed",
+        artifacts: [],
+        error: "failed/input_required",
+      },
+    };
+
+    const res = response();
+    await POST(
+      request({ auditSummary: summaryWithoutModelUsage }, token(), store) as never,
+      res as never,
+    );
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toMatchObject({
+      ok: true,
+      executionId: "exec_123",
+      auditRecordId: "djaudit_failed",
+      billingSummary: null,
+    });
+    expect(persisted).toMatchObject({
+      execution_id: "exec_123",
+      status: "failed",
+      role_usage_ledger: null,
+      error_summary: "failed/input_required",
+    });
+    expect(ledgerEntry).toBeUndefined();
   });
 
   it("rejects audit uploads without audit.write scope", async () => {

@@ -1,11 +1,8 @@
 import {
-  BookOpen,
   CircleHalfSolid,
   EllipsisHorizontal,
   Keyboard,
   OpenRectArrowOut,
-  TimelineVertical,
-  User as UserIcon,
   XMark,
 } from "@medusajs/icons"
 import {
@@ -24,16 +21,19 @@ import { useTranslation } from "react-i18next"
 import { Skeleton } from "../../common/skeleton"
 
 import { useState } from "react"
-import { Link, useLocation, useNavigate } from "react-router-dom"
+import { useNavigate } from "react-router-dom"
 import { useLogout, useMe } from "../../../hooks/api"
 import { queryClient } from "../../../lib/query-client"
 import { useGlobalShortcuts } from "../../../providers/keybind-provider/hooks"
 import { useTheme } from "../../../providers/theme-provider"
 import { useDocumentDirection } from "../../../hooks/use-document-direction"
 
-export const UserMenu = () => {
+export const UserMenu = ({
+  variant = "sidebar",
+}: {
+  variant?: "sidebar" | "topbar"
+}) => {
   const { t } = useTranslation()
-  const location = useLocation()
   const direction = useDocumentDirection()
 
   const [openMenu, setOpenMenu] = useState(false)
@@ -47,36 +47,22 @@ export const UserMenu = () => {
   return (
     <div data-testid="sidebar-user-menu">
       <DropdownMenu dir={direction} open={openMenu} onOpenChange={setOpenMenu} data-testid="sidebar-user-menu-dropdown">
-        <UserBadge />
-        <DropdownMenu.Content className="min-w-[var(--radix-dropdown-menu-trigger-width)] max-w-[var(--radix-dropdown-menu-trigger-width)]" data-testid="sidebar-user-menu-content">
+        <UserBadge variant={variant} />
+        <DropdownMenu.Content
+          className={clx("min-w-[var(--radix-dropdown-menu-trigger-width)]", {
+            "max-w-[var(--radix-dropdown-menu-trigger-width)]": variant === "sidebar",
+            "max-w-[260px]": variant === "topbar",
+          })}
+          data-testid="sidebar-user-menu-content"
+        >
           <UserItem />
           <DropdownMenu.Separator data-testid="sidebar-user-menu-separator-1" />
-          <DropdownMenu.Item asChild data-testid="sidebar-user-menu-profile-settings">
-            <Link to="/settings/profile" state={{ from: location.pathname }}>
-              <UserIcon className="text-ui-fg-subtle me-2" />
-              {t("app.menus.user.profileSettings")}
-            </Link>
-          </DropdownMenu.Item>
-          <DropdownMenu.Separator data-testid="sidebar-user-menu-separator-2" />
-          <DropdownMenu.Item asChild data-testid="sidebar-user-menu-documentation">
-            <Link to="https://docs.mercurjs.com/welcome" target="_blank">
-              <BookOpen className="text-ui-fg-subtle me-2" />
-              {t("app.menus.user.documentation")}
-            </Link>
-          </DropdownMenu.Item>
-          <DropdownMenu.Item asChild data-testid="sidebar-user-menu-changelog">
-            <Link to="https://www.mercurjs.com/updates" target="_blank">
-              <TimelineVertical className="text-ui-fg-subtle me-2" />
-              {t("app.menus.user.changelog")}
-            </Link>
-          </DropdownMenu.Item>
-          <DropdownMenu.Separator data-testid="sidebar-user-menu-separator-3" />
           <DropdownMenu.Item onClick={toggleModal} data-testid="sidebar-user-menu-shortcuts">
             <Keyboard className="text-ui-fg-subtle me-2" />
             {t("app.menus.user.shortcuts")}
           </DropdownMenu.Item>
           <ThemeToggle />
-          <DropdownMenu.Separator data-testid="sidebar-user-menu-separator-4" />
+          <DropdownMenu.Separator data-testid="sidebar-user-menu-separator-3" />
           <Logout />
         </DropdownMenu.Content>
       </DropdownMenu>
@@ -85,7 +71,7 @@ export const UserMenu = () => {
   )
 }
 
-const UserBadge = () => {
+const UserBadge = ({ variant = "sidebar" }: { variant?: "sidebar" | "topbar" }) => {
   const { user, isPending, isError, error } = useMe()
 
   const name = [user?.first_name, user?.last_name].filter(Boolean).join(" ")
@@ -107,14 +93,24 @@ const UserBadge = () => {
   }
 
   return (
-    <div className="p-3" data-testid="sidebar-user-menu-badge">
+    <div
+      className={clx({
+        "p-3": variant === "sidebar",
+        "p-0": variant === "topbar",
+      })}
+      data-testid="sidebar-user-menu-badge"
+    >
       <DropdownMenu.Trigger
         disabled={!user}
         className={clx(
-          "bg-ui-bg-subtle grid w-full cursor-pointer grid-cols-[24px_1fr_15px] items-center gap-2 rounded-md py-1 ps-0.5 pe-2 outline-none",
+          "grid w-full cursor-pointer grid-cols-[24px_1fr_15px] items-center gap-2 rounded-md py-1 ps-0.5 pe-2 outline-none",
           "hover:bg-ui-bg-subtle-hover",
           "data-[state=open]:bg-ui-bg-subtle-hover",
-          "focus-visible:shadow-borders-focus"
+          "focus-visible:shadow-borders-focus",
+          {
+            "bg-ui-bg-subtle": variant === "sidebar",
+            "border bg-ui-bg-base shadow-borders-base": variant === "topbar",
+          },
         )}
         data-testid="sidebar-user-menu-trigger"
       >

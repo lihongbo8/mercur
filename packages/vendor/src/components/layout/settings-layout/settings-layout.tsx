@@ -35,38 +35,23 @@ const extensionNavItems: INavItem[] = customSettingsItems
   }));
 
 const useSettingRoutes = (): INavItem[] => {
-  const { t } = useTranslation();
-
-  return useMemo(
-    () => [
+  return useMemo(() => {
+    const routes = [
       {
-        label: t("profile.domain"),
+        label: "开发者资料",
         to: "/settings/profile",
       },
-      {
-        label: t("app.menus.store.label"),
-        to: "/settings/store",
-      },
-      {
-        label: t("users.domain"),
-        to: "/settings/users",
-      },
-      {
-        label: t("productTypes.domain"),
-        to: "/settings/product-types",
-      },
-      {
-        label: t("productTags.domain"),
-        to: "/settings/product-tags",
-      },
-      {
-        label: t("stockLocations.domain"),
-        to: "/settings/locations",
-      },
       ...extensionNavItems,
-    ],
-    [t],
-  );
+    ];
+    const seen = new Set<string>();
+    return routes.filter((route) => {
+      if (seen.has(route.to)) {
+        return false;
+      }
+      seen.add(route.to);
+      return true;
+    });
+  }, []);
 };
 
 /**
@@ -75,7 +60,7 @@ const useSettingRoutes = (): INavItem[] => {
  */
 const getSafeFromValue = (from: string) => {
   if (from.startsWith("/settings")) {
-    return "/orders";
+    return "/";
   }
 
   return from;
@@ -110,7 +95,7 @@ const SettingsSidebar = () => {
 };
 
 const Header = () => {
-  const [from, setFrom] = useState("/orders");
+  const [from, setFrom] = useState("/");
 
   const { t } = useTranslation();
   const location = useLocation();

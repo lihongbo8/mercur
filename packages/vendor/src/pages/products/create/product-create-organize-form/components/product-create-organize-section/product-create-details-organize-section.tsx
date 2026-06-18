@@ -1,10 +1,8 @@
 import { useState } from "react";
 
 import { Heading } from "@medusajs/ui";
-import { useTranslation } from "react-i18next";
 
 import { Form } from "@components/common/form";
-import { SwitchBox } from "@components/common/switch-box";
 import { Combobox } from "@components/inputs/combobox";
 import { useComboboxData } from "@hooks/use-combobox-data";
 import { sdk, fetchQuery } from "@lib/client";
@@ -13,7 +11,6 @@ import { ProductCreateSchemaType } from "../../../types";
 import { CategoryCombobox } from "@pages/products/common/components/category-combobox";
 
 export const ProductCreateOrganizationSection = () => {
-  const { t } = useTranslation();
   const form = useTabbedForm<ProductCreateSchemaType>();
 
   const collections = useComboboxData({
@@ -57,14 +54,7 @@ export const ProductCreateOrganizationSection = () => {
 
   return (
     <div id="organize" className="flex flex-col gap-y-8">
-      <Heading>{t("products.organization.header")}</Heading>
-      <SwitchBox
-        control={form.control}
-        name="discountable"
-        label={t("products.fields.discountable.label")}
-        description={t("products.fields.discountable.hint")}
-        optional
-      />
+      <Heading>归属设置</Heading>
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <Form.Field
           control={form.control}
@@ -72,9 +62,7 @@ export const ProductCreateOrganizationSection = () => {
           render={({ field }) => {
             return (
               <Form.Item>
-                <Form.Label optional>
-                  {t("products.fields.tags.label")}
-                </Form.Label>
+                <Form.Label optional>关键词</Form.Label>
                 <Form.Control>
                   <Combobox
                     {...field}
@@ -95,9 +83,7 @@ export const ProductCreateOrganizationSection = () => {
           render={({ field }) => {
             return (
               <Form.Item>
-                <Form.Label optional>
-                  {t("products.fields.type.label")}
-                </Form.Label>
+                <Form.Label optional>岗位类型</Form.Label>
                 <Form.Control>
                   <Combobox
                     {...field}
@@ -123,8 +109,8 @@ export const ProductCreateOrganizationSection = () => {
 
             return (
               <Form.Item>
-                <Form.Label tooltip={t("products.fields.primaryCategory.tooltip")}>
-                  {t("products.fields.primaryCategory.label")}
+                <Form.Label tooltip="用于商城前台归类展示。">
+                  主分类
                 </Form.Label>
                 <Form.Control>
                   <CategoryCombobox
@@ -149,9 +135,7 @@ export const ProductCreateOrganizationSection = () => {
           render={({ field }) => {
             return (
               <Form.Item>
-                <Form.Label optional>
-                  {t("products.fields.secondaryCategories.label", "Secondary Categories")}
-                </Form.Label>
+                <Form.Label optional>辅助分类</Form.Label>
                 <Form.Control>
                   <CategoryCombobox
                     {...field}
@@ -171,9 +155,7 @@ export const ProductCreateOrganizationSection = () => {
           render={({ field }) => {
             return (
               <Form.Item>
-                <Form.Label optional>
-                  {t("products.fields.collection.label")}
-                </Form.Label>
+                <Form.Label optional>岗位分组</Form.Label>
                 <Form.Control>
                   <Combobox
                     {...field}

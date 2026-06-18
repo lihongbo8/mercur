@@ -241,7 +241,7 @@ class SellerModuleService extends MedusaService({
   ): Promise<MemberInviteDTO> {
     let decoded: JwtPayload
     try {
-      decoded = jwt.verify(token, this.options_.jwt_secret, {
+      decoded = jwt.verify(token, this.getJwtSecret_(), {
         complete: true,
       }) as JwtPayload
     } catch {
@@ -279,12 +279,23 @@ class SellerModuleService extends MedusaService({
     expiresIn: number,
   ): string {
     return generateJwtToken(data, {
-      secret: this.options_.jwt_secret,
+      secret: this.getJwtSecret_(),
       expiresIn,
       jwtOptions: {
         jwtid: crypto.randomUUID(),
       },
     })
+  }
+
+  private getJwtSecret_(): string {
+    const jwtSecret = this.options_.jwt_secret
+    if (!jwtSecret) {
+      throw new MedusaError(
+        MedusaError.Types.INVALID_DATA,
+        "Seller invite JWT secret is not configured"
+      )
+    }
+    return jwtSecret
   }
 
   private validateSellerData_(data: any) {

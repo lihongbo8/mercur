@@ -1,15 +1,11 @@
 import {
   Buildings,
-  CogSixTooth,
-  CurrencyDollar,
-  CreditCardRefresh,
+  ChatBubbleLeftRight,
+  CloudArrowUp,
   EllipsisHorizontal,
-  MagnifyingGlass,
   Plus,
-  ReceiptPercent,
-  ShoppingCart,
   Tag,
-  Users,
+  User,
 } from "@medusajs/icons";
 import { Avatar, Divider, DropdownMenu, Text, clx } from "@medusajs/ui";
 import { useTranslation } from "react-i18next";
@@ -18,9 +14,8 @@ import { Skeleton } from "../../common/skeleton";
 import { INavItem, NavItem } from "../../layout/nav-item";
 import { Shell } from "../../layout/shell";
 
-import { useLocation, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { useMe, useSelectSeller, useSellers } from "../../../hooks/api";
-import { useSearch } from "../../../providers/search-provider";
 import { UserMenu } from "../user-menu";
 import { useDocumentDirection } from "../../../hooks/use-document-direction";
 import components from "virtual:mercur/components";
@@ -59,6 +54,7 @@ const addNestedItems = (
 const MainSidebar = () => {
   const coreRoutes = useCoreRoutes();
   const customMenuItems = getMenuItemsByType(allMenuItems, "main");
+  const coreRoutePaths = new Set(coreRoutes.map((route) => route.to));
 
   const routesWithNested = coreRoutes.map((route) => ({
     ...route,
@@ -66,6 +62,7 @@ const MainSidebar = () => {
   }));
 
   const customRoutesWithNested = customMenuItems
+    .filter((item) => !coreRoutePaths.has(item.path))
     .sort((a, b) => (a.rank ?? 0) - (b.rank ?? 0))
     .map((item) => {
       const Icon = item.icon;
@@ -90,7 +87,6 @@ const MainSidebar = () => {
         <div className="flex flex-1 flex-col justify-between">
           <div className="flex flex-1 flex-col">
             <nav className="flex flex-col gap-y-1 py-3">
-              <Searchbar />
               {routesWithNested.map((route) => {
                 return <NavItem key={route.to} {...route} />;
               })}
@@ -253,119 +249,44 @@ export const Header = () => {
 };
 
 export const useCoreRoutes = (): Omit<INavItem, "pathname">[] => {
-  const { t } = useTranslation();
-
   return [
     {
-      icon: <ShoppingCart />,
-      label: t("orders.domain"),
-      to: "/orders",
-      items: [
-        // TODO: Enable when domin is introduced
-        // {
-        //   label: t("draftOrders.domain"),
-        //   to: "/draft-orders",
-        // },
-      ],
+      icon: <ChatBubbleLeftRight />,
+      label: "开发对话",
+      to: "/",
     },
     {
       icon: <Tag />,
-      label: t("products.domain"),
+      label: "岗位商品",
       to: "/products",
-      items: [
-        {
-          label: t("collections.domain"),
-          to: "/collections",
-        },
-        {
-          label: t("categories.domain"),
-          to: "/categories",
-        },
-        // TODO: Enable when domin is introduced
-        // {
-        //   label: t("giftCards.domain"),
-        //   to: "/gift-cards",
-        // },
-      ],
+      activePathExcludes: ["/products/create"],
+    },
+    {
+      icon: <CloudArrowUp />,
+      label: "上传岗位",
+      to: "/products/create",
+    },
+    {
+      icon: <Tag />,
+      label: "销售记录",
+      to: "/orders",
     },
     {
       icon: <Buildings />,
-      label: t("inventory.domain"),
-      to: "/inventory",
-      items: [],
-    },
-    {
-      icon: <Users />,
-      label: t("customers.domain"),
-      to: "/customers",
-      items: [],
-    },
-    {
-      icon: <ReceiptPercent />,
-      label: t("promotions.domain"),
-      to: "/promotions",
-      items: [
-        {
-          label: t("campaigns.domain"),
-          to: "/campaigns",
-        },
-      ],
-    },
-    {
-      icon: <CurrencyDollar />,
-      label: t("priceLists.domain"),
-      to: "/price-lists",
-    },
-    {
-      icon: <CreditCardRefresh />,
-      label: t("payouts.domain"),
+      label: "结算记录",
       to: "/payouts",
+    },
+    {
+      icon: <User />,
+      label: "开发者资料",
+      to: "/settings/profile",
     },
   ];
 };
 
-const Searchbar = () => {
-  const { t } = useTranslation();
-  const { toggleSearch } = useSearch();
-
-  return (
-    <div className="px-3">
-      <button
-        onClick={toggleSearch}
-        className={clx(
-          "bg-ui-bg-subtle text-ui-fg-subtle flex w-full items-center gap-x-2.5 rounded-md px-2 py-1 outline-none",
-          "hover:bg-ui-bg-subtle-hover",
-          "focus-visible:shadow-borders-focus",
-        )}
-      >
-        <MagnifyingGlass />
-        <div className="flex-1 text-start">
-          <Text size="small" leading="compact" weight="plus">
-            {t("app.search.label")}
-          </Text>
-        </div>
-        <Text size="small" leading="compact" className="text-ui-fg-muted">
-          ⌘K
-        </Text>
-      </button>
-    </div>
-  );
-};
-
 const UtilitySection = () => {
-  const location = useLocation();
-  const { t } = useTranslation();
-
   return (
     <div className="flex flex-col">
-      <div className="flex flex-col gap-y-0.5 py-3">
-        <NavItem
-          label={t("app.nav.settings.header")}
-          to="/settings"
-          from={location.pathname}
-          icon={<CogSixTooth />}
-        />
-      </div>
       <div className="px-3">
         <Divider variant="dashed" />
       </div>

@@ -1,0 +1,275 @@
+import type { MedusaRequest, MedusaResponse } from "@medusajs/framework/http";
+import { ContainerRegistrationKeys } from "@medusajs/framework/utils";
+import {
+  type DijieQueryGraph,
+  verifyPaidDijieRoleCheckoutFacts,
+} from "../../../lib/dijie/entitlement-verifier";
+import { DIJIE_AUDIT_MODULE } from "../../../lib/dijie/audit-store";
+import {
+  createDijieLedgerEntryReadModel,
+  type DijieLedgerEntryReader,
+  type DijieLedgerEntryStore,
+  type DijieLedgerEntryStorageRecord,
+} from "../../../lib/dijie/ledger-store";
+import type {
+  DijieRoleEntitlementStorageRecord,
+  DijieRoleEntitlementStore,
+} from "../../../lib/dijie/role-entitlement-store";
+
+type UnknownRecord = Record<string, unknown>;
+
+function asRecord(value: unknown): UnknownRecord {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as UnknownRecord)
+    : {};
+}
+
+function stringField(record: UnknownRecord, field: string): string | undefined {
+  const value = record[field];
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function actorIdFromRequest(req: MedusaRequest): string | undefined {
+  const authContext = (req as MedusaRequest & { auth_context?: UnknownRecord }).auth_context;
+  return authContext ? stringField(authContext, "actor_id") : undefined;
+}
+
+function isRoleEntitlementStore(value: unknown): value is DijieRoleEntitlementStore {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    typeof (value as { authorizeDijieRoleListing?: unknown }).authorizeDijieRoleListing ===
+      "function"
+  );
+}
+
+function isLedgerEntryStore(value: unknown): value is DijieLedgerEntryStore {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    typeof (value as { createDijieLedgerEntry?: unknown }).createDijieLedgerEntry === "function"
+  );
+}
+
+function isLedgerEntryReader(value: unknown): value is DijieLedgerEntryReader {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    typeof (value as { listDijieLedgerEntriesForAccount?: unknown })
+      .listDijieLedgerEntriesForAccount === "function"
+  );
+}
+
+function resolveDijieRoleEntitlements(req: MedusaRequest) {
+  try {
+    const service = req.scope.resolve(DIJIE_AUDIT_MODULE) as unknown;
+    return isRoleEntitlementStore(service) ? service : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function resolveQueryGraph(req: MedusaRequest): DijieQueryGraph | undefined {
+  const keys = [ContainerRegistrationKeys.QUERY, "query", ContainerRegistrationKeys.REMOTE_QUERY];
+  for (const key of keys) {
+    try {
+      const query = req.scope.resolve(key) as unknown;
+      if (
+        query &&
+        (typeof query === "object" || typeof query === "function") &&
+        typeof (query as { graph?: unknown }).graph === "function"
+      ) {
+        return (queryInput) =>
+          (query as {
+            graph: (input: Parameters<DijieQueryGraph>[0]) => ReturnType<DijieQueryGraph>;
+          }).graph(queryInput);
+      }
+    } catch {
+      // Keep trying known Medusa query service registration keys.
+    }
+  }
+  return undefined;
+}
+
+function safeEntitlement(entitlement: DijieRoleEntitlementStorageRecord & { id: string }) {
+  return {
+    id: entitlement.id,
+    roleListingId: entitlement.role_listing_id,
+    packageId: entitlement.package_id,
+    packageVersion: entitlement.package_version,
+    status: entitlement.entitlement_status,
+    source: entitlement.source,
+    orderId: entitlement.order_id,
+    authorizedAt: entitlement.authorized_at.toISOString(),
+    pricing: entitlement.pricing,
+  };
+}
+
+function hasAuthorizationLedgerEntry(
+  entries: Array<DijieLedgerEntryStorageRecord & { id: string }>,
+  entitlement: DijieRoleEntitlementStorageRecord & { id: string },
+) {
+  return entries.some(
+    (entry) =>
+      entry.source === "role_marketplace" &&
+      entry.usage_kind === "install" &&
+      entry.entitlement_id === entitlement.id &&
+      entry.role_listing_id === entitlement.role_listing_id,
+  );
+}
+
+async function ensurePaidAuthorizationLedgerEntry(
+  store: DijieLedgerEntryStore,
+  entitlement: DijieRoleEntitlementStorageRecord & { id: string },
+) {
+  if (
+    entitlement.source !== "checkout" ||
+    entitlement.entitlement_status !== "authorized" ||
+    entitlement.pricing.authorizationFeeCents <= 0
+  ) {
+    return undefined;
+  }
+
+  if (isLedgerEntryReader(store)) {
+    const entries = await store.listDijieLedgerEntriesForAccount({
+      accountId: entitlement.actor_id,
+      take: 200,
+    });
+    if (hasAuthorizationLedgerEntry(entries, entitlement)) {
+      return undefined;
+    }
+  }
+
+  const ledgerResult = await store.createDijieLedgerEntry({
+    accountId: entitlement.actor_id,
+    billingAccountId: entitlement.actor_id,
+    source: "role_marketplace",
+    usageKind: "install",
+    surface: "buyer_storefront",
+    mode: "user",
+    subject: {
+      eventKind: "role_authorization",
+      orderId: entitlement.order_id ?? undefined,
+      roleListingId: entitlement.role_listing_id,
+      packageId: entitlement.package_id,
+      entitlementId: entitlement.id,
+    },
+    meters: [{ name: "role_authorization", quantity: 1, unit: "authorization" }],
+    currency: "CNY",
+    grossAmountCents: entitlement.pricing.authorizationFeeCents,
+    platformReceivableCents: 0,
+    developerReceivableCents: entitlement.pricing.developerReceivableCents,
+    roleListingId: entitlement.role_listing_id,
+    packageId: entitlement.package_id,
+    entitlementId: entitlement.id,
+    developerRef: entitlement.developer_ref,
+    occurredAt: entitlement.authorized_at,
+  });
+
+  return ledgerResult.ok ? ledgerResult.value.ledgerEntry : ledgerResult;
+}
+
+export async function POST(req: MedusaRequest, res: MedusaResponse) {
+  const actorId = actorIdFromRequest(req);
+  if (!actorId) {
+    return res.status(401).json({
+      ok: false,
+      error: "岗位授权需要先登录迭界AI账号。",
+    });
+  }
+
+  const entitlementStore = resolveDijieRoleEntitlements(req);
+  if (!entitlementStore) {
+    return res.status(503).json({
+      ok: false,
+      error: "迭界AI岗位授权存储暂未配置。",
+    });
+  }
+
+  const body = asRecord(req.body);
+  const roleListingId = stringField(body, "roleListingId") ?? stringField(body, "role_listing_id");
+  const orderId =
+    stringField(body, "orderId") ??
+    stringField(body, "order_id") ??
+    stringField(body, "entitlementId") ??
+    stringField(body, "entitlement_id");
+  if (!roleListingId) {
+    return res.status(400).json({
+      ok: false,
+      error: "授权岗位必须选择岗位。",
+    });
+  }
+
+  const result = orderId
+    ? await (async () => {
+        if (typeof entitlementStore.authorizeDijiePaidRoleListing !== "function") {
+          return {
+            ok: false as const,
+            status: 503,
+            error: "迭界AI付费岗位授权存储暂未配置。",
+          };
+        }
+        const queryGraph = resolveQueryGraph(req);
+        if (!queryGraph) {
+          return {
+            ok: false as const,
+            status: 503,
+            error: "迭界AI付费订单查询暂未配置。",
+          };
+        }
+        const paidCheckout = await verifyPaidDijieRoleCheckoutFacts(
+          {
+            actorId,
+            roleListingId,
+            orderId,
+          },
+          queryGraph,
+        );
+        if (!paidCheckout.ok) {
+          return paidCheckout;
+        }
+        return entitlementStore.authorizeDijiePaidRoleListing({
+          actorId,
+          roleListingId,
+          orderId: paidCheckout.orderId,
+        });
+      })()
+    : await entitlementStore.authorizeDijieRoleListing({
+        actorId,
+        roleListingId,
+      });
+  if (!result.ok) {
+    const errorCode = "code" in result ? result.code : undefined;
+    return res.status(result.status).json({
+      ok: false,
+      ...(errorCode ? { code: errorCode } : {}),
+      error: result.error,
+    });
+  }
+
+  let ledgerEntry:
+    | ReturnType<typeof createDijieLedgerEntryReadModel>
+    | undefined;
+  if (result.value.entitlement.source === "checkout" && isLedgerEntryStore(entitlementStore)) {
+    const ledgerResult = await ensurePaidAuthorizationLedgerEntry(
+      entitlementStore,
+      result.value.entitlement,
+    );
+    if (ledgerResult) {
+      if ("ok" in ledgerResult) {
+        return res.status(ledgerResult.status).json({
+          ok: false,
+          error: ledgerResult.error,
+        });
+      }
+      ledgerEntry = createDijieLedgerEntryReadModel(ledgerResult);
+    }
+  }
+
+  return res.status(200).json({
+    ok: true,
+    entitlementId: result.value.entitlementId,
+    entitlement: safeEntitlement(result.value.entitlement),
+    ledgerEntry,
+  });
+}

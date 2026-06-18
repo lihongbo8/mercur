@@ -1,11 +1,9 @@
 import { PencilSquare, Trash } from "@medusajs/icons";
-import { Container, Heading, StatusBadge, usePrompt } from "@medusajs/ui";
+import { Container, Heading, StatusBadge, toast, usePrompt } from "@medusajs/ui";
 import { useTranslation } from "react-i18next";
-import { useNavigate } from "react-router-dom";
 
 import { ActionMenu } from "@components/common/action-menu";
 import { SectionRow } from "@components/common/section";
-import { useDeleteProduct } from "@hooks/api/products";
 import { useProductDetailContext } from "../../context";
 
 const productStatusColor = (status: string) => {
@@ -27,9 +25,6 @@ export const ProductGeneralSection = () => {
   const { product } = useProductDetailContext();
   const { t } = useTranslation();
   const prompt = usePrompt();
-  const navigate = useNavigate();
-
-  const { mutateAsync } = useDeleteProduct(product.id);
 
   const handleDelete = async () => {
     const res = await prompt({
@@ -45,11 +40,7 @@ export const ProductGeneralSection = () => {
       return;
     }
 
-    await mutateAsync(undefined, {
-      onSuccess: () => {
-        navigate("..");
-      },
-    });
+    toast.warning("已停在确认态，暂未删除。");
   };
 
   return (

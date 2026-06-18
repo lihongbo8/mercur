@@ -21,6 +21,8 @@
     "seed": "medusa exec ./src/scripts/seed.ts",
     "start": "mercurjs start",
     "dev": "mercurjs develop",
+    "typecheck:prod": "tsc -p tsconfig.prod.json --noEmit",
+    "typecheck:test": "tsc -p tsconfig.test.json --noEmit",
     "test:integration:http": "TEST_TYPE=integration:http NODE_OPTIONS=--experimental-vm-modules jest --silent=false --runInBand --forceExit",
     "test:integration:modules": "TEST_TYPE=integration:modules NODE_OPTIONS=--experimental-vm-modules jest --silent=false --runInBand --forceExit",
     "test:unit": "TEST_TYPE=unit NODE_OPTIONS=--experimental-vm-modules jest --silent --runInBand --forceExit"
@@ -44,6 +46,7 @@
     "@swc/jest": "^0.2.36",
     "@types/jest": "^29.5.13",
     "@types/node": "^20.12.11",
+    "ajv": "^8.13.0",
     "jest": "^29.7.0",
     "prop-types": "^15.8.1",
     "yalc": "^1.0.0-pre.53"

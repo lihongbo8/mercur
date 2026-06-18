@@ -32,7 +32,7 @@ export const Login = () => {
     reason && reason.toLowerCase() === "unauthorized"
       ? t("login.sessionExpired")
       : reason;
-  const from = location.state?.from?.pathname || "/orders";
+  const from = location.state?.from?.pathname || "/products";
 
   const form = useForm<z.infer<typeof LoginSchema>>({
     resolver: zodResolver(LoginSchema),
@@ -96,7 +96,7 @@ export const Login = () => {
           data-testid="login-header"
         >
           <Heading data-testid="login-title">
-            {t("login.title", { name: config.name ?? "Mercur" })}
+            {t("login.title", { name: config.name ?? "迭界AI岗位商城" })}
           </Heading>
           <Text
             size="small"
@@ -141,12 +141,13 @@ export const Login = () => {
                       <Form.Item>
                         <Form.Label>{}</Form.Label>
                         <Form.Control>
-                          <Input
+                          <input
                             type="password"
                             autoComplete="current-password"
                             {...field}
-                            className="bg-ui-bg-field-component"
+                            className="txt-compact-small border-ui-border-base bg-ui-bg-field-component text-ui-fg-base placeholder:text-ui-fg-muted h-8 w-full rounded-md border px-2 outline-none"
                             placeholder={t("fields.password")}
+                            aria-label={t("fields.password")}
                             data-testid="login-password-input"
                           />
                         </Form.Control>

@@ -21,3 +21,4 @@ export { Notifications } from './components/layout/notifications/notifications'
 
 // Product constants
 export { PRODUCT_DETAIL_FIELDS, PRODUCT_DETAIL_QUERY } from './pages/products/constants'
+export { ReviewCenterWorkbench } from './pages/home/review-center-workbench'

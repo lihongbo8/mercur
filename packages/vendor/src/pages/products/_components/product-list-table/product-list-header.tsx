@@ -1,18 +1,17 @@
 import { Children, ReactNode } from "react";
-import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 import { Button, Heading } from "@medusajs/ui";
 
 export const ProductListTitle = () => {
-  const { t } = useTranslation();
-  return <Heading level="h2">{t("products.domain")}</Heading>;
+  return <Heading level="h2">岗位商品</Heading>;
 };
 
 export const ProductListCreateButton = () => {
-  const { t } = useTranslation();
   return (
     <Button size="small" variant="primary" asChild>
-      <Link to="create">{t("actions.create")}</Link>
+      <Link to="create" title="上传资料包并创建岗位商品">
+        新建
+      </Link>
     </Button>
   );
 };

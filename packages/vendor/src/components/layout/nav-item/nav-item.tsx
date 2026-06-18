@@ -30,7 +30,11 @@ export type INavItem = {
   type?: ItemType;
   from?: string;
   nested?: string;
+  activePathExcludes?: string[];
 };
+
+const pathMatches = (path: string, pathname: string) =>
+  path === "/" ? pathname === "/" : pathname.startsWith(path);
 
 const BASE_NAV_LINK_CLASSES =
   "text-ui-fg-subtle transition-fg hover:bg-ui-bg-subtle-hover flex items-center gap-x-2 rounded-md py-0.5 pl-0.5 pr-2 outline-none [&>svg]:text-ui-fg-subtle focus-visible:shadow-borders-focus";
@@ -45,7 +49,7 @@ const getIsOpen = (
   pathname: string,
 ) => {
   return [to, ...(items?.map((i) => i.to) ?? [])].some((p) =>
-    pathname.startsWith(p),
+    pathMatches(p, pathname),
   );
 };
 
@@ -93,6 +97,7 @@ export const NavItem = ({
   items,
   type = "core",
   from,
+  activePathExcludes,
 }: INavItem) => {
   const { pathname } = useLocation();
   const [open, setOpen] = useState(getIsOpen(to, items, pathname));
@@ -114,11 +119,15 @@ export const NavItem = ({
       isSetting?: boolean;
     }) => {
       if (["core", "setting"].includes(type)) {
-        isActive = pathname.startsWith(to);
+        isActive =
+          pathMatches(to, pathname) &&
+          !(activePathExcludes ?? []).some((path) =>
+            pathMatches(path, pathname),
+          );
 
         if (isActive && !isNested && items?.length) {
           const nestedIsActive = items.some((item) =>
-            pathname.startsWith(item.to),
+            pathMatches(item.to, pathname),
           );
           if (nestedIsActive) {
             isActive = false;
@@ -132,7 +141,7 @@ export const NavItem = ({
         [SETTING_NAV_LINK_CLASSES]: isSetting,
       });
     },
-    [type, pathname, items],
+    [type, pathname, items, activePathExcludes],
   );
 
   const isSetting = type === "setting";

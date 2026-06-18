@@ -1,14 +1,14 @@
-import { z } from "zod"
-import { i18n } from "@components/utilities/i18n/i18n"
-import { optionalFloat, optionalInt } from "@lib/validation"
-import { decorateVariantsWithDefaultValues } from "./utils"
+import { z } from "zod";
+import { i18n } from "@components/utilities/i18n/i18n";
+import { optionalFloat, optionalInt } from "@lib/validation";
+import { decorateVariantsWithDefaultValues } from "./utils";
 
 export const MediaSchema = z.object({
   id: z.string().optional(),
   url: z.string(),
   isThumbnail: z.boolean(),
   file: z.any().nullable(), // File
-})
+});
 
 const ProductCreateVariantSchema = z.object({
   should_create: z.boolean(),
@@ -37,54 +37,65 @@ const ProductCreateVariantSchema = z.object({
       z.object({
         inventory_item_id: z.string(),
         required_quantity: optionalInt,
-      })
+      }),
     )
     .optional(),
   media: z.array(MediaSchema).optional(),
-})
+});
 
 export type ProductCreateVariantSchema = z.infer<
   typeof ProductCreateVariantSchema
->
+>;
 
 export const ProductCreateOptionSchema = z.object({
-  title: z.string().min(1, i18n.t("products.fields.attributes.add.title.required")),
-  values: z.array(z.string()).min(1, i18n.t("products.fields.attributes.add.values.required")),
+  title: z
+    .string()
+    .min(1, i18n.t("products.fields.attributes.add.title.required")),
+  values: z
+    .array(z.string())
+    .min(1, i18n.t("products.fields.attributes.add.values.required")),
   metadata: z.record(z.unknown()).optional(),
   useForVariants: z.boolean().optional(),
   attributeId: z.string().optional(),
-})
+});
 
 export type ProductCreateOptionSchemaType = z.infer<
   typeof ProductCreateOptionSchema
->
+>;
 
 export const ProductCreateBaseSchema = z.object({
   title: z.string().min(1, i18n.t("products.fields.title.required")),
   subtitle: z.string().optional(),
   handle: z.string().optional(),
   description: z.string().optional(),
-  role_package_id: z.string().min(1, "请输入岗位包 ID"),
-  role_package_version: z.string().min(1, "请输入岗位包版本"),
+  role_usage_instructions: z
+    .string()
+    .min(10, "请填写岗位使用规范，说明使用者要准备哪些资料和如何发起任务。"),
+  role_package_id: z.string().min(1, "请先上传岗位资料包"),
+  role_package_version: z.string().min(1, "请先上传岗位资料包"),
+  role_category_ref: z.string().min(1, "请先选择平台品类"),
+  role_category_name: z.string().optional(),
+  role_listing_id: z.string().optional(),
   role_authorization_fee_yuan: z
     .string()
     .min(1, "请输入一次授权费")
     .regex(/^\d+(\.\d{1,2})?$/, "请输入最多两位小数的金额"),
   role_input_token_price_cents_per_million: z
     .string()
-    .min(1, "请输入输入 Token 单价")
-    .regex(/^\d+$/, "请输入非负整数"),
+    .min(1, "请输入输入 Token 使用费")
+    .regex(/^\d+$/, "请输入整数分/百万 Token"),
   role_output_token_price_cents_per_million: z
     .string()
-    .min(1, "请输入输出 Token 单价")
-    .regex(/^\d+$/, "请输入非负整数"),
+    .min(1, "请输入输出 Token 使用费")
+    .regex(/^\d+$/, "请输入整数分/百万 Token"),
   role_capabilities: z.string().optional(),
+  role_required_capabilities: z.string().optional(),
   role_manifest_ref: z
     .string()
     .optional()
     .refine((value) => {
       if (!value) {
-        return true
+        return true;
       }
 
       return !(
@@ -92,13 +103,15 @@ export const ProductCreateBaseSchema = z.object({
         value.startsWith("~") ||
         /^[A-Za-z]:[\\/]/.test(value) ||
         value.split(/[\\/]/).includes("..")
-      )
-    }, "请输入岗位包内相对路径"),
+      );
+    }, "资料包格式不正确，请重新上传"),
   discountable: z.boolean(),
   type_id: z.string().optional(),
   collection_id: z.string().optional(),
   shipping_profile_id: z.string().optional(),
-  categories: z.array(z.string()).min(1, i18n.t("products.create.errors.primaryCategoryRequired")),
+  categories: z
+    .array(z.string())
+    .min(1, i18n.t("products.create.errors.primaryCategoryRequired")),
   secondary_categories: z.array(z.string()).optional(),
   tags: z.array(z.string()).optional(),
   sales_channels: z
@@ -106,7 +119,7 @@ export const ProductCreateBaseSchema = z.object({
       z.object({
         id: z.string(),
         name: z.string(),
-      })
+      }),
     )
     .optional(),
   origin_country: z.string().optional(),
@@ -121,19 +134,19 @@ export const ProductCreateBaseSchema = z.object({
   enable_variants: z.boolean(),
   variants: z.array(ProductCreateVariantSchema).min(1),
   media: z.array(MediaSchema).optional(),
-})
+});
 
-export const ProductCreateSchema = ProductCreateBaseSchema
-  .superRefine((data, ctx) => {
+export const ProductCreateSchema = ProductCreateBaseSchema.superRefine(
+  (data, ctx) => {
     if (data.variants.every((v) => !v.should_create)) {
       return ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["variants"],
         message: "invalid_length",
-      })
+      });
     }
 
-    const skus = new Set<string>()
+    const skus = new Set<string>();
 
     data.variants.forEach((v, index) => {
       if (v.sku) {
@@ -142,17 +155,18 @@ export const ProductCreateSchema = ProductCreateBaseSchema
             code: z.ZodIssueCode.custom,
             path: [`variants.${index}.sku`],
             message: i18n.t("products.create.errors.uniqueSku"),
-          })
+          });
         }
 
-        skus.add(v.sku)
+        skus.add(v.sku);
       }
-    })
-  })
+    });
+  },
+);
 
 export const EditProductMediaSchema = z.object({
   media: z.array(MediaSchema),
-})
+});
 
 export const PRODUCT_CREATE_FORM_DEFAULTS: Partial<
   z.infer<typeof ProductCreateSchema>
@@ -168,7 +182,7 @@ export const PRODUCT_CREATE_FORM_DEFAULTS: Partial<
       variant_rank: 0,
       options: {
         [i18n.t("products.create.defaults.optionTitle")]: i18n.t(
-          "products.create.defaults.optionValue"
+          "products.create.defaults.optionValue",
         ),
       },
       inventory: [{ inventory_item_id: "", required_quantity: "" }],
@@ -190,15 +204,20 @@ export const PRODUCT_CREATE_FORM_DEFAULTS: Partial<
   mid_code: "",
   origin_country: "",
   role_authorization_fee_yuan: "",
-  role_capabilities: "资料处理, 自动化执行",
+  role_usage_instructions: "",
   role_input_token_price_cents_per_million: "",
-  role_manifest_ref: "role_package/manifest.json",
   role_output_token_price_cents_per_million: "",
+  role_capabilities: "",
+  role_required_capabilities: "",
+  role_manifest_ref: "",
+  role_category_ref: "category:ecommerce_art_designer@1",
+  role_category_name: "电商美工",
   role_package_id: "",
-  role_package_version: "0.1.0",
+  role_package_version: "",
+  role_listing_id: "",
   subtitle: "",
   title: "",
   type_id: "",
   weight: "",
   width: "",
-}
+};

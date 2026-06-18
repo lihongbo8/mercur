@@ -10,6 +10,20 @@ import { createRouteMap, getRoutesByType } from "./utils/routes";
 import { useMemo } from "react";
 import { queryClient } from "./lib/query-client";
 
+function getRuntimeBase() {
+  if (typeof __BASE__ === "string" && __BASE__ !== "/") {
+    return __BASE__;
+  }
+
+  if (typeof window !== "undefined") {
+    if (window.location.pathname.startsWith("/seller")) {
+      return "/seller";
+    }
+  }
+
+  return "/";
+}
+
 export default function App() {
   const routes = useMemo(() => {
     return {
@@ -28,7 +42,7 @@ export default function App() {
             <I18nProvider>
               <RouterProvider
                 router={createBrowserRouter(getRouteMap(routes), {
-                  basename: __BASE__,
+                  basename: getRuntimeBase(),
                 })}
               />
             </I18nProvider>

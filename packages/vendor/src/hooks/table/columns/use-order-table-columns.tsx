@@ -7,34 +7,15 @@ import {
 import { useMemo } from "react"
 import {
   DateCell,
-  DateHeader,
 } from "../../../components/table/table-cells/common/date-cell"
-import { countries } from "../../../lib/data/countries"
-import { CountryCell } from "../../../components/table/table-cells/order/country-cell"
 import {
   CustomerCell,
-  CustomerHeader,
 } from "../../../components/table/table-cells/order/customer-cell"
 import {
   DisplayIdCell,
-  DisplayIdHeader,
 } from "../../../components/table/table-cells/order/display-id-cell"
-import {
-  FulfillmentStatusCell,
-  FulfillmentStatusHeader,
-} from "../../../components/table/table-cells/order/fulfillment-status-cell"
-import {
-  PaymentStatusCell,
-  PaymentStatusHeader,
-} from "../../../components/table/table-cells/order/payment-status-cell"
-import {
-  SalesChannelCell,
-  SalesChannelHeader,
-} from "../../../components/table/table-cells/order/sales-channel-cell"
-import {
-  TotalCell,
-  TotalHeader,
-} from "../../../components/table/table-cells/order/total-cell"
+import { PaymentStatusCell } from "../../../components/table/table-cells/order/payment-status-cell"
+import { TotalCell } from "../../../components/table/table-cells/order/total-cell"
 
 // We have to use any here, as the type of Order is so complex that it lags the TS server
 const columnHelper = createColumnHelper<HttpTypes.AdminOrder>()
@@ -49,7 +30,11 @@ export const useOrderTableColumns = (props: UseOrderTableColumnsProps) => {
   const columns = useMemo(
     () => [
       columnHelper.accessor("display_id", {
-        header: () => <DisplayIdHeader />,
+        header: () => (
+          <div className="flex h-full w-full items-center">
+            <span className="truncate">记录编号</span>
+          </div>
+        ),
         cell: ({ getValue }) => {
           const id = getValue()
 
@@ -57,7 +42,11 @@ export const useOrderTableColumns = (props: UseOrderTableColumnsProps) => {
         },
       }),
       columnHelper.accessor("created_at", {
-        header: () => <DateHeader />,
+        header: () => (
+          <div className="flex h-full w-full items-center">
+            <span className="truncate">成交时间</span>
+          </div>
+        ),
         cell: ({ getValue }) => {
           const date = new Date(getValue())
 
@@ -65,39 +54,35 @@ export const useOrderTableColumns = (props: UseOrderTableColumnsProps) => {
         },
       }),
       columnHelper.accessor("customer", {
-        header: () => <CustomerHeader />,
+        header: () => (
+          <div className="flex h-full w-full items-center">
+            <span className="truncate">客户</span>
+          </div>
+        ),
         cell: ({ getValue }) => {
           const customer = getValue()
 
           return <CustomerCell customer={customer} />
         },
       }),
-      columnHelper.accessor("sales_channel", {
-        header: () => <SalesChannelHeader />,
-        cell: ({ getValue }) => {
-          const channel = getValue()
-
-          return <SalesChannelCell channel={channel} />
-        },
-      }),
       columnHelper.accessor("payment_status", {
-        header: () => <PaymentStatusHeader />,
+        header: () => (
+          <div className="flex h-full w-full items-center">
+            <span className="truncate">收款状态</span>
+          </div>
+        ),
         cell: ({ getValue }) => {
           const status = getValue()
 
           return <PaymentStatusCell status={status} />
         },
       }),
-      columnHelper.accessor("fulfillment_status", {
-        header: () => <FulfillmentStatusHeader />,
-        cell: ({ getValue }) => {
-          const status = getValue()
-
-          return <FulfillmentStatusCell status={status} />
-        },
-      }),
       columnHelper.accessor("total", {
-        header: () => <TotalHeader />,
+        header: () => (
+          <div className="flex h-full w-full items-center">
+            <span className="truncate">金额</span>
+          </div>
+        ),
         cell: ({ getValue, row }) => {
             const isFullyRefunded = row.original.payment_status === "refunded"
             const total = !isFullyRefunded
@@ -117,15 +102,6 @@ export const useOrderTableColumns = (props: UseOrderTableColumnsProps) => {
                 }
               />
             )
-        },
-      }),
-      columnHelper.display({
-        id: "actions",
-        cell: ({ row }) => {
-          const countryCode = row.original.shipping_address?.country_code
-          const country = countries.find((c) => c.iso_2 === countryCode)
-
-          return <CountryCell country={country} />
         },
       }),
     ],

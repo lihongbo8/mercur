@@ -5,7 +5,7 @@ import components from "virtual:mercur/components";
 
 import { TwoColumnPageSkeleton } from "@components/common/skeleton";
 import { TwoColumnPage } from "@components/layout/pages";
-import { useMe, useSubscription } from "@/hooks/api";
+import { useMe } from "@/hooks/api";
 import { SellerStatus } from "@mercurjs/types";
 
 import { StoreAddressSection } from "./_components/store-address-section";
@@ -14,6 +14,7 @@ import { StoreGeneralSection } from "./_components/store-general-section";
 import { StoreSubscriptionSection } from "./_components/store-subscription-section";
 import { StorePaymentDetailsSection } from "./_components/store-payment-details-section";
 import { StoreProfessionalDetailsSection } from "./_components/store-professional-details-section";
+import { StoreDeveloperResourcesSection } from "./_components/store-developer-resources-section";
 import {
   StoreDetailHeader,
   StoreDetailTitle,
@@ -24,15 +25,10 @@ import {
 const Root = ({ children }: { children?: ReactNode }) => {
   const { t } = useTranslation();
   const { seller_member, isPending, isError, error } = useMe();
-  const {
-    subscription_plan,
-    subscription_override,
-    isPending: isSubscriptionPending,
-  } = useSubscription();
 
   const seller = seller_member?.seller;
 
-  if (isPending || isSubscriptionPending || !seller) {
+  if (isPending || !seller) {
     return <TwoColumnPageSkeleton mainSections={3} sidebarSections={3} />;
   }
 
@@ -87,16 +83,11 @@ const Root = ({ children }: { children?: ReactNode }) => {
       <TwoColumnPage.Main>
         <StatusBanner />
         <StoreGeneralSection seller={seller} />
-        <StoreTimeOffSection seller={seller} />
+        <StoreProfessionalDetailsSection seller={seller} />
       </TwoColumnPage.Main>
       <TwoColumnPage.Sidebar>
-        <StoreAddressSection seller={seller} />
-        <StoreProfessionalDetailsSection seller={seller} />
+        <StoreDeveloperResourcesSection />
         <StorePaymentDetailsSection seller={seller} />
-        <StoreSubscriptionSection
-          subscription_plan={subscription_plan}
-          subscription_override={subscription_override}
-        />
       </TwoColumnPage.Sidebar>
     </TwoColumnPage>
   );

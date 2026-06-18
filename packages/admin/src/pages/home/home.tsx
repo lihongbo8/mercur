@@ -1,12 +1,10 @@
-import { useEffect } from "react"
-import { useNavigate } from "react-router-dom"
+import { SingleColumnPage } from "../../components/layout/pages"
+import { ReviewCenterWorkbench } from "./review-center-workbench"
 
 export const Home = () => {
-  const navigate = useNavigate()
-
-  useEffect(() => {
-    navigate("/orders", { replace: true })
-  }, [navigate])
-
-  return <div />
+  return (
+    <SingleColumnPage hasOutlet={false}>
+      <ReviewCenterWorkbench />
+    </SingleColumnPage>
+  )
 }

@@ -1,0 +1,331 @@
+import {
+  UseMutationOptions,
+  UseQueryOptions,
+  useMutation,
+  useQuery,
+} from "@tanstack/react-query";
+
+import { fetchQuery } from "../../lib/client";
+import { queryClient } from "../../lib/query-client";
+import { queryKeysFactory } from "../../lib/query-key-factory";
+
+const DIJIE_ROLE_LISTINGS_QUERY_KEY = "dijie_role_listings" as const;
+
+export const dijieRoleListingsQueryKeys = queryKeysFactory(
+  DIJIE_ROLE_LISTINGS_QUERY_KEY,
+);
+
+export type DijieRoleListing = {
+  id: string;
+  roleListingId: string;
+  packageId: string;
+  packageVersion: string;
+  title: string;
+  subtitle?: string | null;
+  description?: string | null;
+  usageInstructions?: string | null;
+  category?: string | null;
+  listingStatus: "draft" | "proposed" | "published" | "delisted" | "archived";
+  reviewState:
+    | "draft"
+    | "submitted"
+    | "needs_changes"
+    | "approved"
+    | "rejected";
+  capabilities: string[];
+  pricing?: {
+    authorizationFeeCents?: number;
+    currency?: string;
+  };
+  roleTokenPricing?: {
+    inputTokenCentsPerMillion?: number;
+    outputTokenCentsPerMillion?: number;
+    currency?: string;
+  };
+  confirmationPoints: number;
+  submittedAt?: string | null;
+  publishedAt?: string | null;
+  packageDownload?: {
+    available: boolean;
+    url: string;
+  };
+  reviewSummary?: {
+    state: string;
+    label: string;
+    message: string;
+  };
+  specialCapabilityRequests?: DijieSpecialCapabilityRequest[];
+  specialCapabilityBindings?: DijieSpecialCapabilityBinding[];
+  allowedActions?: string[];
+  statusReason?: string;
+};
+
+export type DijieSpecialCapabilityRequest = {
+  reviewId?: string;
+  reviewKey?: string;
+  catalogRef?: string | null;
+  need: string;
+  kind: string;
+  source: string;
+  status: "pending_review" | "approved" | "rejected" | "request_changes";
+  rolePackageId?: string | null;
+  roleListingId?: string | null;
+  requestedBy?: string | null;
+  submittedAt?: string | null;
+  reviewedAt?: string | null;
+  reviewedBy?: string | null;
+  reviewNote?: string | null;
+  candidate?: unknown;
+  riskSummary?: unknown;
+};
+
+export type DijieSpecialCapabilityBinding = {
+  bindingId?: string;
+  bindingKey?: string;
+  reviewRequestId?: string;
+  catalogRef: string;
+  need: string;
+  kind: string;
+  rolePackageId?: string | null;
+  roleListingId?: string | null;
+  categoryRef?: string | null;
+  status: "bound" | "disabled";
+  boundBy?: string | null;
+  boundAt?: string | null;
+};
+
+export type DijieRoleListingListResponse = {
+  ok: boolean;
+  listings: DijieRoleListing[];
+};
+
+export type CreateDijieRoleListingPayload = {
+  packageId: string;
+  packageVersion: string;
+  title: string;
+  subtitle?: string;
+  description?: string;
+  usageInstructions: string;
+  category?: string;
+  categoryRef?: string;
+  pricing?: {
+    kind: "one_time_authorization";
+    authorizationFeeCents: number;
+    currency: "CNY";
+    platformFeeBps: 0;
+    developerReceivableCents: number;
+  };
+  roleTokenPricing?: {
+    inputTokenCentsPerMillion: number;
+    outputTokenCentsPerMillion: number;
+    currency: "CNY";
+    developerReceivableBps: 10000;
+    platformFeeBps: 0;
+  };
+  confirmationPoints?: number;
+};
+
+export type DijieRoleListingMutationResponse = {
+  ok: boolean;
+  roleListingId: string;
+  listing: unknown;
+};
+
+export type BindDijieSpecialCapabilityPayload = {
+  reviewId: string;
+  roleListingId: string;
+};
+
+export type BindDijieSpecialCapabilityResponse = {
+  ok: boolean;
+  binding: DijieSpecialCapabilityBinding;
+};
+
+export type DijieRoleCategoryOption = {
+  categoryRef: string;
+  name: string;
+  version: string;
+  description?: string;
+  packBinding?: {
+    categoryPackRef: string;
+    skillPackRef: string;
+    toolPackRef: string;
+    inheritedCatalogRefCount: number;
+    inheritedCapabilityRefCount: number;
+  } | null;
+};
+
+export type DijieRoleCategoryListResponse = {
+  ok: boolean;
+  categories: DijieRoleCategoryOption[];
+};
+
+export const fetchDijieRoleListingsQuery = async () => {
+  return fetchQuery("/vendor/dijie/role-listings", {
+    method: "GET",
+    sellerScoped: true,
+  }) as Promise<DijieRoleListingListResponse>;
+};
+
+export const createDijieRoleListingQuery = async (
+  payload: CreateDijieRoleListingPayload,
+) => {
+  return fetchQuery("/vendor/dijie/role-listings", {
+    method: "POST",
+    body: payload,
+    sellerScoped: true,
+  }) as Promise<DijieRoleListingMutationResponse>;
+};
+
+export const fetchDijieRoleCategoriesQuery = async () => {
+  return fetchQuery("/vendor/dijie/role-categories", {
+    method: "GET",
+    sellerScoped: true,
+  }) as Promise<DijieRoleCategoryListResponse>;
+};
+
+export const submitDijieRoleListingReviewQuery = async (
+  roleListingId: string,
+) => {
+  return fetchQuery(
+    `/vendor/dijie/role-listings/${encodeURIComponent(roleListingId)}/submit-review`,
+    {
+      method: "POST",
+      sellerScoped: true,
+    },
+  ) as Promise<DijieRoleListingMutationResponse>;
+};
+
+export const publishDijieRoleListingQuery = async (roleListingId: string) => {
+  return fetchQuery(
+    `/vendor/dijie/role-listings/${encodeURIComponent(roleListingId)}/publish`,
+    {
+      method: "POST",
+      sellerScoped: true,
+    },
+  ) as Promise<DijieRoleListingMutationResponse>;
+};
+
+export const delistDijieRoleListingQuery = async (roleListingId: string) => {
+  return fetchQuery(
+    `/vendor/dijie/role-listings/${encodeURIComponent(roleListingId)}/delist`,
+    {
+      method: "POST",
+      sellerScoped: true,
+    },
+  ) as Promise<DijieRoleListingMutationResponse>;
+};
+
+export const bindDijieSpecialCapabilityQuery = async (
+  payload: BindDijieSpecialCapabilityPayload,
+) => {
+  return fetchQuery(
+    `/vendor/dijie/special-capability-requests/${encodeURIComponent(payload.reviewId)}/bind`,
+    {
+      method: "POST",
+      body: {
+        roleListingId: payload.roleListingId,
+      },
+      sellerScoped: true,
+    },
+  ) as Promise<BindDijieSpecialCapabilityResponse>;
+};
+
+export const useDijieRoleListings = (
+  options?: UseQueryOptions<DijieRoleListingListResponse>,
+) => {
+  const { data, ...rest } = useQuery({
+    queryFn: fetchDijieRoleListingsQuery,
+    queryKey: dijieRoleListingsQueryKeys.lists(),
+    ...options,
+  });
+
+  return {
+    listings: data?.listings ?? [],
+    count: data?.listings?.length ?? 0,
+    ...rest,
+  };
+};
+
+export const useCreateDijieRoleListing = (
+  options?: UseMutationOptions<
+    DijieRoleListingMutationResponse,
+    Error,
+    CreateDijieRoleListingPayload
+  >,
+) => {
+  return useMutation({
+    mutationFn: createDijieRoleListingQuery,
+    onSuccess: (data, variables, context) => {
+      queryClient.invalidateQueries({
+        queryKey: dijieRoleListingsQueryKeys.lists(),
+      });
+      options?.onSuccess?.(data, variables, context);
+    },
+    ...options,
+  });
+};
+
+export const useSubmitDijieRoleListingReview = (
+  options?: UseMutationOptions<DijieRoleListingMutationResponse, Error, string>,
+) => {
+  return useMutation({
+    mutationFn: submitDijieRoleListingReviewQuery,
+    onSuccess: (data, variables, context) => {
+      queryClient.invalidateQueries({
+        queryKey: dijieRoleListingsQueryKeys.lists(),
+      });
+      options?.onSuccess?.(data, variables, context);
+    },
+    ...options,
+  });
+};
+
+export const usePublishDijieRoleListing = (
+  options?: UseMutationOptions<DijieRoleListingMutationResponse, Error, string>,
+) => {
+  return useMutation({
+    mutationFn: publishDijieRoleListingQuery,
+    onSuccess: (data, variables, context) => {
+      queryClient.invalidateQueries({
+        queryKey: dijieRoleListingsQueryKeys.lists(),
+      });
+      options?.onSuccess?.(data, variables, context);
+    },
+    ...options,
+  });
+};
+
+export const useDelistDijieRoleListing = (
+  options?: UseMutationOptions<DijieRoleListingMutationResponse, Error, string>,
+) => {
+  return useMutation({
+    mutationFn: delistDijieRoleListingQuery,
+    onSuccess: (data, variables, context) => {
+      queryClient.invalidateQueries({
+        queryKey: dijieRoleListingsQueryKeys.lists(),
+      });
+      options?.onSuccess?.(data, variables, context);
+    },
+    ...options,
+  });
+};
+
+export const useBindDijieSpecialCapability = (
+  options?: UseMutationOptions<
+    BindDijieSpecialCapabilityResponse,
+    Error,
+    BindDijieSpecialCapabilityPayload
+  >,
+) => {
+  return useMutation({
+    mutationFn: bindDijieSpecialCapabilityQuery,
+    onSuccess: (data, variables, context) => {
+      queryClient.invalidateQueries({
+        queryKey: dijieRoleListingsQueryKeys.lists(),
+      });
+      options?.onSuccess?.(data, variables, context);
+    },
+    ...options,
+  });
+};

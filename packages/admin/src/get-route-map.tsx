@@ -12,6 +12,35 @@ import { ErrorBoundary } from "@components/utilities/error-boundary";
 import { TaxRegionDetailBreadcrumb } from "./pages/tax-regions/tax-region-detail/breadcrumb";
 import { taxRegionLoader } from "./pages/tax-regions/tax-region-detail/loader";
 
+const reviewCenterUnavailable = () =>
+  import("./pages/review-center-unavailable");
+
+const restrictReviewCenterMainRoutes = (routes: RouteObject[]) => {
+  const allowedPaths = new Set(["/", "/products"]);
+
+  return [
+    ...routes.filter((route) => route.path && allowedPaths.has(route.path)),
+    {
+      path: "*",
+      lazy: reviewCenterUnavailable,
+    },
+  ];
+};
+
+const restrictReviewCenterSettingsRoutes = (routes: RouteObject[]) => {
+  const allowedPaths = new Set(["marketplace"]);
+
+  return [
+    ...routes.filter(
+      (route) => route.index || (route.path && allowedPaths.has(route.path)),
+    ),
+    {
+      path: "*",
+      lazy: reviewCenterUnavailable,
+    },
+  ];
+};
+
 /**
  * Merges custom routes into base routes. Custom routes with a matching path
  * override the base route (preserving base children unless the custom route
@@ -63,8 +92,9 @@ export function getRouteMap({
       children: [
         {
           element: <MainLayout />,
-          children: mergeRoutes(
-            [
+          children: restrictReviewCenterMainRoutes(
+            mergeRoutes(
+              [
               {
                 path: "/",
                 errorElement: <ErrorBoundary />,
@@ -74,7 +104,7 @@ export function getRouteMap({
                 path: "/products",
                 errorElement: <ErrorBoundary />,
                 handle: {
-                  breadcrumb: () => t("products.domain"),
+                  breadcrumb: () => "审核中心",
                 },
                 children: [
                   {
@@ -83,15 +113,15 @@ export function getRouteMap({
                     children: [
                       {
                         path: "create",
-                        lazy: () => import("./pages/products/product-create"),
+                        lazy: reviewCenterUnavailable,
                       },
                       {
                         path: "import",
-                        lazy: () => import("./pages/products/product-import"),
+                        lazy: reviewCenterUnavailable,
                       },
                       {
                         path: "export",
-                        lazy: () => import("./pages/products/product-export"),
+                        lazy: reviewCenterUnavailable,
                       },
                     ],
                   },
@@ -119,116 +149,61 @@ export function getRouteMap({
                         children: [
                           {
                             path: "edit",
-                            lazy: () => import("./pages/products/product-edit"),
+                            lazy: reviewCenterUnavailable,
                           },
                           {
                             path: "edit-variant",
-                            lazy: () =>
-                              import("./pages/product-variants/product-variant-edit"),
+                            lazy: reviewCenterUnavailable,
                           },
                           {
                             path: "sales-channels",
-                            lazy: () =>
-                              import("./pages/products/product-sales-channels"),
+                            lazy: reviewCenterUnavailable,
                           },
                           {
                             path: "attributes",
-                            lazy: () =>
-                              import("./pages/products/product-attributes"),
+                            lazy: reviewCenterUnavailable,
                           },
                           {
                             path: "organization",
-                            lazy: () =>
-                              import("./pages/products/product-organization"),
+                            lazy: reviewCenterUnavailable,
                           },
                           {
                             path: "shipping-profile",
-                            lazy: () =>
-                              import("./pages/products/product-shipping-profile"),
+                            lazy: reviewCenterUnavailable,
                           },
                           {
                             path: "media",
-                            lazy: () =>
-                              import("./pages/products/product-media"),
+                            lazy: reviewCenterUnavailable,
                           },
                           {
                             path: "prices",
-                            lazy: () =>
-                              import("./pages/products/product-prices"),
+                            lazy: reviewCenterUnavailable,
                           },
                           {
                             path: "options/create",
-                            lazy: () =>
-                              import("./pages/products/product-create-option"),
+                            lazy: reviewCenterUnavailable,
                           },
                           {
                             path: "options/:option_id/edit",
-                            lazy: () =>
-                              import("./pages/products/product-edit-option"),
+                            lazy: reviewCenterUnavailable,
                           },
                           {
                             path: "variants/create",
-                            lazy: () =>
-                              import("./pages/products/product-create-variant"),
+                            lazy: reviewCenterUnavailable,
                           },
                           {
                             path: "stock",
-                            lazy: () =>
-                              import("./pages/products/product-stock"),
+                            lazy: reviewCenterUnavailable,
                           },
                           {
                             path: "metadata/edit",
-                            lazy: () =>
-                              import("./pages/products/product-metadata"),
+                            lazy: reviewCenterUnavailable,
                           },
                         ],
                       },
                       {
-                        path: "variants/:variant_id",
-                        lazy: async () => {
-                          const { Breadcrumb, loader } =
-                            await import("./pages/product-variants/product-variant-detail");
-
-                          return {
-                            Component: Outlet,
-                            loader,
-                            handle: {
-                              breadcrumb: (
-                                // eslint-disable-next-line max-len
-                                match: UIMatch<HttpTypes.AdminProductVariantResponse>,
-                              ) => <Breadcrumb {...match} />,
-                            },
-                          };
-                        },
-                        children: [
-                          {
-                            path: "",
-                            lazy: () =>
-                              import("./pages/product-variants/product-variant-detail"),
-                            children: [
-                              {
-                                path: "edit",
-                                lazy: () =>
-                                  import("./pages/product-variants/product-variant-edit"),
-                              },
-                              {
-                                path: "prices",
-                                lazy: () =>
-                                  import("./pages/products/product-prices"),
-                              },
-                              {
-                                path: "manage-items",
-                                lazy: () =>
-                                  import("./pages/product-variants/product-variant-manage-inventory-items"),
-                              },
-                              {
-                                path: "metadata/edit",
-                                lazy: () =>
-                                  import("./pages/product-variants/product-variant-metadata"),
-                              },
-                            ],
-                          },
-                        ],
+                        path: "variants/:variant_id/*",
+                        lazy: reviewCenterUnavailable,
                       },
                     ],
                   },
@@ -312,94 +287,71 @@ export function getRouteMap({
                 children: [
                   {
                     path: "",
-                    lazy: () => import("./pages/orders/order-list"),
+                    lazy: reviewCenterUnavailable,
                   },
                   {
                     path: ":id",
-                    lazy: async () => {
-                      const { Breadcrumb, loader } =
-                        await import("./pages/orders/order-detail");
-
-                      return {
-                        Component: Outlet,
-                        loader,
-                        handle: {
-                          breadcrumb: (
-                            match: UIMatch<HttpTypes.AdminOrderResponse>,
-                          ) => <Breadcrumb {...match} />,
-                        },
-                      };
-                    },
+                    lazy: reviewCenterUnavailable,
                     children: [
                       {
                         path: "",
-                        lazy: () => import("./pages/orders/order-detail"),
+                        lazy: reviewCenterUnavailable,
                         children: [
                           {
                             path: "fulfillment",
-                            lazy: () =>
-                              import("./pages/orders/order-create-fulfillment"),
+                            lazy: reviewCenterUnavailable,
                           },
                           {
                             path: "returns/:return_id/receive",
-                            lazy: () =>
-                              import("./pages/orders/order-receive-return"),
+                            lazy: reviewCenterUnavailable,
                           },
                           {
                             path: "allocate-items",
-                            lazy: () =>
-                              import("./pages/orders/order-allocate-items"),
+                            lazy: reviewCenterUnavailable,
                           },
                           {
                             path: ":f_id/create-shipment",
-                            lazy: () =>
-                              import("./pages/orders/order-create-shipment"),
+                            lazy: reviewCenterUnavailable,
                           },
                           {
                             path: "returns",
-                            lazy: () =>
-                              import("./pages/orders/order-create-return"),
+                            lazy: reviewCenterUnavailable,
                           },
                           {
                             path: "claims",
-                            lazy: () => import("./pages/orders/order-create-claim"),
+                            lazy: reviewCenterUnavailable,
                           },
                           {
                             path: "exchanges",
-                            lazy: () =>
-                              import("./pages/orders/order-create-exchange"),
+                            lazy: reviewCenterUnavailable,
                           },
                           {
                             path: "edits",
-                            lazy: () => import("./pages/orders/order-create-edit"),
+                            lazy: reviewCenterUnavailable,
                           },
                           {
                             path: "refund",
-                            lazy: () =>
-                              import("./pages/orders/order-create-refund"),
+                            lazy: reviewCenterUnavailable,
                           },
                           {
                             path: "transfer",
-                            lazy: () =>
-                              import("./pages/orders/order-request-transfer"),
+                            lazy: reviewCenterUnavailable,
                           },
                           {
                             path: "email",
-                            lazy: () => import("./pages/orders/order-edit-email"),
+                            lazy: reviewCenterUnavailable,
                           },
                           {
                             path: "shipping-address",
-                            lazy: () =>
-                              import("./pages/orders/order-edit-shipping-address"),
+                            lazy: reviewCenterUnavailable,
                           },
                           {
                             path: "billing-address",
-                            lazy: () =>
-                              import("./pages/orders/order-edit-billing-address"),
+                            lazy: reviewCenterUnavailable,
                           },
                           {
                             path: "metadata/edit",
-                            lazy: () => import("./pages/orders/order-metadata"),
+                            lazy: reviewCenterUnavailable,
                           },
                         ],
                       },
@@ -1045,8 +997,9 @@ export function getRouteMap({
                   },
                 ],
               },
-            ],
-            customMainRoutes,
+              ],
+              customMainRoutes,
+            ),
           ),
         },
       ],
@@ -1061,8 +1014,9 @@ export function getRouteMap({
             breadcrumb: () => t("app.nav.settings.header"),
           },
           element: <SettingsLayout />,
-          children: mergeRoutes(
-            [
+          children: restrictReviewCenterSettingsRoutes(
+            mergeRoutes(
+              [
               {
                 index: true,
                 errorElement: <ErrorBoundary />,
@@ -1078,11 +1032,11 @@ export function getRouteMap({
                 children: [
                   {
                     path: "",
-                    lazy: () => import("./pages/profile/profile-detail"),
+                    lazy: reviewCenterUnavailable,
                     children: [
                       {
                         path: "edit",
-                        lazy: () => import("./pages/profile/profile-edit"),
+                        lazy: reviewCenterUnavailable,
                       },
                     ],
                   },
@@ -1151,7 +1105,7 @@ export function getRouteMap({
                 errorElement: <ErrorBoundary />,
                 element: <Outlet />,
                 handle: {
-                  breadcrumb: () => t("marketplace.domain"),
+                  breadcrumb: () => "审核设置",
                 },
                 children: [
                   {
@@ -1160,15 +1114,15 @@ export function getRouteMap({
                     children: [
                       {
                         path: "edit",
-                        lazy: () => import("./pages/marketplace/marketplace-edit"),
+                        lazy: reviewCenterUnavailable,
                       },
                       {
                         path: "currencies",
-                        lazy: () => import("./pages/marketplace/marketplace-add-currencies"),
+                        lazy: reviewCenterUnavailable,
                       },
                       {
                         path: "metadata/edit",
-                        lazy: () => import("./pages/marketplace/marketplace-metadata"),
+                        lazy: reviewCenterUnavailable,
                       },
                     ],
                   },
@@ -1247,11 +1201,11 @@ export function getRouteMap({
                 children: [
                   {
                     path: "",
-                    lazy: () => import("./pages/users/user-list"),
+                    lazy: reviewCenterUnavailable,
                     children: [
                       {
                         path: "invite",
-                        lazy: () => import("./pages/users/user-invite"),
+                        lazy: reviewCenterUnavailable,
                       },
                     ],
                   },
@@ -1274,15 +1228,15 @@ export function getRouteMap({
                     children: [
                       {
                         path: "",
-                        lazy: () => import("./pages/users/user-detail"),
+                        lazy: reviewCenterUnavailable,
                         children: [
                           {
                             path: "edit",
-                            lazy: () => import("./pages/users/user-edit"),
+                            lazy: reviewCenterUnavailable,
                           },
                           {
                             path: "metadata/edit",
-                            lazy: () => import("./pages/users/user-metadata"),
+                            lazy: reviewCenterUnavailable,
                           },
                         ],
                       },
@@ -2066,8 +2020,9 @@ export function getRouteMap({
                   },
                 ],
               },
-            ],
-            customSettingsRoutes?.[0]?.children || [],
+              ],
+              customSettingsRoutes?.[0]?.children || [],
+            ),
           ),
         },
       ],

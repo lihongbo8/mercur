@@ -7,7 +7,7 @@ import {
 const input = {
   actorId: "cus_123",
   roleListingId: "prod_role_developer_agent",
-  entitlementId: "ordgrp_123",
+  entitlementId: "djent_123",
   deviceId: "device_123",
   workspaceRef: "workspace_123",
   localGatewayId: "gateway_123",
@@ -61,6 +61,7 @@ function paidOrder(overrides: Record<string, unknown> = {}) {
 
 function queryGraph(fixtures: {
   products?: unknown[];
+  entitlements?: unknown[];
   orderGroups?: unknown[];
   orders?: unknown[];
 }): DijieQueryGraph {
@@ -74,12 +75,27 @@ function queryGraph(fixtures: {
     if (entity === "order") {
       return { data: fixtures.orders ?? [] };
     }
+    if (entity === "dijie_role_entitlement") {
+      return {
+        data: fixtures.entitlements ?? [
+          {
+            id: input.entitlementId,
+            actor_id: input.actorId,
+            role_listing_id: input.roleListingId,
+            entitlement_status: "authorized",
+            source: "checkout",
+            order_id: "order_123",
+            authorized_at: new Date("2026-06-10T00:00:00.000Z"),
+          },
+        ],
+      };
+    }
     return { data: [] };
   };
 }
 
 describe("verifyDijieEntitlement", () => {
-  it("approves a paid one-time role authorization", async () => {
+  it("approves a materialized paid one-time role entitlement", async () => {
     const result = await verifyDijieEntitlement(input, queryGraph({}));
 
     expect(result).toEqual({
@@ -98,6 +114,172 @@ describe("verifyDijieEntitlement", () => {
       },
       roleTokenPricing,
       scopes: ["role.execute", "audit.write"],
+    });
+  });
+
+  it("rejects paid order facts before entitlement materializes", async () => {
+    const result = await verifyDijieEntitlement(
+      input,
+      queryGraph({
+        entitlements: [],
+        orderGroups: [
+          {
+            id: "ordgrp_123",
+            customer_id: input.actorId,
+            orders: [
+              paidOrder({
+                status: "pending",
+                payment_collections: [
+                  { status: "authorized", amount: 29900, captured_amount: 0 },
+                ],
+              }),
+            ],
+          },
+        ],
+      }),
+    );
+
+    expect(result).toEqual({
+      ok: false,
+      status: 403,
+      error: "No materialized Dijie role entitlement was found for this customer.",
+    });
+  });
+
+  it("approves zero-price local entitlements against stored RoleListing records", async () => {
+    const storedInput = {
+      ...input,
+      roleListingId: "djrole_image_qc",
+      entitlementId: "djent_zero",
+    };
+    const result = await verifyDijieEntitlement(storedInput, async ({ entity }) => {
+      if (entity === "dijie_role_listing") {
+        return {
+          data: [
+            {
+              id: storedInput.roleListingId,
+              package_id: "pkg_product_image_qc",
+              package_version: "0.1.0",
+              developer_ref: "member_123",
+              listing_owner_ref: "seller_123",
+              billing_beneficiary_ref: "member_123",
+              title: "商品图检查岗位",
+              listing_status: "published",
+              review_state: "approved",
+              capabilities: ["workspace.read", "image.inspect"],
+              manifest_summary: {
+                requiredCapabilities: ["workspace.read", "image.inspect"],
+              },
+              pricing: {
+                kind: "one_time_authorization",
+                authorizationFeeCents: 0,
+                currency: "CNY",
+                platformFeeBps: 0,
+                developerReceivableCents: 0,
+              },
+              role_token_pricing: roleTokenPricing,
+              scopes: ["role.execute", "audit.write"],
+            },
+          ],
+        };
+      }
+      if (entity === "dijie_role_entitlement") {
+        return {
+          data: [
+            {
+              id: storedInput.entitlementId,
+              actor_id: storedInput.actorId,
+              role_listing_id: storedInput.roleListingId,
+              entitlement_status: "authorized",
+              source: "zero_price",
+              authorized_at: new Date("2026-06-04T00:00:00.000Z"),
+            },
+          ],
+        };
+      }
+      throw new Error("legacy product fallback should not be used");
+    });
+
+    expect(result).toEqual({
+      ok: true,
+      packageId: "pkg_product_image_qc",
+      packageVersion: "0.1.0",
+      developerRef: "member_123",
+      listingOwnerRef: "seller_123",
+      billingBeneficiaryRef: "member_123",
+      pricing: {
+        kind: "one_time_authorization",
+        authorizationFeeCents: 0,
+        currency: "CNY",
+        platformFeeBps: 0,
+        developerReceivableCents: 0,
+      },
+      roleTokenPricing,
+      scopes: ["role.execute", "audit.write"],
+    });
+  });
+
+  it("approves execution against a local entitlement before checking paid orders", async () => {
+    const storedInput = {
+      ...input,
+      roleListingId: "djrole_image_qc",
+      entitlementId: "djent_1",
+    };
+    const result = await verifyDijieEntitlement(storedInput, async ({ entity }) => {
+      if (entity === "dijie_role_listing") {
+        return {
+          data: [
+            {
+              id: storedInput.roleListingId,
+              package_id: "pkg_product_image_qc",
+              package_version: "0.1.0",
+              developer_ref: "member_123",
+              listing_owner_ref: "seller_123",
+              billing_beneficiary_ref: "member_123",
+              title: "商品图检查岗位",
+              listing_status: "published",
+              review_state: "approved",
+              capabilities: ["workspace.read", "image.inspect"],
+              manifest_summary: {
+                requiredCapabilities: ["workspace.read", "image.inspect"],
+              },
+              pricing: {
+                kind: "one_time_authorization",
+                authorizationFeeCents: 0,
+                currency: "CNY",
+                platformFeeBps: 0,
+                developerReceivableCents: 0,
+              },
+              role_token_pricing: roleTokenPricing,
+              scopes: ["role.execute", "audit.write"],
+            },
+          ],
+        };
+      }
+      if (entity === "dijie_role_entitlement") {
+        return {
+          data: [
+            {
+              id: storedInput.entitlementId,
+              actor_id: storedInput.actorId,
+              role_listing_id: storedInput.roleListingId,
+              entitlement_status: "authorized",
+              source: "zero_price",
+              authorized_at: new Date("2026-06-04T00:00:00.000Z"),
+            },
+          ],
+        };
+      }
+      throw new Error("paid order fallback should not be used");
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      packageId: "pkg_product_image_qc",
+      packageVersion: "0.1.0",
+      developerRef: "member_123",
+      listingOwnerRef: "seller_123",
+      billingBeneficiaryRef: "member_123",
     });
   });
 
@@ -141,13 +323,16 @@ describe("verifyDijieEntitlement", () => {
   it("rejects non-purchased role listings", async () => {
     const result = await verifyDijieEntitlement(
       input,
-      queryGraph({ orderGroups: [{ id: input.entitlementId, orders: [paidOrder({ items: [] })] }] }),
+      queryGraph({
+        entitlements: [],
+        orderGroups: [{ id: "ordgrp_123", orders: [paidOrder({ items: [] })] }],
+      }),
     );
 
     expect(result).toEqual({
       ok: false,
       status: 403,
-      error: "No paid one-time role authorization was found for this customer.",
+      error: "No materialized Dijie role entitlement was found for this customer.",
     });
   });
 
@@ -155,9 +340,10 @@ describe("verifyDijieEntitlement", () => {
     const result = await verifyDijieEntitlement(
       input,
       queryGraph({
+        entitlements: [],
         orderGroups: [
           {
-            id: input.entitlementId,
+            id: "ordgrp_123",
             orders: [paidOrder({ status: "pending", payment_collections: [] })],
           },
         ],
