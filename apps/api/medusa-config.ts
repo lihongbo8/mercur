@@ -24,8 +24,7 @@ module.exports = withMercur({
       options: {
         appDir: '../admin-test',
         path: '/dashboard',
-        viteDevServerPort: 17000,
-        disable: false
+        disable: true
       }
     },
     {

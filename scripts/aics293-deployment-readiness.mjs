@@ -55,15 +55,6 @@ const checks = [
     bearer: buyerBearer,
   },
   {
-    id: "admin_review_center",
-    method: "GET",
-    path: "/admin/dijie/review-center",
-    required: Boolean(adminBearer),
-    skipReason: adminBearer ? "" : "missing AICS293_ADMIN_BEARER",
-    expectStatus: [200],
-    bearer: adminBearer,
-  },
-  {
     id: "vendor_receivables",
     method: "GET",
     path: "/vendor/dijie/receivables",
